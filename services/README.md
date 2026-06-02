@@ -49,6 +49,18 @@ curl http://localhost:8080/healthz
 curl http://localhost:8080/readyz
 ```
 
+Generate a local-development JWT for authenticated `/v1/*` requests:
+
+```sh
+cd services
+JWT_SECRET=local-dev-jwt-secret-change-me go run ./cmd/devtoken \
+  -user-id 6ed87f1f-7c9d-48d6-b23a-4d6255028c5c \
+  -role user \
+  -ttl 1h
+```
+
+`cmd/devtoken` is for local development and automated tests only. Do not commit or share generated tokens, and do not use local secrets outside local environments.
+
 Run tests and static checks:
 
 ```sh

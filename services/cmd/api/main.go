@@ -39,7 +39,7 @@ func run() error {
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           service.NewRouter(db),
+		Handler:           service.NewRouter(db, cfg.JWTSecret),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
