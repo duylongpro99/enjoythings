@@ -92,6 +92,12 @@ func TestRepositoryTransferUpdatesBalancesAndLedgerEntries(t *testing.T) {
 	if len(toEntries) != 1 || toEntries[0].Direction != "credit" || toEntries[0].BalanceAfter != 6250 {
 		t.Fatalf("to ledger entries = %+v", toEntries)
 	}
+	if fromEntries[0].TransferID != transfer.ID || toEntries[0].TransferID != transfer.ID {
+		t.Fatalf("ledger transfer IDs = %s/%s, want %s", fromEntries[0].TransferID, toEntries[0].TransferID, transfer.ID)
+	}
+	if fromEntries[0].Amount != 1250 || toEntries[0].Amount != 1250 {
+		t.Fatalf("ledger amounts = %d/%d, want 1250/1250", fromEntries[0].Amount, toEntries[0].Amount)
+	}
 }
 
 func TestRepositoryInsufficientFundsRollsBack(t *testing.T) {
@@ -122,6 +128,74 @@ func TestRepositoryInsufficientFundsRollsBack(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("ledger entries were created after rollback: %+v", entries)
+	}
+}
+
+func TestRepositoryTransferRejectsUnownedSourceWallet(t *testing.T) {
+	ctx := context.Background()
+	db := newIntegrationDB(t, ctx)
+	ownerID := uuid.New()
+	from := createWalletFixture(t, ctx, db, ownerID, 1000)
+	to := createWalletFixture(t, ctx, db, uuid.New(), 100)
+
+	if _, err := db.CreateTransfer(ctx, uuid.New(), from.ID, to.ID, 100); err != domain.ErrNotFound {
+		t.Fatalf("CreateTransfer error = %v, want %v", err, domain.ErrNotFound)
+	}
+
+	fromAfter, err := db.GetWallet(ctx, from.ID)
+	if err != nil {
+		t.Fatalf("GetWallet(from): %v", err)
+	}
+	toAfter, err := db.GetWallet(ctx, to.ID)
+	if err != nil {
+		t.Fatalf("GetWallet(to): %v", err)
+	}
+	if fromAfter.Balance != 1000 || toAfter.Balance != 100 {
+		t.Fatalf("balances changed for unowned source: %d/%d", fromAfter.Balance, toAfter.Balance)
+	}
+}
+
+func TestRepositoryTransferRejectsMissingDestinationWallet(t *testing.T) {
+	ctx := context.Background()
+	db := newIntegrationDB(t, ctx)
+	userID := uuid.New()
+	from := createWalletFixture(t, ctx, db, userID, 1000)
+
+	if _, err := db.CreateTransfer(ctx, userID, from.ID, uuid.New(), 100); err != domain.ErrNotFound {
+		t.Fatalf("CreateTransfer error = %v, want %v", err, domain.ErrNotFound)
+	}
+
+	fromAfter, err := db.GetWallet(ctx, from.ID)
+	if err != nil {
+		t.Fatalf("GetWallet(from): %v", err)
+	}
+	if fromAfter.Balance != 1000 {
+		t.Fatalf("source balance changed for missing destination: %d", fromAfter.Balance)
+	}
+}
+
+func TestRepositoryTransferRejectsCurrencyMismatch(t *testing.T) {
+	ctx := context.Background()
+	db := newIntegrationDB(t, ctx)
+	userID := uuid.New()
+	from := createWalletFixture(t, ctx, db, userID, 1000)
+	to := createWalletFixture(t, ctx, db, uuid.New(), 100)
+	setWalletCurrencyForTest(t, ctx, db, to.ID, "EUR")
+
+	if _, err := db.CreateTransfer(ctx, userID, from.ID, to.ID, 100); err != domain.ErrCurrencyMismatch {
+		t.Fatalf("CreateTransfer error = %v, want %v", err, domain.ErrCurrencyMismatch)
+	}
+
+	fromAfter, err := db.GetWallet(ctx, from.ID)
+	if err != nil {
+		t.Fatalf("GetWallet(from): %v", err)
+	}
+	toAfter, err := db.GetWallet(ctx, to.ID)
+	if err != nil {
+		t.Fatalf("GetWallet(to): %v", err)
+	}
+	if fromAfter.Balance != 1000 || toAfter.Balance != 100 {
+		t.Fatalf("balances changed for currency mismatch: %d/%d", fromAfter.Balance, toAfter.Balance)
 	}
 }
 
@@ -289,4 +363,12 @@ func createWalletFixture(t *testing.T, ctx context.Context, db *Database, userID
 	}
 	wallet.Balance = balance
 	return wallet
+}
+
+func setWalletCurrencyForTest(t *testing.T, ctx context.Context, db *Database, walletID uuid.UUID, currency string) {
+	t.Helper()
+
+	if _, err := db.pool.Exec(ctx, `UPDATE wallets SET currency = $2 WHERE id = $1`, pgUUID(walletID), currency); err != nil {
+		t.Fatalf("set wallet currency fixture: %v", err)
+	}
 }

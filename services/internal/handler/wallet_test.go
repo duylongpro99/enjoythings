@@ -214,6 +214,111 @@ func TestTransferHandlerRequiresJSONContentType(t *testing.T) {
 	}
 }
 
+func TestTransferHandlerValidatesRequestShape(t *testing.T) {
+	userID := uuid.New()
+	fromID := uuid.New()
+	toID := uuid.New()
+	tests := []struct {
+		name   string
+		body   string
+		status int
+		code   string
+	}{
+		{
+			name:   "invalid from wallet id",
+			body:   `{"from_wallet_id":"not-a-uuid","to_wallet_id":"` + toID.String() + `","amount":1}`,
+			status: http.StatusBadRequest,
+			code:   "invalid_request",
+		},
+		{
+			name:   "invalid to wallet id",
+			body:   `{"from_wallet_id":"` + fromID.String() + `","to_wallet_id":"not-a-uuid","amount":1}`,
+			status: http.StatusBadRequest,
+			code:   "invalid_request",
+		},
+		{
+			name:   "non-positive amount",
+			body:   `{"from_wallet_id":"` + fromID.String() + `","to_wallet_id":"` + toID.String() + `","amount":0}`,
+			status: http.StatusUnprocessableEntity,
+			code:   "invalid_amount",
+		},
+		{
+			name:   "same wallet",
+			body:   `{"from_wallet_id":"` + fromID.String() + `","to_wallet_id":"` + fromID.String() + `","amount":1}`,
+			status: http.StatusUnprocessableEntity,
+			code:   "invalid_transfer",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := &fakeWalletService{}
+			handler := auth.Middleware(handlerSecret)(NewTransfers(service))
+			req := authedRequest(t, http.MethodPost, "/v1/transfers", bytes.NewBufferString(tt.body), userID)
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != tt.status {
+				t.Fatalf("status = %d, want %d; body %s", rec.Code, tt.status, rec.Body.String())
+			}
+			var response struct {
+				Error struct {
+					Code string `json:"code"`
+				} `json:"error"`
+			}
+			if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+				t.Fatalf("decode error response: %v", err)
+			}
+			if response.Error.Code != tt.code {
+				t.Fatalf("error code = %q, want %q", response.Error.Code, tt.code)
+			}
+		})
+	}
+}
+
+func TestTransferHandlerMapsServiceDomainErrors(t *testing.T) {
+	userID := uuid.New()
+	fromID := uuid.New()
+	toID := uuid.New()
+	tests := []struct {
+		name   string
+		err    error
+		status int
+		code   string
+	}{
+		{name: "source or destination wallet not found", err: domain.ErrNotFound, status: http.StatusNotFound, code: "wallet_not_found"},
+		{name: "currency mismatch", err: domain.ErrCurrencyMismatch, status: http.StatusUnprocessableEntity, code: "currency_mismatch"},
+		{name: "insufficient funds", err: domain.ErrInsufficientFunds, status: http.StatusUnprocessableEntity, code: "insufficient_funds"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := &fakeWalletService{err: tt.err}
+			handler := auth.Middleware(handlerSecret)(NewTransfers(service))
+			req := authedRequest(t, http.MethodPost, "/v1/transfers", bytes.NewBufferString(`{"from_wallet_id":"`+fromID.String()+`","to_wallet_id":"`+toID.String()+`","amount":1250}`), userID)
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != tt.status {
+				t.Fatalf("status = %d, want %d; body %s", rec.Code, tt.status, rec.Body.String())
+			}
+			var response struct {
+				Error struct {
+					Code string `json:"code"`
+				} `json:"error"`
+			}
+			if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+				t.Fatalf("decode error response: %v", err)
+			}
+			if response.Error.Code != tt.code {
+				t.Fatalf("error code = %q, want %q", response.Error.Code, tt.code)
+			}
+		})
+	}
+}
+
 func TestLedgerHandlerValidatesLimitAndReturnsEntries(t *testing.T) {
 	userID := uuid.New()
 	walletID := uuid.New()
