@@ -9,13 +9,15 @@ import (
 )
 
 const (
-	defaultAppEnv               = "local"
-	defaultHTTPAddr             = ":8080"
-	defaultGRPCAddr             = ":9090"
-	defaultWalletGRPCAddr       = "127.0.0.1:9090"
-	defaultDBMaxConns           = 10
-	defaultRateLimitBurst       = 60
-	defaultRateLimitRefillEvery = time.Second
+	defaultAppEnv                = "local"
+	defaultHTTPAddr              = ":8080"
+	defaultGRPCAddr              = ":9090"
+	defaultWalletGRPCAddr        = "127.0.0.1:9090"
+	defaultLedgerGRPCAddr        = "127.0.0.1:9091"
+	defaultLedgerServiceGRPCAddr = ":9091"
+	defaultDBMaxConns            = 10
+	defaultRateLimitBurst        = 60
+	defaultRateLimitRefillEvery  = time.Second
 )
 
 type Config struct {
@@ -23,6 +25,7 @@ type Config struct {
 	HTTPAddr             string
 	GRPCAddr             string
 	WalletGRPCAddr       string
+	LedgerGRPCAddr       string
 	DatabaseURL          string
 	JWTSecret            string
 	DBMaxConns           int32
@@ -38,12 +41,16 @@ func LoadWallet() (Config, error) {
 	return LoadWalletFromLookup(os.LookupEnv)
 }
 
+func LoadLedger() (Config, error) {
+	return LoadLedgerFromLookup(os.LookupEnv)
+}
+
 func LoadGateway() (Config, error) {
 	return LoadGatewayFromLookup(os.LookupEnv)
 }
 
 func LoadFromLookup(lookup func(string) (string, bool)) (Config, error) {
-	cfg, err := loadBase(lookup)
+	cfg, err := loadBase(lookup, defaultGRPCAddr)
 	if err != nil {
 		return Config{}, err
 	}
@@ -57,7 +64,11 @@ func LoadFromLookup(lookup func(string) (string, bool)) (Config, error) {
 }
 
 func LoadWalletFromLookup(lookup func(string) (string, bool)) (Config, error) {
-	return loadBase(lookup)
+	return loadBase(lookup, defaultGRPCAddr)
+}
+
+func LoadLedgerFromLookup(lookup func(string) (string, bool)) (Config, error) {
+	return loadBase(lookup, defaultLedgerServiceGRPCAddr)
 }
 
 func LoadGatewayFromLookup(lookup func(string) (string, bool)) (Config, error) {
@@ -65,6 +76,7 @@ func LoadGatewayFromLookup(lookup func(string) (string, bool)) (Config, error) {
 		AppEnv:               valueOrDefault(lookup, "APP_ENV", defaultAppEnv),
 		HTTPAddr:             valueOrDefault(lookup, "HTTP_ADDR", defaultHTTPAddr),
 		WalletGRPCAddr:       valueOrDefault(lookup, "WALLET_GRPC_ADDR", defaultWalletGRPCAddr),
+		LedgerGRPCAddr:       valueOrDefault(lookup, "LEDGER_GRPC_ADDR", defaultLedgerGRPCAddr),
 		RateLimitBurst:       defaultRateLimitBurst,
 		RateLimitRefillEvery: defaultRateLimitRefillEvery,
 	}
@@ -94,11 +106,11 @@ func LoadGatewayFromLookup(lookup func(string) (string, bool)) (Config, error) {
 	return cfg, nil
 }
 
-func loadBase(lookup func(string) (string, bool)) (Config, error) {
+func loadBase(lookup func(string) (string, bool), defaultGRPC string) (Config, error) {
 	cfg := Config{
 		AppEnv:     valueOrDefault(lookup, "APP_ENV", defaultAppEnv),
 		HTTPAddr:   valueOrDefault(lookup, "HTTP_ADDR", defaultHTTPAddr),
-		GRPCAddr:   valueOrDefault(lookup, "GRPC_ADDR", defaultGRPCAddr),
+		GRPCAddr:   valueOrDefault(lookup, "GRPC_ADDR", defaultGRPC),
 		DBMaxConns: defaultDBMaxConns,
 	}
 

@@ -90,6 +90,7 @@ func TestLoadGatewayFromLookupUsesGatewaySettings(t *testing.T) {
 		"HTTP_ADDR":               ":18080",
 		"JWT_SECRET":              "dev-secret",
 		"WALLET_GRPC_ADDR":        "127.0.0.1:19090",
+		"LEDGER_GRPC_ADDR":        "127.0.0.1:19091",
 		"RATE_LIMIT_BURST":        "25",
 		"RATE_LIMIT_REFILL_EVERY": "2s",
 	}))
@@ -108,6 +109,9 @@ func TestLoadGatewayFromLookupUsesGatewaySettings(t *testing.T) {
 	}
 	if cfg.WalletGRPCAddr != "127.0.0.1:19090" {
 		t.Fatalf("WalletGRPCAddr = %q, want 127.0.0.1:19090", cfg.WalletGRPCAddr)
+	}
+	if cfg.LedgerGRPCAddr != "127.0.0.1:19091" {
+		t.Fatalf("LedgerGRPCAddr = %q, want 127.0.0.1:19091", cfg.LedgerGRPCAddr)
 	}
 	if cfg.RateLimitBurst != 25 {
 		t.Fatalf("RateLimitBurst = %d, want 25", cfg.RateLimitBurst)

@@ -56,3 +56,19 @@ func TestLoadWalletFromLookupRejectsInvalidDBMaxConns(t *testing.T) {
 		t.Fatal("expected invalid DB_MAX_CONNS to fail")
 	}
 }
+
+func TestLoadLedgerFromLookupUsesLedgerGRPCDefault(t *testing.T) {
+	cfg, err := LoadLedgerFromLookup(mapLookup(map[string]string{
+		"DATABASE_URL": "postgres://user:pass@localhost:5432/ledger?sslmode=disable",
+	}))
+	if err != nil {
+		t.Fatalf("load ledger config: %v", err)
+	}
+
+	if cfg.GRPCAddr != ":9091" {
+		t.Fatalf("GRPCAddr = %q, want :9091", cfg.GRPCAddr)
+	}
+	if cfg.DBMaxConns != 10 {
+		t.Fatalf("DBMaxConns = %d, want 10", cfg.DBMaxConns)
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	ledgerv1 "enjoythings/services/gen/ledger/v1"
 	walletv1 "enjoythings/services/gen/wallet/v1"
 	"enjoythings/services/internal/auth"
 	"enjoythings/services/internal/config"
@@ -37,17 +38,25 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	conn, err := grpc.NewClient(cfg.WalletGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	walletConn, err := grpc.NewClient(cfg.WalletGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer walletConn.Close()
 
-	walletClient := gatewayclient.NewWalletClient(walletv1.NewWalletServiceClient(conn))
+	ledgerConn, err := grpc.NewClient(cfg.LedgerGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return err
+	}
+	defer ledgerConn.Close()
+
+	walletClient := gatewayclient.NewWalletClient(walletv1.NewWalletServiceClient(walletConn))
+	ledgerClient := gatewayclient.NewLedgerClient(ledgerv1.NewLedgerServiceClient(ledgerConn))
 	routes := http.NewServeMux()
 	routes.Handle("/v1/wallets", gatewayhandler.NewWallets(walletClient))
 	routes.Handle("/v1/wallets/", gatewayhandler.NewWallets(walletClient))
 	routes.Handle("/v1/transfers", gatewayhandler.NewTransfers(walletClient))
+	routes.Handle("/v1/ledger/", gatewayhandler.NewLedger(ledgerClient))
 
 	limiter := gatewaymiddleware.NewRateLimiter(cfg.RateLimitBurst, cfg.RateLimitRefillEvery)
 	handler := auth.Middleware(cfg.JWTSecret)(limiter.Middleware(routes))
@@ -59,7 +68,7 @@ func run() error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("gateway listening", "addr", cfg.HTTPAddr, "wallet_grpc_addr", cfg.WalletGRPCAddr, "env", cfg.AppEnv)
+		slog.Info("gateway listening", "addr", cfg.HTTPAddr, "wallet_grpc_addr", cfg.WalletGRPCAddr, "ledger_grpc_addr", cfg.LedgerGRPCAddr, "env", cfg.AppEnv)
 		errCh <- server.ListenAndServe()
 	}()
 

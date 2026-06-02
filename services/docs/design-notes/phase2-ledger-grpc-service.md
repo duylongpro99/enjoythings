@@ -1,0 +1,3 @@
+Problem: Phase 2 needs ledger reads behind a standalone gRPC boundary while Phase 1 still stores ledger rows as transfer-side accounting entries.
+Structure: The ledger gRPC server reuses the wallet service read boundary so ownership checks, limit defaults, cursor semantics, and repository ordering remain in one place. The gateway gets a small ledger client and route that preserve the Phase 1 HTTP response shape while forwarding pagination to ledger gRPC.
+Tradeoffs: The current schema remains `ledger_entries` keyed by wallet and transfer rather than a generic event-store table. This is append-only for service code today, so migrations are left unchanged and the later Kafka consumer can add idempotent event ownership without rewriting the read path.
