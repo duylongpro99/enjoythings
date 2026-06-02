@@ -1,0 +1,5 @@
+Problem: Phase 2 needs a public HTTP boundary that preserves the Phase 1 wallet REST API while moving wallet execution behind gRPC. The gateway must own client concerns such as JWT validation and per-user rate limiting without reintroducing database or wallet business coupling.
+
+Structure: The gateway command loads only HTTP, JWT, wallet gRPC, and rate-limit configuration. HTTP handlers keep the Phase 1 route and response shapes, but depend on a small wallet client interface. The concrete gateway wallet client translates between handler/domain-shaped values and generated wallet gRPC messages, including authenticated user metadata for RPCs that require it. Rate limiting is middleware layered after JWT validation so buckets are keyed by authenticated user ID.
+
+Tradeoffs: The gateway keeps in-memory token buckets because Phase 2 explicitly defers distributed limits. The wallet gRPC contract must expose a full wallet read for `GET /v1/wallets/{id}` parity; deriving that response from the balance RPC would silently drop Phase 1 fields and make client compatibility depend on fabricated data.

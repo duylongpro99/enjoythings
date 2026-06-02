@@ -15,6 +15,7 @@ option go_package = "enjoythings/services/gen/wallet/v1;walletv1";
 // - INTERNAL for unexpected persistence or infrastructure errors.
 service WalletService {
   rpc CreateWallet(CreateWalletRequest) returns (CreateWalletResponse);
+  rpc GetWallet(GetWalletRequest) returns (GetWalletResponse);
   rpc GetBalance(GetBalanceRequest) returns (GetBalanceResponse);
   rpc InitiateTransfer(InitiateTransferRequest) returns (InitiateTransferResponse);
 }
@@ -25,6 +26,14 @@ message CreateWalletRequest {
 }
 
 message CreateWalletResponse {
+  Wallet wallet = 1;
+}
+
+message GetWalletRequest {
+  string wallet_id = 1;
+}
+
+message GetWalletResponse {
   Wallet wallet = 1;
 }
 
