@@ -23,6 +23,10 @@ func PrincipalFromContext(ctx context.Context) (Principal, bool) {
 	return principal, ok
 }
 
+func ContextWithPrincipal(ctx context.Context, principal Principal) context.Context {
+	return context.WithValue(ctx, contextKey{}, principal)
+}
+
 func Middleware(secret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -33,7 +37,7 @@ func Middleware(secret string) func(http.Handler) http.Handler {
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), contextKey{}, principal)
+			ctx := ContextWithPrincipal(r.Context(), principal)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

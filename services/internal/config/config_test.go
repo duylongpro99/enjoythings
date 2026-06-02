@@ -84,6 +84,66 @@ func TestLoadFromLookupRejectsInvalidDBMaxConns(t *testing.T) {
 	}
 }
 
+func TestLoadGatewayFromLookupUsesGatewaySettings(t *testing.T) {
+	cfg, err := LoadGatewayFromLookup(mapLookup(map[string]string{
+		"APP_ENV":                 "test",
+		"HTTP_ADDR":               ":18080",
+		"JWT_SECRET":              "dev-secret",
+		"WALLET_GRPC_ADDR":        "127.0.0.1:19090",
+		"RATE_LIMIT_BURST":        "25",
+		"RATE_LIMIT_REFILL_EVERY": "2s",
+	}))
+	if err != nil {
+		t.Fatalf("load gateway config: %v", err)
+	}
+
+	if cfg.AppEnv != "test" {
+		t.Fatalf("AppEnv = %q, want test", cfg.AppEnv)
+	}
+	if cfg.HTTPAddr != ":18080" {
+		t.Fatalf("HTTPAddr = %q, want :18080", cfg.HTTPAddr)
+	}
+	if cfg.JWTSecret != "dev-secret" {
+		t.Fatalf("JWTSecret = %q, want dev-secret", cfg.JWTSecret)
+	}
+	if cfg.WalletGRPCAddr != "127.0.0.1:19090" {
+		t.Fatalf("WalletGRPCAddr = %q, want 127.0.0.1:19090", cfg.WalletGRPCAddr)
+	}
+	if cfg.RateLimitBurst != 25 {
+		t.Fatalf("RateLimitBurst = %d, want 25", cfg.RateLimitBurst)
+	}
+	if cfg.RateLimitRefillEvery.String() != "2s" {
+		t.Fatalf("RateLimitRefillEvery = %s, want 2s", cfg.RateLimitRefillEvery)
+	}
+}
+
+func TestLoadGatewayFromLookupRejectsInvalidRateLimit(t *testing.T) {
+	tests := map[string]map[string]string{
+		"missing jwt": {
+			"WALLET_GRPC_ADDR": "127.0.0.1:19090",
+		},
+		"invalid burst": {
+			"JWT_SECRET":       "dev-secret",
+			"WALLET_GRPC_ADDR": "127.0.0.1:19090",
+			"RATE_LIMIT_BURST": "0",
+		},
+		"invalid refill": {
+			"JWT_SECRET":              "dev-secret",
+			"WALLET_GRPC_ADDR":        "127.0.0.1:19090",
+			"RATE_LIMIT_REFILL_EVERY": "0s",
+		},
+	}
+
+	for name, values := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := LoadGatewayFromLookup(mapLookup(values))
+			if err == nil {
+				t.Fatal("expected invalid gateway config to fail")
+			}
+		})
+	}
+}
+
 func mapLookup(values map[string]string) func(string) (string, bool) {
 	return func(key string) (string, bool) {
 		value, ok := values[key]

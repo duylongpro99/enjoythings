@@ -18,6 +18,7 @@ const userIDMetadataKey = "x-user-id"
 
 type App interface {
 	CreateWallet(context.Context, uuid.UUID, string) (domain.Wallet, error)
+	GetWallet(context.Context, uuid.UUID, uuid.UUID) (domain.Wallet, error)
 	GetBalance(context.Context, uuid.UUID, uuid.UUID) (domain.Wallet, error)
 	CreateTransfer(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, int64) (domain.Transfer, error)
 }
@@ -44,6 +45,25 @@ func (server *Server) CreateWallet(ctx context.Context, req *walletv1.CreateWall
 		return nil, statusFromDomain(err)
 	}
 	return &walletv1.CreateWalletResponse{Wallet: walletMessage(wallet)}, nil
+}
+
+func (server *Server) GetWallet(ctx context.Context, req *walletv1.GetWalletRequest) (*walletv1.GetWalletResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	userID, err := userIDFromMetadata(ctx)
+	if err != nil {
+		return nil, err
+	}
+	walletID, err := parseUUID(req.GetWalletId(), "wallet_id")
+	if err != nil {
+		return nil, err
+	}
+	wallet, err := server.app.GetWallet(ctx, userID, walletID)
+	if err != nil {
+		return nil, statusFromDomain(err)
+	}
+	return &walletv1.GetWalletResponse{Wallet: walletMessage(wallet)}, nil
 }
 
 func (server *Server) GetBalance(ctx context.Context, req *walletv1.GetBalanceRequest) (*walletv1.GetBalanceResponse, error) {

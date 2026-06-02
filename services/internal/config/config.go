@@ -5,22 +5,29 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 )
 
 const (
-	defaultAppEnv     = "local"
-	defaultHTTPAddr   = ":8080"
-	defaultGRPCAddr   = ":9090"
-	defaultDBMaxConns = 10
+	defaultAppEnv               = "local"
+	defaultHTTPAddr             = ":8080"
+	defaultGRPCAddr             = ":9090"
+	defaultWalletGRPCAddr       = "127.0.0.1:9090"
+	defaultDBMaxConns           = 10
+	defaultRateLimitBurst       = 60
+	defaultRateLimitRefillEvery = time.Second
 )
 
 type Config struct {
-	AppEnv      string
-	HTTPAddr    string
-	GRPCAddr    string
-	DatabaseURL string
-	JWTSecret   string
-	DBMaxConns  int32
+	AppEnv               string
+	HTTPAddr             string
+	GRPCAddr             string
+	WalletGRPCAddr       string
+	DatabaseURL          string
+	JWTSecret            string
+	DBMaxConns           int32
+	RateLimitBurst       int
+	RateLimitRefillEvery time.Duration
 }
 
 func Load() (Config, error) {
@@ -29,6 +36,10 @@ func Load() (Config, error) {
 
 func LoadWallet() (Config, error) {
 	return LoadWalletFromLookup(os.LookupEnv)
+}
+
+func LoadGateway() (Config, error) {
+	return LoadGatewayFromLookup(os.LookupEnv)
 }
 
 func LoadFromLookup(lookup func(string) (string, bool)) (Config, error) {
@@ -47,6 +58,40 @@ func LoadFromLookup(lookup func(string) (string, bool)) (Config, error) {
 
 func LoadWalletFromLookup(lookup func(string) (string, bool)) (Config, error) {
 	return loadBase(lookup)
+}
+
+func LoadGatewayFromLookup(lookup func(string) (string, bool)) (Config, error) {
+	cfg := Config{
+		AppEnv:               valueOrDefault(lookup, "APP_ENV", defaultAppEnv),
+		HTTPAddr:             valueOrDefault(lookup, "HTTP_ADDR", defaultHTTPAddr),
+		WalletGRPCAddr:       valueOrDefault(lookup, "WALLET_GRPC_ADDR", defaultWalletGRPCAddr),
+		RateLimitBurst:       defaultRateLimitBurst,
+		RateLimitRefillEvery: defaultRateLimitRefillEvery,
+	}
+
+	var ok bool
+	cfg.JWTSecret, ok = lookup("JWT_SECRET")
+	if !ok || cfg.JWTSecret == "" {
+		return Config{}, errors.New("JWT_SECRET is required")
+	}
+
+	if raw, ok := lookup("RATE_LIMIT_BURST"); ok && raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value <= 0 {
+			return Config{}, fmt.Errorf("RATE_LIMIT_BURST must be a positive integer")
+		}
+		cfg.RateLimitBurst = value
+	}
+
+	if raw, ok := lookup("RATE_LIMIT_REFILL_EVERY"); ok && raw != "" {
+		value, err := time.ParseDuration(raw)
+		if err != nil || value <= 0 {
+			return Config{}, fmt.Errorf("RATE_LIMIT_REFILL_EVERY must be a positive duration")
+		}
+		cfg.RateLimitRefillEvery = value
+	}
+
+	return cfg, nil
 }
 
 func loadBase(lookup func(string) (string, bool)) (Config, error) {
