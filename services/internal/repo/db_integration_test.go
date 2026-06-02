@@ -11,6 +11,7 @@ import (
 	"enjoythings/services/internal/domain"
 	"enjoythings/services/internal/event"
 	"enjoythings/services/internal/outbox"
+	"enjoythings/services/internal/repo/queries"
 
 	"github.com/google/uuid"
 	"github.com/testcontainers/testcontainers-go"
@@ -144,6 +145,62 @@ func TestRepositoryTransferCreatesUnpublishedOutboxEvent(t *testing.T) {
 		payload.Currency != "USD" ||
 		!payload.InitiatedAt.Equal(transfer.CreatedAt) {
 		t.Fatalf("payload = %+v, want transfer %s from %s to %s", payload, transfer.ID, from.ID, to.ID)
+	}
+}
+
+func TestRepositoryAppendTransferEntriesCreatesDebitAndCreditIdempotently(t *testing.T) {
+	ctx := context.Background()
+	db := newIntegrationDB(t, ctx)
+	fromUserID := uuid.New()
+	from := createWalletFixture(t, ctx, db, fromUserID, 5000)
+	to := createWalletFixture(t, ctx, db, uuid.New(), 250)
+	transfer := createTransferRowFixture(t, ctx, db, from.ID, to.ID, 1250)
+
+	if err := db.SetWalletBalanceForTest(ctx, from.ID, 3750); err != nil {
+		t.Fatalf("SetWalletBalanceForTest(from): %v", err)
+	}
+	if err := db.SetWalletBalanceForTest(ctx, to.ID, 1500); err != nil {
+		t.Fatalf("SetWalletBalanceForTest(to): %v", err)
+	}
+
+	if processed, err := db.TransferProcessed(ctx, transfer.ID); err != nil || processed {
+		t.Fatalf("TransferProcessed before append = %v, %v; want false, nil", processed, err)
+	}
+	if err := db.AppendTransferEntries(ctx, LedgerTransfer{
+		TransferID:   transfer.ID,
+		FromWalletID: from.ID,
+		ToWalletID:   to.ID,
+		AmountCents:  1250,
+		Currency:     "USD",
+	}); err != nil {
+		t.Fatalf("AppendTransferEntries first: %v", err)
+	}
+	if err := db.AppendTransferEntries(ctx, LedgerTransfer{
+		TransferID:   transfer.ID,
+		FromWalletID: from.ID,
+		ToWalletID:   to.ID,
+		AmountCents:  1250,
+		Currency:     "USD",
+	}); err != nil {
+		t.Fatalf("AppendTransferEntries duplicate: %v", err)
+	}
+
+	if processed, err := db.TransferProcessed(ctx, transfer.ID); err != nil || !processed {
+		t.Fatalf("TransferProcessed after append = %v, %v; want true, nil", processed, err)
+	}
+	fromEntries, _, err := db.ListLedgerEntries(ctx, from.ID, LedgerCursor{}, 10)
+	if err != nil {
+		t.Fatalf("ListLedgerEntries(from): %v", err)
+	}
+	toEntries, _, err := db.ListLedgerEntries(ctx, to.ID, LedgerCursor{}, 10)
+	if err != nil {
+		t.Fatalf("ListLedgerEntries(to): %v", err)
+	}
+	if len(fromEntries) != 1 || fromEntries[0].Direction != "debit" || fromEntries[0].Amount != 1250 || fromEntries[0].BalanceAfter != 3750 {
+		t.Fatalf("from ledger entries = %+v", fromEntries)
+	}
+	if len(toEntries) != 1 || toEntries[0].Direction != "credit" || toEntries[0].Amount != 1250 || toEntries[0].BalanceAfter != 1500 {
+		t.Fatalf("to ledger entries = %+v", toEntries)
 	}
 }
 
@@ -451,6 +508,20 @@ func createWalletFixture(t *testing.T, ctx context.Context, db *Database, userID
 	}
 	wallet.Balance = balance
 	return wallet
+}
+
+func createTransferRowFixture(t *testing.T, ctx context.Context, db *Database, fromWalletID, toWalletID uuid.UUID, amount int64) domain.Transfer {
+	t.Helper()
+
+	row, err := db.queries.CreateTransfer(ctx, queries.CreateTransferParams{
+		FromWalletID: pgUUID(fromWalletID),
+		ToWalletID:   pgUUID(toWalletID),
+		Amount:       amount,
+	})
+	if err != nil {
+		t.Fatalf("CreateTransfer row fixture: %v", err)
+	}
+	return transferFromQuery(row)
 }
 
 func setWalletCurrencyForTest(t *testing.T, ctx context.Context, db *Database, walletID uuid.UUID, currency string) {

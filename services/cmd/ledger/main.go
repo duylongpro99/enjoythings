@@ -7,10 +7,12 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	ledgerv1 "enjoythings/services/gen/ledger/v1"
 	"enjoythings/services/internal/config"
+	"enjoythings/services/internal/ledgerconsumer"
 	"enjoythings/services/internal/ledgergrpc"
 	"enjoythings/services/internal/repo"
 	"enjoythings/services/internal/wallet"
@@ -40,6 +42,21 @@ func run() error {
 	}
 	defer db.Close()
 
+	var consumer *ledgerconsumer.KafkaConsumer
+	if cfg.LedgerConsumerEnabled {
+		consumer, err = ledgerconsumer.NewKafkaConsumer(
+			brokersFromConfig(cfg.KafkaBrokers),
+			cfg.LedgerConsumerTopic,
+			cfg.LedgerConsumerGroupID,
+			db,
+			slog.Default(),
+		)
+		if err != nil {
+			return err
+		}
+		defer consumer.Close()
+	}
+
 	listener, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {
 		return err
@@ -54,6 +71,12 @@ func run() error {
 		slog.Info("ledger grpc listening", "addr", cfg.GRPCAddr, "env", cfg.AppEnv)
 		errCh <- grpcServer.Serve(listener)
 	}()
+	if consumer != nil {
+		go func() {
+			slog.Info("ledger kafka consumer started", "topic", cfg.LedgerConsumerTopic, "group_id", cfg.LedgerConsumerGroupID)
+			consumer.Run(ctx)
+		}()
+	}
 
 	select {
 	case <-ctx.Done():
@@ -65,4 +88,16 @@ func run() error {
 		}
 		return err
 	}
+}
+
+func brokersFromConfig(raw string) []string {
+	parts := strings.Split(raw, ",")
+	brokers := make([]string, 0, len(parts))
+	for _, part := range parts {
+		broker := strings.TrimSpace(part)
+		if broker != "" {
+			brokers = append(brokers, broker)
+		}
+	}
+	return brokers
 }

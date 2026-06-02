@@ -17,6 +17,8 @@ const (
 	defaultLedgerServiceGRPCAddr = ":9091"
 	defaultKafkaBrokers          = "127.0.0.1:9092"
 	defaultWalletOutboxTopic     = "tx.initiated"
+	defaultLedgerConsumerTopic   = "tx.initiated"
+	defaultLedgerConsumerGroupID = "ledger-service"
 	defaultDBMaxConns            = 10
 	defaultWalletOutboxBatchSize = 100
 	defaultRateLimitBurst        = 60
@@ -34,6 +36,9 @@ type Config struct {
 	JWTSecret                string
 	KafkaBrokers             string
 	WalletOutboxTopic        string
+	LedgerConsumerTopic      string
+	LedgerConsumerGroupID    string
+	LedgerConsumerEnabled    bool
 	DBMaxConns               int32
 	WalletOutboxBatchSize    int
 	WalletOutboxPollInterval time.Duration
@@ -101,7 +106,23 @@ func LoadWalletFromLookup(lookup func(string) (string, bool)) (Config, error) {
 }
 
 func LoadLedgerFromLookup(lookup func(string) (string, bool)) (Config, error) {
-	return loadBase(lookup, defaultLedgerServiceGRPCAddr)
+	cfg, err := loadBase(lookup, defaultLedgerServiceGRPCAddr)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.KafkaBrokers = valueOrDefault(lookup, "KAFKA_BROKERS", defaultKafkaBrokers)
+	cfg.LedgerConsumerTopic = valueOrDefault(lookup, "LEDGER_CONSUMER_TOPIC", defaultLedgerConsumerTopic)
+	cfg.LedgerConsumerGroupID = valueOrDefault(lookup, "LEDGER_CONSUMER_GROUP_ID", defaultLedgerConsumerGroupID)
+	cfg.LedgerConsumerEnabled = true
+
+	if raw, ok := lookup("LEDGER_CONSUMER_ENABLED"); ok && raw != "" {
+		value, err := strconv.ParseBool(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("LEDGER_CONSUMER_ENABLED must be a boolean")
+		}
+		cfg.LedgerConsumerEnabled = value
+	}
+	return cfg, nil
 }
 
 func LoadGatewayFromLookup(lookup func(string) (string, bool)) (Config, error) {
