@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -42,6 +43,25 @@ func TestWalletHandlerCreatesWalletFromAuthenticatedPrincipal(t *testing.T) {
 	}
 }
 
+func TestWalletHandlerRequiresJSONContentTypeForCreate(t *testing.T) {
+	userID := uuid.New()
+	service := &fakeWalletService{}
+	handler := auth.Middleware(handlerSecret)(NewWallets(service))
+	req := authedRequest(t, http.MethodPost, "/v1/wallets", bytes.NewBufferString(`{"currency":"USD"}`), userID)
+	req.Header.Del("Content-Type")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	want := "{\"error\":{\"code\":\"invalid_request\",\"message\":\"content type must be application/json\"}}\n"
+	if got := rec.Body.String(); got != want {
+		t.Fatalf("body = %q, want %q", got, want)
+	}
+}
+
 func TestWalletHandlerMapsInvalidUUIDAndServiceErrors(t *testing.T) {
 	userID := uuid.New()
 	service := &fakeWalletService{err: domain.ErrNotFound}
@@ -59,6 +79,72 @@ func TestWalletHandlerMapsInvalidUUIDAndServiceErrors(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("not found status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestWalletHandlerReturnsWalletAndBalanceResponseShapes(t *testing.T) {
+	userID := uuid.New()
+	walletID := uuid.New()
+	service := &fakeWalletService{
+		wallet: domain.Wallet{ID: walletID, UserID: userID, Currency: "USD", Balance: 1500, CreatedAt: fixedTime(), UpdatedAt: fixedTime()},
+	}
+	handler := auth.Middleware(handlerSecret)(NewWallets(service))
+
+	req := authedRequest(t, http.MethodGet, "/v1/wallets/"+walletID.String(), nil, userID)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("wallet status = %d, want %d; body %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var walletResponse struct {
+		ID        uuid.UUID `json:"id"`
+		UserID    uuid.UUID `json:"user_id"`
+		Balance   int64     `json:"balance"`
+		Currency  string    `json:"currency"`
+		CreatedAt time.Time `json:"created_at"`
+		UpdatedAt time.Time `json:"updated_at"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&walletResponse); err != nil {
+		t.Fatalf("decode wallet response: %v", err)
+	}
+	if walletResponse.ID != walletID || walletResponse.UserID != userID || walletResponse.Balance != 1500 || walletResponse.Currency != "USD" || !walletResponse.CreatedAt.Equal(fixedTime()) || !walletResponse.UpdatedAt.Equal(fixedTime()) {
+		t.Fatalf("wallet response mismatch: %+v", walletResponse)
+	}
+
+	req = authedRequest(t, http.MethodGet, "/v1/wallets/"+walletID.String()+"/balance", nil, userID)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("balance status = %d, want %d; body %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var balanceResponse struct {
+		WalletID uuid.UUID `json:"wallet_id"`
+		Balance  int64     `json:"balance"`
+		Currency string    `json:"currency"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&balanceResponse); err != nil {
+		t.Fatalf("decode balance response: %v", err)
+	}
+	if balanceResponse.WalletID != walletID || balanceResponse.Balance != 1500 || balanceResponse.Currency != "USD" {
+		t.Fatalf("balance response mismatch: %+v", balanceResponse)
+	}
+}
+
+func TestWalletHandlerMethodMismatchUsesErrorEnvelope(t *testing.T) {
+	userID := uuid.New()
+	service := &fakeWalletService{}
+	handler := auth.Middleware(handlerSecret)(NewWallets(service))
+	req := authedRequest(t, http.MethodPut, "/v1/wallets/"+uuid.New().String(), nil, userID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+	want := "{\"error\":{\"code\":\"not_found\",\"message\":\"resource not found\"}}\n"
+	if got := rec.Body.String(); got != want {
+		t.Fatalf("body = %q, want %q", got, want)
 	}
 }
 
@@ -81,6 +167,24 @@ func TestTransferHandlerMapsRequestAndErrors(t *testing.T) {
 	if service.transferAmount != 1250 {
 		t.Fatalf("transfer amount = %d, want 1250", service.transferAmount)
 	}
+	var transferResponse struct {
+		ID           uuid.UUID `json:"id"`
+		FromWalletID uuid.UUID `json:"from_wallet_id"`
+		ToWalletID   uuid.UUID `json:"to_wallet_id"`
+		Amount       int64     `json:"amount"`
+		Status       string    `json:"status"`
+		CreatedAt    time.Time `json:"created_at"`
+		Balances     struct {
+			From int64 `json:"from"`
+			To   int64 `json:"to"`
+		} `json:"balances"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&transferResponse); err != nil {
+		t.Fatalf("decode transfer response: %v", err)
+	}
+	if transferResponse.FromWalletID != fromID || transferResponse.ToWalletID != toID || transferResponse.Amount != 1250 || transferResponse.Status != "completed" || transferResponse.Balances.From != 3750 || transferResponse.Balances.To != 6250 {
+		t.Fatalf("transfer response mismatch: %+v", transferResponse)
+	}
 
 	service.err = domain.ErrInsufficientFunds
 	req = authedRequest(t, http.MethodPost, "/v1/transfers", bytes.NewBufferString(`{"from_wallet_id":"`+fromID.String()+`","to_wallet_id":"`+toID.String()+`","amount":1250}`), userID)
@@ -88,6 +192,25 @@ func TestTransferHandlerMapsRequestAndErrors(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("insufficient funds status = %d, want %d", rec.Code, http.StatusUnprocessableEntity)
+	}
+}
+
+func TestTransferHandlerRequiresJSONContentType(t *testing.T) {
+	userID := uuid.New()
+	service := &fakeWalletService{}
+	handler := auth.Middleware(handlerSecret)(NewTransfers(service))
+	req := authedRequest(t, http.MethodPost, "/v1/transfers", bytes.NewBufferString(`{"amount":1250}`), userID)
+	req.Header.Del("Content-Type")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	want := "{\"error\":{\"code\":\"invalid_request\",\"message\":\"content type must be application/json\"}}\n"
+	if got := rec.Body.String(); got != want {
+		t.Fatalf("body = %q, want %q", got, want)
 	}
 }
 
@@ -107,6 +230,24 @@ func TestLedgerHandlerValidatesLimitAndReturnsEntries(t *testing.T) {
 	}
 	if service.listLimit != 1 {
 		t.Fatalf("list limit = %d, want 1", service.listLimit)
+	}
+	var ledgerResponse struct {
+		WalletID uuid.UUID `json:"wallet_id"`
+		Entries  []struct {
+			ID           uuid.UUID `json:"id"`
+			TransferID   uuid.UUID `json:"transfer_id"`
+			Direction    string    `json:"direction"`
+			Amount       int64     `json:"amount"`
+			BalanceAfter int64     `json:"balance_after"`
+			CreatedAt    time.Time `json:"created_at"`
+		} `json:"entries"`
+		NextCursor *string `json:"next_cursor"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&ledgerResponse); err != nil {
+		t.Fatalf("decode ledger response: %v", err)
+	}
+	if ledgerResponse.WalletID != walletID || len(ledgerResponse.Entries) != 1 || ledgerResponse.Entries[0].Direction != "debit" || ledgerResponse.Entries[0].Amount != 100 || ledgerResponse.Entries[0].BalanceAfter != 900 || ledgerResponse.NextCursor != nil {
+		t.Fatalf("ledger response mismatch: %+v", ledgerResponse)
 	}
 
 	req = authedRequest(t, http.MethodGet, "/v1/ledger/"+walletID.String()+"?limit=101", nil, userID)
@@ -169,6 +310,9 @@ func authedRequest(t *testing.T, method, target string, body io.Reader, userID u
 	t.Helper()
 
 	req := httptest.NewRequest(method, target, body)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	req.Header.Set("Authorization", "Bearer "+handlerToken(t, userID))
 	return req
 }

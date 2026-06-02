@@ -49,6 +49,115 @@ curl http://localhost:8080/healthz
 curl http://localhost:8080/readyz
 ```
 
+## Phase 1 API
+
+Business endpoints are served under `/v1` and require a bearer JWT. Requests with a JSON body must include `Content-Type: application/json`.
+
+Create a wallet:
+
+```sh
+curl -X POST http://localhost:8080/v1/wallets \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"currency":"USD"}'
+```
+
+Response `201`:
+
+```json
+{
+  "id": "6ed87f1f-7c9d-48d6-b23a-4d6255028c5c",
+  "user_id": "449b3f19-8b5b-4f4b-b5d0-8e77d97d5c84",
+  "balance": 0,
+  "currency": "USD",
+  "created_at": "2026-06-02T00:00:00Z",
+  "updated_at": "2026-06-02T00:00:00Z"
+}
+```
+
+Read a wallet and its balance:
+
+```sh
+curl -H "Authorization: Bearer $JWT" \
+  http://localhost:8080/v1/wallets/6ed87f1f-7c9d-48d6-b23a-4d6255028c5c
+
+curl -H "Authorization: Bearer $JWT" \
+  http://localhost:8080/v1/wallets/6ed87f1f-7c9d-48d6-b23a-4d6255028c5c/balance
+```
+
+Balance response `200`:
+
+```json
+{
+  "wallet_id": "6ed87f1f-7c9d-48d6-b23a-4d6255028c5c",
+  "balance": 1500,
+  "currency": "USD"
+}
+```
+
+Create a transfer:
+
+```sh
+curl -X POST http://localhost:8080/v1/transfers \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"from_wallet_id":"77787174-e221-49de-bf16-5834e0d250a1","to_wallet_id":"a572d276-3292-4c0e-b4f8-e5256d2d814c","amount":1250}'
+```
+
+Response `201`:
+
+```json
+{
+  "id": "68e09292-b720-4cfd-a99d-c9f265dcb59b",
+  "from_wallet_id": "77787174-e221-49de-bf16-5834e0d250a1",
+  "to_wallet_id": "a572d276-3292-4c0e-b4f8-e5256d2d814c",
+  "amount": 1250,
+  "status": "completed",
+  "created_at": "2026-06-02T00:00:00Z",
+  "balances": {
+    "from": 3750,
+    "to": 6250
+  }
+}
+```
+
+List ledger entries:
+
+```sh
+curl -H "Authorization: Bearer $JWT" \
+  "http://localhost:8080/v1/ledger/77787174-e221-49de-bf16-5834e0d250a1?limit=50"
+```
+
+Response `200`:
+
+```json
+{
+  "wallet_id": "77787174-e221-49de-bf16-5834e0d250a1",
+  "entries": [
+    {
+      "id": "bc1f6d24-ff58-4fc7-8493-c5d380035b79",
+      "transfer_id": "68e09292-b720-4cfd-a99d-c9f265dcb59b",
+      "direction": "debit",
+      "amount": 1250,
+      "balance_after": 3750,
+      "created_at": "2026-06-02T00:00:00Z"
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+Non-2xx responses use the standard error envelope:
+
+```json
+{
+  "error": {
+    "code": "invalid_request",
+    "message": "request body is invalid"
+  }
+}
+```
+
 Generate a local-development JWT for authenticated `/v1/*` requests:
 
 ```sh

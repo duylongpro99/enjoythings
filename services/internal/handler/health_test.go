@@ -28,6 +28,21 @@ func TestHealthReturnsOKWithoutReadinessDependency(t *testing.T) {
 	}
 }
 
+func TestHealthRejectsUnsupportedMethodsWithErrorEnvelope(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/healthz", nil)
+	rec := httptest.NewRecorder()
+
+	Health().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+	want := "{\"error\":{\"code\":\"not_found\",\"message\":\"resource not found\"}}\n"
+	if got := rec.Body.String(); got != want {
+		t.Fatalf("body = %q, want %q", got, want)
+	}
+}
+
 func TestReadyReturnsOKWhenDatabasePings(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	rec := httptest.NewRecorder()
@@ -40,6 +55,22 @@ func TestReadyReturnsOKWhenDatabasePings(t *testing.T) {
 	}
 	if got := rec.Body.String(); got != "{\"status\":\"ready\"}\n" {
 		t.Fatalf("body = %q", got)
+	}
+}
+
+func TestReadyRejectsUnsupportedMethodsWithErrorEnvelope(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/readyz", nil)
+	rec := httptest.NewRecorder()
+	checker := readyFunc(func(context.Context) error { return nil })
+
+	Ready(checker).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+	want := "{\"error\":{\"code\":\"not_found\",\"message\":\"resource not found\"}}\n"
+	if got := rec.Body.String(); got != want {
+		t.Fatalf("body = %q, want %q", got, want)
 	}
 }
 
