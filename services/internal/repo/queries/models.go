@@ -3,3 +3,35 @@
 //   sqlc v1.31.1
 
 package queries
+
+import (
+	"github.com/jackc/pgx/v5/pgtype"
+)
+
+type LedgerEntry struct {
+	ID           pgtype.UUID
+	WalletID     pgtype.UUID
+	TransferID   pgtype.UUID
+	Direction    string
+	Amount       int64
+	BalanceAfter int64
+	CreatedAt    pgtype.Timestamptz
+}
+
+type Transfer struct {
+	ID           pgtype.UUID
+	FromWalletID pgtype.UUID
+	ToWalletID   pgtype.UUID
+	Amount       int64
+	Status       string
+	CreatedAt    pgtype.Timestamptz
+}
+
+type Wallet struct {
+	ID        pgtype.UUID
+	UserID    pgtype.UUID
+	Balance   int64
+	Currency  string
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+}
