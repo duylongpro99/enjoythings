@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS ledger_entries_transfer_direction_unique_idx;

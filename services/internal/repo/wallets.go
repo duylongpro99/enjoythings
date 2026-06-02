@@ -17,6 +17,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -24,6 +25,14 @@ type LedgerCursor struct {
 	CreatedAt time.Time
 	ID        uuid.UUID
 	Valid     bool
+}
+
+type LedgerTransfer struct {
+	TransferID   uuid.UUID
+	FromWalletID uuid.UUID
+	ToWalletID   uuid.UUID
+	AmountCents  int64
+	Currency     string
 }
 
 func (db *Database) CreateWallet(ctx context.Context, userID uuid.UUID, currency string) (domain.Wallet, error) {
@@ -171,6 +180,84 @@ func (db *Database) ListLedgerEntries(ctx context.Context, walletID uuid.UUID, c
 	return entries, next, nil
 }
 
+func (db *Database) TransferProcessed(ctx context.Context, transferID uuid.UUID) (bool, error) {
+	var exists bool
+	err := db.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM ledger_entries WHERE transfer_id = $1)`, pgUUID(transferID)).Scan(&exists)
+	return exists, err
+}
+
+func (db *Database) AppendTransferEntries(ctx context.Context, transfer LedgerTransfer) error {
+	if transfer.AmountCents <= 0 {
+		return domain.ErrInvalidAmount
+	}
+	if transfer.FromWalletID == transfer.ToWalletID {
+		return domain.ErrInvalidTransfer
+	}
+	if _, err := domain.NormalizeCurrency(transfer.Currency); err != nil {
+		return err
+	}
+
+	tx, err := db.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	var processed bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM ledger_entries WHERE transfer_id = $1)`, pgUUID(transfer.TransferID)).Scan(&processed); err != nil {
+		return err
+	}
+	if processed {
+		return tx.Commit(ctx)
+	}
+
+	locked, err := lockWallets(ctx, tx, transfer.FromWalletID, transfer.ToWalletID)
+	if err != nil {
+		return err
+	}
+	from, ok := locked[transfer.FromWalletID]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	to, ok := locked[transfer.ToWalletID]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	if from.Currency != to.Currency || from.Currency != transfer.Currency {
+		return domain.ErrCurrencyMismatch
+	}
+
+	qtx := db.queries.WithTx(tx)
+	if _, err := qtx.CreateLedgerEntry(ctx, queries.CreateLedgerEntryParams{
+		WalletID:     pgUUID(from.ID),
+		TransferID:   pgUUID(transfer.TransferID),
+		Direction:    "debit",
+		Amount:       transfer.AmountCents,
+		BalanceAfter: from.Balance,
+	}); err != nil {
+		if isUniqueViolation(err) {
+			return nil
+		}
+		return err
+	}
+	if _, err := qtx.CreateLedgerEntry(ctx, queries.CreateLedgerEntryParams{
+		WalletID:     pgUUID(to.ID),
+		TransferID:   pgUUID(transfer.TransferID),
+		Direction:    "credit",
+		Amount:       transfer.AmountCents,
+		BalanceAfter: to.Balance,
+	}); err != nil {
+		if isUniqueViolation(err) {
+			return nil
+		}
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
 func (db *Database) RunMigrations(ctx context.Context) error {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
@@ -245,6 +332,11 @@ func uuidFromPG(id pgtype.UUID) uuid.UUID {
 		return uuid.Nil
 	}
 	return uuid.UUID(id.Bytes)
+}
+
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
 func walletFromQuery(wallet queries.Wallet) domain.Wallet {
