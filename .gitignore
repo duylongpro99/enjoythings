@@ -36,6 +36,7 @@ coverage.out
 *.test
 
 # Local data and generated state
+.worktrees/
 *.db
 *.sqlite
 *.sqlite3
