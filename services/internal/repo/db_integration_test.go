@@ -237,6 +237,40 @@ func TestRepositoryLedgerPaginationIsStableNewestFirst(t *testing.T) {
 	}
 }
 
+func TestRepositoryLedgerFiltersByWalletID(t *testing.T) {
+	ctx := context.Background()
+	db := newIntegrationDB(t, ctx)
+	userID := uuid.New()
+	from := createWalletFixture(t, ctx, db, userID, 1000)
+	to := createWalletFixture(t, ctx, db, uuid.New(), 0)
+
+	transfer, err := db.CreateTransfer(ctx, userID, from.ID, to.ID, 250)
+	if err != nil {
+		t.Fatalf("CreateTransfer: %v", err)
+	}
+
+	fromEntries, _, err := db.ListLedgerEntries(ctx, from.ID, LedgerCursor{}, 10)
+	if err != nil {
+		t.Fatalf("ListLedgerEntries(from): %v", err)
+	}
+	toEntries, _, err := db.ListLedgerEntries(ctx, to.ID, LedgerCursor{}, 10)
+	if err != nil {
+		t.Fatalf("ListLedgerEntries(to): %v", err)
+	}
+	if len(fromEntries) != 1 || len(toEntries) != 1 {
+		t.Fatalf("entry counts = %d/%d, want 1/1", len(fromEntries), len(toEntries))
+	}
+	if fromEntries[0].WalletID != from.ID || fromEntries[0].Direction != "debit" {
+		t.Fatalf("from entries not filtered to source wallet: %+v", fromEntries)
+	}
+	if toEntries[0].WalletID != to.ID || toEntries[0].Direction != "credit" {
+		t.Fatalf("to entries not filtered to destination wallet: %+v", toEntries)
+	}
+	if fromEntries[0].TransferID != transfer.ID || toEntries[0].TransferID != transfer.ID {
+		t.Fatalf("transfer IDs = %s/%s, want %s", fromEntries[0].TransferID, toEntries[0].TransferID, transfer.ID)
+	}
+}
+
 func TestRepositoryConcurrentTransfersNeverMakeSourceNegative(t *testing.T) {
 	ctx := context.Background()
 	db := newIntegrationDB(t, ctx)

@@ -73,14 +73,9 @@ func (service *Service) ListLedger(ctx context.Context, userID, walletID uuid.UU
 	if err != nil {
 		return nil, repo.LedgerCursor{}, err
 	}
-	entries, next, err := service.store.ListLedgerEntries(ctx, wallet.ID, cursor, limit+1)
+	entries, next, err := service.store.ListLedgerEntries(ctx, wallet.ID, cursor, limit)
 	if err != nil {
 		return nil, repo.LedgerCursor{}, err
-	}
-	if len(entries) > limit {
-		last := entries[limit-1]
-		next = repo.LedgerCursor{CreatedAt: last.CreatedAt, ID: last.ID, Valid: true}
-		entries = entries[:limit]
 	}
 	return entries, next, nil
 }

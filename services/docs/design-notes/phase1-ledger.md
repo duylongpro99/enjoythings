@@ -1,0 +1,3 @@
+Problem: The ledger must expose an immutable audit trail for wallet balance changes without turning Phase 1 into an event-sourced system.
+Structure: Transfer creation remains the only write path for ledger entries, and it writes debit and credit entries in the same database transaction as wallet balance updates. Ledger reads stay behind the wallet service so ownership checks are shared with wallet reads, while repository queries own stable cursor pagination by `created_at DESC, id DESC`.
+Tradeoffs: Database triggers or permission-based append-only enforcement were deferred because the Phase 1 spec only requires application-level enforcement. Offset pagination was rejected because new ledger rows can shift pages during reads.

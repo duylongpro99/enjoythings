@@ -63,6 +63,37 @@ func TestRouterFullWalletAndTransferFlowAgainstPostgres(t *testing.T) {
 	if balanceResponse.Balance != 750 {
 		t.Fatalf("balance = %d, want 750", balanceResponse.Balance)
 	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/ledger/"+fromWalletID.String()+"?limit=1", nil)
+	req.Header.Set("Authorization", "Bearer "+integrationToken(t, userID))
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ledger status = %d, want %d; body %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var ledgerResponse struct {
+		WalletID uuid.UUID `json:"wallet_id"`
+		Entries  []struct {
+			Direction    string    `json:"direction"`
+			Amount       int64     `json:"amount"`
+			BalanceAfter int64     `json:"balance_after"`
+			TransferID   uuid.UUID `json:"transfer_id"`
+		} `json:"entries"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&ledgerResponse); err != nil {
+		t.Fatalf("decode ledger response: %v", err)
+	}
+	if ledgerResponse.WalletID != fromWalletID || len(ledgerResponse.Entries) != 1 || ledgerResponse.Entries[0].Direction != "debit" || ledgerResponse.Entries[0].Amount != 250 || ledgerResponse.Entries[0].BalanceAfter != 750 {
+		t.Fatalf("ledger response mismatch: %+v", ledgerResponse)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/ledger/"+fromWalletID.String(), nil)
+	req.Header.Set("Authorization", "Bearer "+integrationToken(t, otherUserID))
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("other user ledger status = %d, want %d; body %s", rec.Code, http.StatusNotFound, rec.Body.String())
+	}
 }
 
 func newRouterIntegrationDB(t *testing.T, ctx context.Context) *repo.Database {

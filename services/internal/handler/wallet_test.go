@@ -363,14 +363,76 @@ func TestLedgerHandlerValidatesLimitAndReturnsEntries(t *testing.T) {
 	}
 }
 
+func TestLedgerHandlerValidatesWalletIDAndCursor(t *testing.T) {
+	userID := uuid.New()
+	service := &fakeWalletService{}
+	handler := auth.Middleware(handlerSecret)(NewLedger(service))
+
+	req := authedRequest(t, http.MethodGet, "/v1/ledger/not-a-uuid", nil, userID)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid wallet id status = %d, want %d; body %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	assertErrorCode(t, rec.Body, "invalid_request")
+
+	req = authedRequest(t, http.MethodGet, "/v1/ledger/"+uuid.New().String()+"?cursor=not-base64url", nil, userID)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid cursor status = %d, want %d; body %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	assertErrorCode(t, rec.Body, "invalid_cursor")
+}
+
+func TestLedgerHandlerPassesDecodedCursorAndReturnsNextCursor(t *testing.T) {
+	userID := uuid.New()
+	walletID := uuid.New()
+	next := repo.LedgerCursor{CreatedAt: fixedTime(), ID: uuid.New(), Valid: true}
+	cursor := repo.LedgerCursor{CreatedAt: fixedTime().Add(time.Second), ID: uuid.New(), Valid: true}
+	service := &fakeWalletService{
+		entries: []domain.LedgerEntry{{ID: uuid.New(), WalletID: walletID, TransferID: uuid.New(), Direction: "credit", Amount: 250, BalanceAfter: 1250, CreatedAt: fixedTime()}},
+		next:    next,
+	}
+	handler := auth.Middleware(handlerSecret)(NewLedger(service))
+
+	req := authedRequest(t, http.MethodGet, "/v1/ledger/"+walletID.String()+"?cursor="+encodeLedgerCursor(cursor), nil, userID)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if service.listCursor != cursor {
+		t.Fatalf("decoded cursor = %s, want %s", service.listCursor, cursor)
+	}
+	var response struct {
+		NextCursor *string `json:"next_cursor"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode ledger response: %v", err)
+	}
+	if response.NextCursor == nil {
+		t.Fatal("next_cursor missing")
+	}
+	decoded, err := decodeLedgerCursor(*response.NextCursor)
+	if err != nil {
+		t.Fatalf("decode next cursor: %v", err)
+	}
+	if decoded != next {
+		t.Fatalf("next cursor = %s, want %s", decoded, next)
+	}
+}
+
 type fakeWalletService struct {
 	wallet         domain.Wallet
 	transfer       domain.Transfer
 	entries        []domain.LedgerEntry
+	next           repo.LedgerCursor
 	err            error
 	createUserID   uuid.UUID
 	transferAmount int64
 	listLimit      int
+	listCursor     repo.LedgerCursor
 }
 
 func (service *fakeWalletService) CreateWallet(_ context.Context, userID uuid.UUID, currency string) (domain.Wallet, error) {
@@ -403,12 +465,29 @@ func (service *fakeWalletService) CreateTransfer(_ context.Context, _ uuid.UUID,
 	return service.transfer, nil
 }
 
-func (service *fakeWalletService) ListLedger(_ context.Context, _ uuid.UUID, _ uuid.UUID, _ repo.LedgerCursor, limit int) ([]domain.LedgerEntry, repo.LedgerCursor, error) {
+func (service *fakeWalletService) ListLedger(_ context.Context, _ uuid.UUID, _ uuid.UUID, cursor repo.LedgerCursor, limit int) ([]domain.LedgerEntry, repo.LedgerCursor, error) {
 	service.listLimit = limit
+	service.listCursor = cursor
 	if service.err != nil {
 		return nil, repo.LedgerCursor{}, service.err
 	}
-	return service.entries, repo.LedgerCursor{}, nil
+	return service.entries, service.next, nil
+}
+
+func assertErrorCode(t *testing.T, body *bytes.Buffer, want string) {
+	t.Helper()
+
+	var response struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(body).Decode(&response); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if response.Error.Code != want {
+		t.Fatalf("error code = %q, want %q", response.Error.Code, want)
+	}
 }
 
 func authedRequest(t *testing.T, method, target string, body io.Reader, userID uuid.UUID) *http.Request {
