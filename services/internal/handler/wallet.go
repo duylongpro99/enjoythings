@@ -121,6 +121,14 @@ func NewTransfers(service WalletService) http.Handler {
 			writeError(w, http.StatusBadRequest, "invalid_request", "to wallet id is invalid")
 			return
 		}
+		if request.Amount <= 0 {
+			writeDomainError(w, domain.ErrInvalidAmount)
+			return
+		}
+		if fromWalletID == toWalletID {
+			writeDomainError(w, domain.ErrInvalidTransfer)
+			return
+		}
 		transfer, err := service.CreateTransfer(r.Context(), principal.UserID, fromWalletID, toWalletID, request.Amount)
 		if err != nil {
 			writeDomainError(w, err)
