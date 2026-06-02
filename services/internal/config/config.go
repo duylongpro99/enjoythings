@@ -10,12 +10,14 @@ import (
 const (
 	defaultAppEnv     = "local"
 	defaultHTTPAddr   = ":8080"
+	defaultGRPCAddr   = ":9090"
 	defaultDBMaxConns = 10
 )
 
 type Config struct {
 	AppEnv      string
 	HTTPAddr    string
+	GRPCAddr    string
 	DatabaseURL string
 	JWTSecret   string
 	DBMaxConns  int32
@@ -25,10 +27,33 @@ func Load() (Config, error) {
 	return LoadFromLookup(os.LookupEnv)
 }
 
+func LoadWallet() (Config, error) {
+	return LoadWalletFromLookup(os.LookupEnv)
+}
+
 func LoadFromLookup(lookup func(string) (string, bool)) (Config, error) {
+	cfg, err := loadBase(lookup)
+	if err != nil {
+		return Config{}, err
+	}
+	var ok bool
+	cfg.JWTSecret, ok = lookup("JWT_SECRET")
+	if !ok || cfg.JWTSecret == "" {
+		return Config{}, errors.New("JWT_SECRET is required")
+	}
+
+	return cfg, nil
+}
+
+func LoadWalletFromLookup(lookup func(string) (string, bool)) (Config, error) {
+	return loadBase(lookup)
+}
+
+func loadBase(lookup func(string) (string, bool)) (Config, error) {
 	cfg := Config{
 		AppEnv:     valueOrDefault(lookup, "APP_ENV", defaultAppEnv),
 		HTTPAddr:   valueOrDefault(lookup, "HTTP_ADDR", defaultHTTPAddr),
+		GRPCAddr:   valueOrDefault(lookup, "GRPC_ADDR", defaultGRPCAddr),
 		DBMaxConns: defaultDBMaxConns,
 	}
 
@@ -36,11 +61,6 @@ func LoadFromLookup(lookup func(string) (string, bool)) (Config, error) {
 	cfg.DatabaseURL, ok = lookup("DATABASE_URL")
 	if !ok || cfg.DatabaseURL == "" {
 		return Config{}, errors.New("DATABASE_URL is required")
-	}
-
-	cfg.JWTSecret, ok = lookup("JWT_SECRET")
-	if !ok || cfg.JWTSecret == "" {
-		return Config{}, errors.New("JWT_SECRET is required")
 	}
 
 	if raw, ok := lookup("DB_MAX_CONNS"); ok && raw != "" {
