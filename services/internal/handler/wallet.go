@@ -34,6 +34,9 @@ func NewWallets(service WalletService) http.Handler {
 		}
 
 		if r.Method == http.MethodPost && r.URL.Path == "/v1/wallets" {
+			if rejectNonJSONContentType(w, r) {
+				return
+			}
 			var request struct {
 				Currency string `json:"currency"`
 			}
@@ -81,7 +84,7 @@ func NewWallets(service WalletService) http.Handler {
 			return
 		}
 
-		http.NotFound(w, r)
+		writeNotFound(w)
 	})
 }
 
@@ -93,7 +96,10 @@ func NewTransfers(service WalletService) http.Handler {
 			return
 		}
 		if r.Method != http.MethodPost || r.URL.Path != "/v1/transfers" {
-			http.NotFound(w, r)
+			writeNotFound(w)
+			return
+		}
+		if rejectNonJSONContentType(w, r) {
 			return
 		}
 		var request struct {
@@ -132,7 +138,7 @@ func NewLedger(service WalletService) http.Handler {
 			return
 		}
 		if r.Method != http.MethodGet || !strings.HasPrefix(r.URL.Path, "/v1/ledger/") {
-			http.NotFound(w, r)
+			writeNotFound(w)
 			return
 		}
 		walletID, err := uuid.Parse(strings.TrimPrefix(r.URL.Path, "/v1/ledger/"))

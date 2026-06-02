@@ -15,6 +15,7 @@ func NewRouter(readiness handler.ReadinessChecker, store wallet.Store, jwtSecret
 	business.Handle("/v1/wallets/", handler.NewWallets(walletService))
 	business.Handle("/v1/transfers", handler.NewTransfers(walletService))
 	business.Handle("/v1/ledger/", handler.NewLedger(walletService))
+	business.Handle("/v1/", handler.NotFound())
 
 	mux := http.NewServeMux()
 	mux.Handle("/healthz", handler.Health())

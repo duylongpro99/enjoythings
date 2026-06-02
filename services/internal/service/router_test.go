@@ -96,6 +96,7 @@ func TestRouterAllowsAuthenticatedV1RequestsToReachBusinessHandlers(t *testing.T
 	store := &routerStore{}
 	router := NewRouter(readinessFunc(func(context.Context) error { return nil }), store, "test-jwt-secret")
 	req := httptest.NewRequest(http.MethodPost, "/v1/wallets", bytes.NewBufferString(`{"currency":"USD"}`))
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+routerTestToken(t))
 	rec := httptest.NewRecorder()
 
@@ -106,6 +107,23 @@ func TestRouterAllowsAuthenticatedV1RequestsToReachBusinessHandlers(t *testing.T
 	}
 	if store.createCalled != 1 {
 		t.Fatalf("create calls = %d, want 1", store.createCalled)
+	}
+}
+
+func TestRouterUnknownV1RouteUsesErrorEnvelope(t *testing.T) {
+	router := NewRouter(readinessFunc(func(context.Context) error { return nil }), &routerStore{}, "test-jwt-secret")
+	req := httptest.NewRequest(http.MethodGet, "/v1/unknown", nil)
+	req.Header.Set("Authorization", "Bearer "+routerTestToken(t))
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+	wantBody := "{\"error\":{\"code\":\"not_found\",\"message\":\"resource not found\"}}\n"
+	if got := rec.Body.String(); got != wantBody {
+		t.Fatalf("body = %q, want %q", got, wantBody)
 	}
 }
 

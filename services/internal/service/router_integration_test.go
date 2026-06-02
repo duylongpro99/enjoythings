@@ -37,6 +37,7 @@ func TestRouterFullWalletAndTransferFlowAgainstPostgres(t *testing.T) {
 		toWalletID,
 	))
 	req := httptest.NewRequest(http.MethodPost, "/v1/transfers", body)
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+integrationToken(t, userID))
 	rec := httptest.NewRecorder()
 
@@ -118,6 +119,7 @@ func createWalletThroughRouter(t *testing.T, router http.Handler, userID uuid.UU
 	t.Helper()
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/wallets", bytes.NewBufferString(`{"currency":"USD"}`))
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+integrationToken(t, userID))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
