@@ -61,7 +61,11 @@ func run(args []string, getenv func(string) string, stdout io.Writer, stderr io.
 		return fmt.Errorf("sign token: %w", err)
 	}
 
-	fmt.Fprintln(stderr, "local development only: do not commit or share generated tokens")
-	fmt.Fprintln(stdout, signed)
+	if _, err := fmt.Fprintln(stderr, "local development only: do not commit or share generated tokens"); err != nil {
+		return fmt.Errorf("write warning: %w", err)
+	}
+	if _, err := fmt.Fprintln(stdout, signed); err != nil {
+		return fmt.Errorf("write token: %w", err)
+	}
 	return nil
 }

@@ -1,12 +1,16 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"enjoythings/services/internal/domain"
+	"enjoythings/services/internal/repo"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -19,7 +23,7 @@ func (fn readinessFunc) Ping(ctx context.Context) error {
 }
 
 func TestRouterRegistersHealthEndpoints(t *testing.T) {
-	router := NewRouter(readinessFunc(func(context.Context) error { return nil }), "test-jwt-secret")
+	router := NewRouter(readinessFunc(func(context.Context) error { return nil }), &routerStore{}, "test-jwt-secret")
 
 	tests := []struct {
 		name   string
@@ -61,7 +65,7 @@ func TestRouterRegistersHealthEndpoints(t *testing.T) {
 func TestRouterReadyEndpointReturnsUnavailable(t *testing.T) {
 	router := NewRouter(readinessFunc(func(context.Context) error {
 		return errors.New("database unavailable")
-	}), "test-jwt-secret")
+	}), &routerStore{}, "test-jwt-secret")
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	rec := httptest.NewRecorder()
 
@@ -73,7 +77,7 @@ func TestRouterReadyEndpointReturnsUnavailable(t *testing.T) {
 }
 
 func TestRouterRequiresAuthenticationForV1Routes(t *testing.T) {
-	router := NewRouter(readinessFunc(func(context.Context) error { return nil }), "test-jwt-secret")
+	router := NewRouter(readinessFunc(func(context.Context) error { return nil }), &routerStore{}, "test-jwt-secret")
 	req := httptest.NewRequest(http.MethodPost, "/v1/wallets", nil)
 	rec := httptest.NewRecorder()
 
@@ -88,17 +92,43 @@ func TestRouterRequiresAuthenticationForV1Routes(t *testing.T) {
 	}
 }
 
-func TestRouterAllowsAuthenticatedV1RequestsToReachBusinessRouter(t *testing.T) {
-	router := NewRouter(readinessFunc(func(context.Context) error { return nil }), "test-jwt-secret")
-	req := httptest.NewRequest(http.MethodPost, "/v1/wallets", nil)
+func TestRouterAllowsAuthenticatedV1RequestsToReachBusinessHandlers(t *testing.T) {
+	store := &routerStore{}
+	router := NewRouter(readinessFunc(func(context.Context) error { return nil }), store, "test-jwt-secret")
+	req := httptest.NewRequest(http.MethodPost, "/v1/wallets", bytes.NewBufferString(`{"currency":"USD"}`))
 	req.Header.Set("Authorization", "Bearer "+routerTestToken(t))
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d; body %s", rec.Code, http.StatusCreated, rec.Body.String())
 	}
+	if store.createCalled != 1 {
+		t.Fatalf("create calls = %d, want 1", store.createCalled)
+	}
+}
+
+type routerStore struct {
+	createCalled int
+}
+
+func (store *routerStore) CreateWallet(_ context.Context, userID uuid.UUID, currency string) (domain.Wallet, error) {
+	store.createCalled++
+	now := time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC)
+	return domain.Wallet{ID: uuid.New(), UserID: userID, Currency: currency, CreatedAt: now, UpdatedAt: now}, nil
+}
+
+func (store *routerStore) GetWallet(context.Context, uuid.UUID) (domain.Wallet, error) {
+	return domain.Wallet{}, domain.ErrNotFound
+}
+
+func (store *routerStore) CreateTransfer(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, int64) (domain.Transfer, error) {
+	return domain.Transfer{}, domain.ErrNotFound
+}
+
+func (store *routerStore) ListLedgerEntries(context.Context, uuid.UUID, repo.LedgerCursor, int) ([]domain.LedgerEntry, repo.LedgerCursor, error) {
+	return nil, repo.LedgerCursor{}, nil
 }
 
 func routerTestToken(t *testing.T) string {

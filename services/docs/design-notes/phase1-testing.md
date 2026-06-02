@@ -1,0 +1,5 @@
+Problem: The Phase 1 testing spec verifies wallet, transfer, ledger, auth, readiness, repository, and concurrency behavior, but the current service only has health and auth scaffolding. Tests need real business boundaries to exercise instead of testing placeholders.
+
+Structure: Keep the monolith split into domain, handler, wallet service, and repository packages. Handlers depend on small service interfaces, services depend on a transactional store interface, and repository integration tests run migrations against Postgres 16 via testcontainers with a `DATABASE_URL` fallback. Transfers lock wallet rows through the repository in deterministic order and write balance changes, transfer rows, and ledger entries in one transaction.
+
+Tradeoffs: A richer abstraction over generated sqlc types was considered, but Phase 1 is clearer with narrow handwritten repository methods around simple SQL and sqlc kept as the static SQL generation gate. Full external payment, eventing, and permission systems remain excluded by the Phase 1 specs.
