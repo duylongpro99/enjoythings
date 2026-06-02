@@ -180,6 +180,13 @@ golangci-lint run
 sqlc generate
 ```
 
+Generate protobuf Go and gRPC code after changing files under `proto/`:
+
+```sh
+cd services
+buf generate
+```
+
 Install local tools when they are not already available:
 
 ```sh

@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package ledger.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "enjoythings/services/gen/ledger/v1;ledgerv1";
+
+// LedgerService exposes ledger entries for wallets.
+//
+// Expected gRPC status mapping:
+// - INVALID_ARGUMENT for malformed input.
+// - NOT_FOUND for missing wallets.
+// - INTERNAL for unexpected persistence or infrastructure errors.
+service LedgerService {
+  rpc GetEntries(GetEntriesRequest) returns (GetEntriesResponse);
+}
+
+message GetEntriesRequest {
+  string wallet_id = 1;
+  int32 limit = 2;
+  string cursor = 3;
+}
+
+message GetEntriesResponse {
+  string wallet_id = 1;
+  repeated LedgerEntry entries = 2;
+  string next_cursor = 3;
+}
+
+message LedgerEntry {
+  string id = 1;
+  string transfer_id = 2;
+  string direction = 3;
+  int64 amount_cents = 4;
+  int64 balance_after_cents = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
