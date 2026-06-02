@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"enjoythings/services/internal/domain"
+	"enjoythings/services/internal/event"
+	"enjoythings/services/internal/outbox"
 	"enjoythings/services/internal/repo/queries"
 
 	"github.com/google/uuid"
@@ -121,6 +123,18 @@ func (db *Database) CreateTransfer(ctx context.Context, userID, fromWalletID, to
 		return domain.Transfer{}, err
 	}
 
+	payload, err := event.MarshalTransactionInitiated(transfer, from.Currency)
+	if err != nil {
+		return domain.Transfer{}, err
+	}
+	topic := db.outboxTopic
+	if topic == "" {
+		topic = event.TransactionInitiatedTopic
+	}
+	if _, err := outbox.NewRepository(tx).Enqueue(ctx, topic, from.ID.String(), payload); err != nil {
+		return domain.Transfer{}, err
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return domain.Transfer{}, err
 	}
@@ -163,16 +177,26 @@ func (db *Database) RunMigrations(ctx context.Context) error {
 		return errors.New("resolve migration path")
 	}
 	path := filepath.Join(filepath.Dir(file), "..", "..", "db", "migrations", "000001_enable_pgcrypto.up.sql")
-	sql, err := os.ReadFile(path)
+	migrationDir := filepath.Dir(path)
+	files, err := filepath.Glob(filepath.Join(migrationDir, "*.up.sql"))
 	if err != nil {
 		return err
 	}
-	_, err = db.pool.Exec(ctx, string(sql))
-	return err
+	sort.Strings(files)
+	for _, file := range files {
+		sql, err := os.ReadFile(file)
+		if err != nil {
+			return err
+		}
+		if _, err := db.pool.Exec(ctx, string(sql)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (db *Database) Truncate(ctx context.Context) error {
-	_, err := db.pool.Exec(ctx, `TRUNCATE ledger_entries, transfers, wallets RESTART IDENTITY CASCADE`)
+	_, err := db.pool.Exec(ctx, `TRUNCATE outbox_events, ledger_entries, transfers, wallets RESTART IDENTITY CASCADE`)
 	return err
 }
 

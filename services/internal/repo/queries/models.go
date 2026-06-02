@@ -18,6 +18,16 @@ type LedgerEntry struct {
 	CreatedAt    pgtype.Timestamptz
 }
 
+type OutboxEvent struct {
+	ID           pgtype.UUID
+	Topic        string
+	PartitionKey string
+	Payload      []byte
+	ClaimedAt    pgtype.Timestamptz
+	PublishedAt  pgtype.Timestamptz
+	CreatedAt    pgtype.Timestamptz
+}
+
 type Transfer struct {
 	ID           pgtype.UUID
 	FromWalletID pgtype.UUID

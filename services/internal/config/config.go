@@ -15,22 +15,30 @@ const (
 	defaultWalletGRPCAddr        = "127.0.0.1:9090"
 	defaultLedgerGRPCAddr        = "127.0.0.1:9091"
 	defaultLedgerServiceGRPCAddr = ":9091"
+	defaultKafkaBrokers          = "127.0.0.1:9092"
+	defaultWalletOutboxTopic     = "tx.initiated"
 	defaultDBMaxConns            = 10
+	defaultWalletOutboxBatchSize = 100
 	defaultRateLimitBurst        = 60
 	defaultRateLimitRefillEvery  = time.Second
+	defaultWalletOutboxPollEvery = 100 * time.Millisecond
 )
 
 type Config struct {
-	AppEnv               string
-	HTTPAddr             string
-	GRPCAddr             string
-	WalletGRPCAddr       string
-	LedgerGRPCAddr       string
-	DatabaseURL          string
-	JWTSecret            string
-	DBMaxConns           int32
-	RateLimitBurst       int
-	RateLimitRefillEvery time.Duration
+	AppEnv                   string
+	HTTPAddr                 string
+	GRPCAddr                 string
+	WalletGRPCAddr           string
+	LedgerGRPCAddr           string
+	DatabaseURL              string
+	JWTSecret                string
+	KafkaBrokers             string
+	WalletOutboxTopic        string
+	DBMaxConns               int32
+	WalletOutboxBatchSize    int
+	WalletOutboxPollInterval time.Duration
+	RateLimitBurst           int
+	RateLimitRefillEvery     time.Duration
 }
 
 func Load() (Config, error) {
@@ -64,7 +72,32 @@ func LoadFromLookup(lookup func(string) (string, bool)) (Config, error) {
 }
 
 func LoadWalletFromLookup(lookup func(string) (string, bool)) (Config, error) {
-	return loadBase(lookup, defaultGRPCAddr)
+	cfg, err := loadBase(lookup, defaultGRPCAddr)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.KafkaBrokers = valueOrDefault(lookup, "KAFKA_BROKERS", defaultKafkaBrokers)
+	cfg.WalletOutboxTopic = valueOrDefault(lookup, "WALLET_OUTBOX_TOPIC", defaultWalletOutboxTopic)
+	cfg.WalletOutboxPollInterval = defaultWalletOutboxPollEvery
+	cfg.WalletOutboxBatchSize = defaultWalletOutboxBatchSize
+
+	if raw, ok := lookup("WALLET_OUTBOX_POLL_INTERVAL"); ok && raw != "" {
+		value, err := time.ParseDuration(raw)
+		if err != nil || value <= 0 {
+			return Config{}, fmt.Errorf("WALLET_OUTBOX_POLL_INTERVAL must be a positive duration")
+		}
+		cfg.WalletOutboxPollInterval = value
+	}
+
+	if raw, ok := lookup("WALLET_OUTBOX_BATCH_SIZE"); ok && raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value <= 0 {
+			return Config{}, fmt.Errorf("WALLET_OUTBOX_BATCH_SIZE must be a positive integer")
+		}
+		cfg.WalletOutboxBatchSize = value
+	}
+
+	return cfg, nil
 }
 
 func LoadLedgerFromLookup(lookup func(string) (string, bool)) (Config, error) {
