@@ -2,12 +2,15 @@ package repo
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"testing"
 	"time"
 
 	"enjoythings/services/internal/domain"
+	"enjoythings/services/internal/event"
+	"enjoythings/services/internal/outbox"
 
 	"github.com/google/uuid"
 	"github.com/testcontainers/testcontainers-go"
@@ -100,6 +103,50 @@ func TestRepositoryTransferUpdatesBalancesAndLedgerEntries(t *testing.T) {
 	}
 }
 
+func TestRepositoryTransferCreatesUnpublishedOutboxEvent(t *testing.T) {
+	ctx := context.Background()
+	db := newIntegrationDB(t, ctx)
+	fromUserID := uuid.New()
+	from := createWalletFixture(t, ctx, db, fromUserID, 5000)
+	to := createWalletFixture(t, ctx, db, uuid.New(), 5000)
+
+	transfer, err := db.CreateTransfer(ctx, fromUserID, from.ID, to.ID, 1250)
+	if err != nil {
+		t.Fatalf("CreateTransfer: %v", err)
+	}
+
+	events, err := outbox.NewRepository(db.pool).ClaimUnpublished(ctx, 10)
+	if err != nil {
+		t.Fatalf("ClaimUnpublished: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("outbox events len = %d, want 1", len(events))
+	}
+	outboxEvent := events[0]
+	if outboxEvent.Topic != "tx.initiated" {
+		t.Fatalf("Topic = %q, want tx.initiated", outboxEvent.Topic)
+	}
+	if outboxEvent.PartitionKey != from.ID.String() {
+		t.Fatalf("PartitionKey = %q, want %s", outboxEvent.PartitionKey, from.ID)
+	}
+	if outboxEvent.PublishedAt != nil {
+		t.Fatalf("PublishedAt = %v, want nil", outboxEvent.PublishedAt)
+	}
+
+	var payload event.TransactionInitiated
+	if err := json.Unmarshal(outboxEvent.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if payload.TransferID != transfer.ID.String() ||
+		payload.FromWalletID != from.ID.String() ||
+		payload.ToWalletID != to.ID.String() ||
+		payload.AmountCents != 1250 ||
+		payload.Currency != "USD" ||
+		!payload.InitiatedAt.Equal(transfer.CreatedAt) {
+		t.Fatalf("payload = %+v, want transfer %s from %s to %s", payload, transfer.ID, from.ID, to.ID)
+	}
+}
+
 func TestRepositoryInsufficientFundsRollsBack(t *testing.T) {
 	ctx := context.Background()
 	db := newIntegrationDB(t, ctx)
@@ -128,6 +175,13 @@ func TestRepositoryInsufficientFundsRollsBack(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("ledger entries were created after rollback: %+v", entries)
+	}
+	outboxEvents, err := outbox.NewRepository(db.pool).ClaimUnpublished(ctx, 10)
+	if err != nil {
+		t.Fatalf("ClaimUnpublished: %v", err)
+	}
+	if len(outboxEvents) != 0 {
+		t.Fatalf("outbox events were created after rollback: %+v", outboxEvents)
 	}
 }
 

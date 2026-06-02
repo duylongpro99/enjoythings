@@ -3,14 +3,17 @@ package repo
 import (
 	"context"
 
+	"enjoythings/services/internal/event"
+	"enjoythings/services/internal/outbox"
 	"enjoythings/services/internal/repo/queries"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Database struct {
-	pool    *pgxpool.Pool
-	queries *queries.Queries
+	pool        *pgxpool.Pool
+	queries     *queries.Queries
+	outboxTopic string
 }
 
 func NewPoolConfig(databaseURL string, maxConns int32) (*pgxpool.Config, error) {
@@ -33,13 +36,23 @@ func Connect(ctx context.Context, databaseURL string, maxConns int32) (*Database
 		return nil, err
 	}
 
-	db := &Database{pool: pool, queries: queries.New(pool)}
+	db := &Database{pool: pool, queries: queries.New(pool), outboxTopic: event.TransactionInitiatedTopic}
 	if err := db.Ping(ctx); err != nil {
 		pool.Close()
 		return nil, err
 	}
 
 	return db, nil
+}
+
+func (db *Database) SetOutboxTopic(topic string) {
+	if topic != "" {
+		db.outboxTopic = topic
+	}
+}
+
+func (db *Database) OutboxRepository() *outbox.Repository {
+	return outbox.NewRepository(db.pool)
 }
 
 func (db *Database) Ping(ctx context.Context) error {

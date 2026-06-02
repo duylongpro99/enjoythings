@@ -7,10 +7,12 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	walletv1 "enjoythings/services/gen/wallet/v1"
 	"enjoythings/services/internal/config"
+	"enjoythings/services/internal/outbox"
 	"enjoythings/services/internal/repo"
 	"enjoythings/services/internal/wallet"
 	"enjoythings/services/internal/walletgrpc"
@@ -39,6 +41,24 @@ func run() error {
 		return err
 	}
 	defer db.Close()
+	db.SetOutboxTopic(cfg.WalletOutboxTopic)
+
+	producer, err := outbox.NewKafkaProducer(splitCSV(cfg.KafkaBrokers))
+	if err != nil {
+		return err
+	}
+	defer producer.Close()
+
+	publisher := outbox.NewPublisher(
+		db.OutboxRepository(),
+		producer,
+		outbox.PublisherConfig{
+			PollInterval: cfg.WalletOutboxPollInterval,
+			BatchSize:    cfg.WalletOutboxBatchSize,
+		},
+		slog.Default(),
+	)
+	go publisher.Run(ctx)
 
 	listener, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {
@@ -65,4 +85,16 @@ func run() error {
 		}
 		return err
 	}
+}
+
+func splitCSV(value string) []string {
+	parts := strings.Split(value, ",")
+	items := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			items = append(items, part)
+		}
+	}
+	return items
 }
