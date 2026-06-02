@@ -1,6 +1,7 @@
 # Phase 1 Spec: Testing and Verification
 
 **Phase:** 1 - Monolith  
+**Priority:** P0  
 **Status:** Draft  
 **Last updated:** 2026-06-02
 

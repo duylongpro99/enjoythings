@@ -1,6 +1,7 @@
 # Phase 1 Spec: Wallets
 
 **Phase:** 1 - Monolith  
+**Priority:** P2  
 **Status:** Draft  
 **Last updated:** 2026-06-02
 

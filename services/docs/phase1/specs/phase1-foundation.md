@@ -1,6 +1,7 @@
 # Phase 1 Spec: Foundation
 
 **Phase:** 1 - Monolith  
+**Priority:** P0  
 **Status:** Draft  
 **Last updated:** 2026-06-02
 

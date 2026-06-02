@@ -1,6 +1,7 @@
 # Phase 1 Spec: API Contract
 
 **Phase:** 1 - Monolith  
+**Priority:** P1  
 **Status:** Draft  
 **Last updated:** 2026-06-02
 
