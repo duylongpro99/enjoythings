@@ -1,6 +1,6 @@
 ## Containerize
 
-- Prioritize using Docker container to run external provider such as: Postgres,...
+- Prioritize using Docker container to run external provider such as: Postgres, Kafka,...
 
 ## Think Before Build
 
