@@ -80,23 +80,32 @@ func TestServiceTransfersPropagateDomainErrors(t *testing.T) {
 func TestServiceListsLedgerOnlyForOwnedWalletAndBoundsLimit(t *testing.T) {
 	userID := uuid.New()
 	walletID := uuid.New()
+	cursor := repo.LedgerCursor{CreatedAt: time.Now(), ID: uuid.New(), Valid: true}
+	nextCursor := repo.LedgerCursor{CreatedAt: time.Now().Add(-time.Second), ID: uuid.New(), Valid: true}
 	store := &fakeStore{
 		wallets: map[uuid.UUID]domain.Wallet{
 			walletID: {ID: walletID, UserID: userID, Currency: "USD"},
 		},
 		entries: []domain.LedgerEntry{{ID: uuid.New(), WalletID: walletID, CreatedAt: time.Now()}},
+		next:    nextCursor,
 	}
 	service := NewService(store)
 
-	entries, _, err := service.ListLedger(context.Background(), userID, walletID, repo.LedgerCursor{}, 0)
+	entries, next, err := service.ListLedger(context.Background(), userID, walletID, cursor, 0)
 	if err != nil {
 		t.Fatalf("ListLedger: %v", err)
 	}
 	if len(entries) != 1 {
 		t.Fatalf("entries len = %d, want 1", len(entries))
 	}
-	if store.listLimit != defaultLedgerLimit+1 {
-		t.Fatalf("repo list limit = %d, want %d", store.listLimit, defaultLedgerLimit+1)
+	if store.listLimit != defaultLedgerLimit {
+		t.Fatalf("repo list limit = %d, want %d", store.listLimit, defaultLedgerLimit)
+	}
+	if store.listCursor != cursor {
+		t.Fatalf("repo list cursor = %s, want %s", store.listCursor, cursor)
+	}
+	if next != nextCursor {
+		t.Fatalf("next cursor = %s, want %s", next, nextCursor)
 	}
 
 	if _, _, err := service.ListLedger(context.Background(), uuid.New(), walletID, repo.LedgerCursor{}, 50); err != domain.ErrNotFound {
@@ -113,6 +122,8 @@ type fakeStore struct {
 	createdCurrency string
 	transferCalled  bool
 	listLimit       int
+	listCursor      repo.LedgerCursor
+	next            repo.LedgerCursor
 }
 
 func (store *fakeStore) CreateWallet(_ context.Context, userID uuid.UUID, currency string) (domain.Wallet, error) {
@@ -142,7 +153,8 @@ func (store *fakeStore) CreateTransfer(_ context.Context, userID, fromWalletID, 
 	return domain.Transfer{ID: uuid.New(), FromWalletID: fromWalletID, ToWalletID: toWalletID, Amount: amount}, nil
 }
 
-func (store *fakeStore) ListLedgerEntries(_ context.Context, _ uuid.UUID, _ repo.LedgerCursor, limit int) ([]domain.LedgerEntry, repo.LedgerCursor, error) {
+func (store *fakeStore) ListLedgerEntries(_ context.Context, _ uuid.UUID, cursor repo.LedgerCursor, limit int) ([]domain.LedgerEntry, repo.LedgerCursor, error) {
 	store.listLimit = limit
-	return store.entries, repo.LedgerCursor{}, nil
+	store.listCursor = cursor
+	return store.entries, store.next, nil
 }
