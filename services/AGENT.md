@@ -19,3 +19,7 @@
 
 ## Document usage
 - **Document Up-to-date**: Before using any document, verify it matches the current codebase. If it references missing files, broken symbols, or outdated behavior — flag it, reconcile against live code, and update the stale sections before proceeding. Never propose a milestone based on assumptions you haven't confirmed in code.
+
+## Engineering Principles
+- Default using worktree when implement new feature/spec/plan of project. 
+- After finish implementation, push worktree to origin and clean local worktree.
