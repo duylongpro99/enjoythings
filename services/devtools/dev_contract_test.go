@@ -48,6 +48,24 @@ func TestReadmeDocumentsWatchModeForAnyGoService(t *testing.T) {
 	requireContains(t, readme, "docker compose up --build")
 }
 
+func TestWalletRepositoryUsesGeneratedQueries(t *testing.T) {
+	root := repoRoot(t)
+
+	walletRepo := readText(t, filepath.Join(root, "internal", "repo", "wallets.go"))
+	requireContains(t, walletRepo, `"enjoythings/services/internal/repo/queries"`)
+	requireContains(t, walletRepo, "db.queries.CreateWallet")
+	requireContains(t, walletRepo, "db.queries.GetWallet")
+
+	for _, rawSQL := range []string{
+		"INSERT INTO wallets",
+		"SELECT id, user_id, balance, currency, created_at, updated_at",
+	} {
+		if strings.Contains(walletRepo, rawSQL) {
+			t.Fatalf("wallet repository must use sqlc-generated queries, found raw SQL fragment %q", rawSQL)
+		}
+	}
+}
+
 func repoRoot(t *testing.T) string {
 	t.Helper()
 

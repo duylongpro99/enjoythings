@@ -3,11 +3,14 @@ package repo
 import (
 	"context"
 
+	"enjoythings/services/internal/repo/queries"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Database struct {
-	pool *pgxpool.Pool
+	pool    *pgxpool.Pool
+	queries *queries.Queries
 }
 
 func NewPoolConfig(databaseURL string, maxConns int32) (*pgxpool.Config, error) {
@@ -30,7 +33,7 @@ func Connect(ctx context.Context, databaseURL string, maxConns int32) (*Database
 		return nil, err
 	}
 
-	db := &Database{pool: pool}
+	db := &Database{pool: pool, queries: queries.New(pool)}
 	if err := db.Ping(ctx); err != nil {
 		pool.Close()
 		return nil, err

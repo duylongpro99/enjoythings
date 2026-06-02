@@ -11,9 +11,11 @@ import (
 	"time"
 
 	"enjoythings/services/internal/domain"
+	"enjoythings/services/internal/repo/queries"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type LedgerCursor struct {
@@ -23,25 +25,25 @@ type LedgerCursor struct {
 }
 
 func (db *Database) CreateWallet(ctx context.Context, userID uuid.UUID, currency string) (domain.Wallet, error) {
-	var wallet domain.Wallet
-	err := db.pool.QueryRow(ctx, `
-		INSERT INTO wallets (user_id, currency)
-		VALUES ($1, $2)
-		RETURNING id, user_id, balance, currency, created_at, updated_at
-	`, userID, currency).Scan(&wallet.ID, &wallet.UserID, &wallet.Balance, &wallet.Currency, &wallet.CreatedAt, &wallet.UpdatedAt)
-	return wallet, err
+	wallet, err := db.queries.CreateWallet(ctx, queries.CreateWalletParams{
+		UserID:   pgUUID(userID),
+		Currency: currency,
+	})
+	if err != nil {
+		return domain.Wallet{}, err
+	}
+	return walletFromQuery(wallet), nil
 }
 
 func (db *Database) GetWallet(ctx context.Context, id uuid.UUID) (domain.Wallet, error) {
-	wallet, err := scanWallet(db.pool.QueryRow(ctx, `
-		SELECT id, user_id, balance, currency, created_at, updated_at
-		FROM wallets
-		WHERE id = $1
-	`, id))
+	wallet, err := db.queries.GetWallet(ctx, pgUUID(id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Wallet{}, domain.ErrNotFound
 	}
-	return wallet, err
+	if err != nil {
+		return domain.Wallet{}, err
+	}
+	return walletFromQuery(wallet), nil
 }
 
 func (db *Database) CreateTransfer(ctx context.Context, userID, fromWalletID, toWalletID uuid.UUID, amount int64) (domain.Transfer, error) {
@@ -82,36 +84,40 @@ func (db *Database) CreateTransfer(ctx context.Context, userID, fromWalletID, to
 		return domain.Transfer{}, err
 	}
 
-	if _, err := tx.Exec(ctx, `UPDATE wallets SET balance = $2, updated_at = now() WHERE id = $1`, from.ID, from.Balance); err != nil {
+	qtx := db.queries.WithTx(tx)
+	if _, err := qtx.UpdateWalletBalance(ctx, queries.UpdateWalletBalanceParams{ID: pgUUID(from.ID), Balance: from.Balance}); err != nil {
 		return domain.Transfer{}, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE wallets SET balance = $2, updated_at = now() WHERE id = $1`, to.ID, to.Balance); err != nil {
+	if _, err := qtx.UpdateWalletBalance(ctx, queries.UpdateWalletBalanceParams{ID: pgUUID(to.ID), Balance: to.Balance}); err != nil {
 		return domain.Transfer{}, err
 	}
 
-	var transfer domain.Transfer
-	err = tx.QueryRow(ctx, `
-		INSERT INTO transfers (from_wallet_id, to_wallet_id, amount)
-		VALUES ($1, $2, $3)
-		RETURNING id, from_wallet_id, to_wallet_id, amount, status, created_at
-	`, fromWalletID, toWalletID, amount).Scan(
-		&transfer.ID, &transfer.FromWalletID, &transfer.ToWalletID, &transfer.Amount,
-		&transfer.Status, &transfer.CreatedAt,
-	)
+	createdTransfer, err := qtx.CreateTransfer(ctx, queries.CreateTransferParams{
+		FromWalletID: pgUUID(fromWalletID),
+		ToWalletID:   pgUUID(toWalletID),
+		Amount:       amount,
+	})
 	if err != nil {
 		return domain.Transfer{}, err
 	}
 
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO ledger_entries (wallet_id, transfer_id, direction, amount, balance_after)
-		VALUES ($1, $2, 'debit', $3, $4)
-	`, from.ID, transfer.ID, amount, from.Balance); err != nil {
+	transfer := transferFromQuery(createdTransfer)
+	if _, err := qtx.CreateLedgerEntry(ctx, queries.CreateLedgerEntryParams{
+		WalletID:     pgUUID(from.ID),
+		TransferID:   pgUUID(transfer.ID),
+		Direction:    "debit",
+		Amount:       amount,
+		BalanceAfter: from.Balance,
+	}); err != nil {
 		return domain.Transfer{}, err
 	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO ledger_entries (wallet_id, transfer_id, direction, amount, balance_after)
-		VALUES ($1, $2, 'credit', $3, $4)
-	`, to.ID, transfer.ID, amount, to.Balance); err != nil {
+	if _, err := qtx.CreateLedgerEntry(ctx, queries.CreateLedgerEntryParams{
+		WalletID:     pgUUID(to.ID),
+		TransferID:   pgUUID(transfer.ID),
+		Direction:    "credit",
+		Amount:       amount,
+		BalanceAfter: to.Balance,
+	}); err != nil {
 		return domain.Transfer{}, err
 	}
 
@@ -128,35 +134,19 @@ func (db *Database) ListLedgerEntries(ctx context.Context, walletID uuid.UUID, c
 		return nil, LedgerCursor{}, domain.ErrInvalidAmount
 	}
 	queryLimit := limit + 1
-	args := []any{walletID, queryLimit}
-	query := `
-		SELECT id, wallet_id, transfer_id, direction, amount, balance_after, created_at
-		FROM ledger_entries
-		WHERE wallet_id = $1
-	`
-	if cursor.Valid {
-		query += ` AND (created_at, id) < ($3, $4)`
-		args = append(args, cursor.CreatedAt, cursor.ID)
+	params := queries.ListLedgerEntriesParams{
+		WalletID: pgUUID(walletID),
+		Limit:    int32(queryLimit),
 	}
-	query += ` ORDER BY created_at DESC, id DESC LIMIT $2`
-
-	rows, err := db.pool.Query(ctx, query, args...)
+	if cursor.Valid {
+		params.CursorCreatedAt = pgtype.Timestamptz{Time: cursor.CreatedAt, Valid: true}
+		params.CursorID = pgUUID(cursor.ID)
+	}
+	rows, err := db.queries.ListLedgerEntries(ctx, params)
 	if err != nil {
 		return nil, LedgerCursor{}, err
 	}
-	defer rows.Close()
-
-	entries := make([]domain.LedgerEntry, 0, limit)
-	for rows.Next() {
-		var entry domain.LedgerEntry
-		if err := rows.Scan(&entry.ID, &entry.WalletID, &entry.TransferID, &entry.Direction, &entry.Amount, &entry.BalanceAfter, &entry.CreatedAt); err != nil {
-			return nil, LedgerCursor{}, err
-		}
-		entries = append(entries, entry)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, LedgerCursor{}, err
-	}
+	entries := ledgerEntriesFromQuery(rows)
 
 	next := LedgerCursor{}
 	if len(entries) > limit {
@@ -187,18 +177,8 @@ func (db *Database) Truncate(ctx context.Context) error {
 }
 
 func (db *Database) SetWalletBalanceForTest(ctx context.Context, walletID uuid.UUID, balance int64) error {
-	_, err := db.pool.Exec(ctx, `UPDATE wallets SET balance = $2, updated_at = now() WHERE id = $1`, walletID, balance)
+	_, err := db.queries.UpdateWalletBalance(ctx, queries.UpdateWalletBalanceParams{ID: pgUUID(walletID), Balance: balance})
 	return err
-}
-
-type walletScanner interface {
-	Scan(dest ...any) error
-}
-
-func scanWallet(row walletScanner) (domain.Wallet, error) {
-	var wallet domain.Wallet
-	err := row.Scan(&wallet.ID, &wallet.UserID, &wallet.Balance, &wallet.Currency, &wallet.CreatedAt, &wallet.UpdatedAt)
-	return wallet, err
 }
 
 func lockWallets(ctx context.Context, tx pgx.Tx, firstID, secondID uuid.UUID) (map[uuid.UUID]domain.Wallet, error) {
@@ -206,28 +186,18 @@ func lockWallets(ctx context.Context, tx pgx.Tx, firstID, secondID uuid.UUID) (m
 	sort.Slice(ids, func(i, j int) bool {
 		return ids[i].String() < ids[j].String()
 	})
-	rows, err := tx.Query(ctx, `
-		SELECT id, user_id, balance, currency, created_at, updated_at
-		FROM wallets
-		WHERE id = ANY($1::uuid[])
-		ORDER BY id
-		FOR UPDATE
-	`, ids)
+	pgIDs := make([]pgtype.UUID, 0, len(ids))
+	for _, id := range ids {
+		pgIDs = append(pgIDs, pgUUID(id))
+	}
+	rows, err := queries.New(tx).LockWalletsForTransfer(ctx, pgIDs)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
 	wallets := make(map[uuid.UUID]domain.Wallet, 2)
-	for rows.Next() {
-		var wallet domain.Wallet
-		if err := rows.Scan(&wallet.ID, &wallet.UserID, &wallet.Balance, &wallet.Currency, &wallet.CreatedAt, &wallet.UpdatedAt); err != nil {
-			return nil, err
-		}
+	for _, row := range rows {
+		wallet := walletFromQuery(row)
 		wallets[wallet.ID] = wallet
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
 	}
 	if len(wallets) != 2 {
 		return wallets, nil
@@ -240,4 +210,53 @@ func (cursor LedgerCursor) String() string {
 		return ""
 	}
 	return fmt.Sprintf("%s/%s", cursor.CreatedAt.Format(time.RFC3339Nano), cursor.ID)
+}
+
+func pgUUID(id uuid.UUID) pgtype.UUID {
+	return pgtype.UUID{Bytes: id, Valid: true}
+}
+
+func uuidFromPG(id pgtype.UUID) uuid.UUID {
+	if !id.Valid {
+		return uuid.Nil
+	}
+	return uuid.UUID(id.Bytes)
+}
+
+func walletFromQuery(wallet queries.Wallet) domain.Wallet {
+	return domain.Wallet{
+		ID:        uuidFromPG(wallet.ID),
+		UserID:    uuidFromPG(wallet.UserID),
+		Balance:   wallet.Balance,
+		Currency:  wallet.Currency,
+		CreatedAt: wallet.CreatedAt.Time,
+		UpdatedAt: wallet.UpdatedAt.Time,
+	}
+}
+
+func transferFromQuery(transfer queries.Transfer) domain.Transfer {
+	return domain.Transfer{
+		ID:           uuidFromPG(transfer.ID),
+		FromWalletID: uuidFromPG(transfer.FromWalletID),
+		ToWalletID:   uuidFromPG(transfer.ToWalletID),
+		Amount:       transfer.Amount,
+		Status:       transfer.Status,
+		CreatedAt:    transfer.CreatedAt.Time,
+	}
+}
+
+func ledgerEntriesFromQuery(rows []queries.LedgerEntry) []domain.LedgerEntry {
+	entries := make([]domain.LedgerEntry, 0, len(rows))
+	for _, row := range rows {
+		entries = append(entries, domain.LedgerEntry{
+			ID:           uuidFromPG(row.ID),
+			WalletID:     uuidFromPG(row.WalletID),
+			TransferID:   uuidFromPG(row.TransferID),
+			Direction:    row.Direction,
+			Amount:       row.Amount,
+			BalanceAfter: row.BalanceAfter,
+			CreatedAt:    row.CreatedAt.Time,
+		})
+	}
+	return entries
 }
