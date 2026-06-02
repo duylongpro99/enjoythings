@@ -1,0 +1,62 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Node / Next.js
+node_modules/
+.pnpm-store/
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+.next-env.d.ts
+
+# Go
+bin/
+coverage.out
+*.test
+
+# Local data and generated state
+*.db
+*.sqlite
+*.sqlite3
+*.log
+logs/
+reports/
+exports/
+chroma/
+chromadb/
+.chroma/
+data/chroma/
+session*.db
+sessions.db
+
+# OS and editor files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Docker/local runtime
+.tmp/
+tmp/
