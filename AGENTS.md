@@ -38,3 +38,5 @@
 - Prefer designs that maximize clarity, adaptability, and change isolation while minimizing complexity and coupling.
 - Preserve clear boundaries and maintain low coupling with high cohesion.
 - Introduce abstractions only when they provide meaningful long-term value.
+- Default using worktree when implement new feature/spec/plan of project. 
+- After finish implementation, push worktree to origin and clean local worktree.
