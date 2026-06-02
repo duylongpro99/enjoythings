@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+package wallet.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "enjoythings/services/gen/wallet/v1;walletv1";
+
+// WalletService owns wallet creation, balance reads, and transfer initiation.
+//
+// Expected gRPC status mapping:
+// - INVALID_ARGUMENT for malformed input.
+// - NOT_FOUND for missing wallets.
+// - FAILED_PRECONDITION for insufficient funds.
+// - INTERNAL for unexpected persistence or infrastructure errors.
+service WalletService {
+  rpc CreateWallet(CreateWalletRequest) returns (CreateWalletResponse);
+  rpc GetBalance(GetBalanceRequest) returns (GetBalanceResponse);
+  rpc InitiateTransfer(InitiateTransferRequest) returns (InitiateTransferResponse);
+}
+
+message CreateWalletRequest {
+  string user_id = 1;
+  string currency = 2;
+}
+
+message CreateWalletResponse {
+  Wallet wallet = 1;
+}
+
+message GetBalanceRequest {
+  string wallet_id = 1;
+}
+
+message GetBalanceResponse {
+  string wallet_id = 1;
+  int64 balance_cents = 2;
+  string currency = 3;
+}
+
+message InitiateTransferRequest {
+  string from_wallet_id = 1;
+  string to_wallet_id = 2;
+  int64 amount_cents = 3;
+}
+
+message InitiateTransferResponse {
+  string transfer_id = 1;
+  string status = 2;
+  BalanceChange balances = 3;
+}
+
+message Wallet {
+  string id = 1;
+  string user_id = 2;
+  int64 balance_cents = 3;
+  string currency = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message BalanceChange {
+  int64 from_balance_cents = 1;
+  int64 to_balance_cents = 2;
+}
