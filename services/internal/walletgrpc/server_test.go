@@ -129,6 +129,58 @@ func TestGetBalancePassesMetadataUserID(t *testing.T) {
 	}
 }
 
+func TestGetWalletPassesMetadataUserIDAndMapsWallet(t *testing.T) {
+	userID := uuid.New()
+	walletID := uuid.New()
+	createdAt := time.Date(2026, 6, 2, 2, 0, 0, 0, time.UTC)
+	app := &fakeApp{
+		getWallet: domain.Wallet{ID: walletID, UserID: userID, Balance: 1200, Currency: "USD", CreatedAt: createdAt, UpdatedAt: createdAt.Add(time.Minute)},
+	}
+	server := NewServer(app)
+
+	resp, err := server.GetWallet(contextWithUserID(userID), &walletv1.GetWalletRequest{
+		WalletId: walletID.String(),
+	})
+	if err != nil {
+		t.Fatalf("GetWallet error = %v", err)
+	}
+
+	if app.getWalletUserID != userID {
+		t.Fatalf("GetWallet userID = %s, want %s", app.getWalletUserID, userID)
+	}
+	if resp.GetWallet().GetId() != walletID.String() {
+		t.Fatalf("wallet id = %q, want %q", resp.GetWallet().GetId(), walletID.String())
+	}
+	if resp.GetWallet().GetBalanceCents() != 1200 {
+		t.Fatalf("balance = %d, want 1200", resp.GetWallet().GetBalanceCents())
+	}
+	if resp.GetWallet().GetCreatedAt().AsTime() != createdAt {
+		t.Fatalf("created_at = %s, want %s", resp.GetWallet().GetCreatedAt().AsTime(), createdAt)
+	}
+}
+
+func TestGetWalletMapsDomainErrors(t *testing.T) {
+	tests := map[string]struct {
+		err  error
+		code codes.Code
+	}{
+		"not found":              {err: domain.ErrNotFound, code: codes.NotFound},
+		"unexpected persistence": {err: errors.New("connection refused"), code: codes.Internal},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			server := NewServer(&fakeApp{getWalletErr: tc.err})
+
+			_, err := server.GetWallet(contextWithUserID(uuid.New()), &walletv1.GetWalletRequest{
+				WalletId: uuid.NewString(),
+			})
+
+			assertCode(t, err, tc.code)
+		})
+	}
+}
+
 func TestInitiateTransferValidatesRequest(t *testing.T) {
 	tests := map[string]*walletv1.InitiateTransferRequest{
 		"invalid from wallet": {FromWalletId: "bad", ToWalletId: uuid.NewString(), AmountCents: 1},
@@ -197,6 +249,10 @@ type fakeApp struct {
 	createErr    error
 	createUserID uuid.UUID
 
+	getWallet       domain.Wallet
+	getWalletErr    error
+	getWalletUserID uuid.UUID
+
 	balanceWallet domain.Wallet
 	balanceErr    error
 	balanceUserID uuid.UUID
@@ -223,6 +279,17 @@ func (app *fakeApp) GetBalance(_ context.Context, userID, walletID uuid.UUID) (d
 		return domain.Wallet{}, app.balanceErr
 	}
 	wallet := app.balanceWallet
+	wallet.ID = walletID
+	wallet.UserID = userID
+	return wallet, nil
+}
+
+func (app *fakeApp) GetWallet(_ context.Context, userID, walletID uuid.UUID) (domain.Wallet, error) {
+	app.getWalletUserID = userID
+	if app.getWalletErr != nil {
+		return domain.Wallet{}, app.getWalletErr
+	}
+	wallet := app.getWallet
 	wallet.ID = walletID
 	wallet.UserID = userID
 	return wallet, nil
