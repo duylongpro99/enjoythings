@@ -16,7 +16,7 @@ The core strategy is contract-first vertical slicing: align migration and contra
 | P3 | `03-wallet-saga-integration.md` | Add idempotent wallet debit and compensation commands | P1, P2 interface expectations |
 | P4 | `04-ledger-saga-integration.md` | Add ledger reserve, confirm, cancel, and read model behavior | P1, P2 interface expectations |
 | P5 | `05-payment-processor.md` | Add idempotent payment command consumer and stub rail integration | P1, P2 event expectations |
-| P6 | `06-verification-service.md` | Replace real KYC with auto-approved internal eligibility verification | P1 |
+| P6 | `06-verification-service.md` | Add auto-approved internal eligibility verification | P1 |
 | P7 | `07-notification-service.md` | Consume completion, failure, and verification events through stub adapters | P1, P5, P6 |
 | P8 | `08-kubernetes-and-helm.md` | Add local Kubernetes deployment with Helm, probes, config, and secrets | P2-P7 |
 | P9 | `09-e2e-resilience-tests.md` | Prove happy path, compensation, restart, duplicate event, and rollout behavior | P2-P8 |
@@ -31,7 +31,7 @@ The core strategy is contract-first vertical slicing: align migration and contra
 
 ## Phase 3 Decisions Captured Here
 
-- Real KYC provider integration is out of scope for Phase 3.
+- Real legal identity provider integration is out of scope for Phase 3.
 - Phase 3 uses an internal Verification Service with `VERIFICATION_MODE=auto` by default.
 - The saga orchestrator owns payment coordination and compensation.
 - Wallet and Ledger expose idempotent operations for the saga; Kafka completion events are not used as commands for compensation.

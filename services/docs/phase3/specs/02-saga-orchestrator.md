@@ -29,7 +29,7 @@ Phase 2 performs transfers inside the Wallet service transaction and emits `tx.i
 ## Out of Scope
 
 - Real payment rail implementation.
-- Real KYC provider integration.
+- Real legal identity provider integration.
 - Kubernetes deployment.
 - Distributed tracing backend.
 
