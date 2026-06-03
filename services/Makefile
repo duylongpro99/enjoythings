@@ -19,7 +19,7 @@ dev: dev-db
 	air -c .air.toml
 
 dev-db:
-	docker compose -f docker-compose.dev.yml up -d postgres
+	docker compose -f docker-compose.dev.yml up -d postgres kafka kafka-init
 
 test:
 	go test ./...

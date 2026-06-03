@@ -55,7 +55,7 @@ func TestRepositoryCreatesAndReadsWallet(t *testing.T) {
 	}
 }
 
-func TestRepositoryTransferUpdatesBalancesAndLedgerEntries(t *testing.T) {
+func TestRepositoryTransferUpdatesBalancesAndDefersLedgerEntries(t *testing.T) {
 	ctx := context.Background()
 	db := newIntegrationDB(t, ctx)
 	fromUserID := uuid.New()
@@ -90,17 +90,8 @@ func TestRepositoryTransferUpdatesBalancesAndLedgerEntries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListLedgerEntries(to): %v", err)
 	}
-	if len(fromEntries) != 1 || fromEntries[0].Direction != "debit" || fromEntries[0].BalanceAfter != 3750 {
-		t.Fatalf("from ledger entries = %+v", fromEntries)
-	}
-	if len(toEntries) != 1 || toEntries[0].Direction != "credit" || toEntries[0].BalanceAfter != 6250 {
-		t.Fatalf("to ledger entries = %+v", toEntries)
-	}
-	if fromEntries[0].TransferID != transfer.ID || toEntries[0].TransferID != transfer.ID {
-		t.Fatalf("ledger transfer IDs = %s/%s, want %s", fromEntries[0].TransferID, toEntries[0].TransferID, transfer.ID)
-	}
-	if fromEntries[0].Amount != 1250 || toEntries[0].Amount != 1250 {
-		t.Fatalf("ledger amounts = %d/%d, want 1250/1250", fromEntries[0].Amount, toEntries[0].Amount)
+	if len(fromEntries) != 0 || len(toEntries) != 0 {
+		t.Fatalf("CreateTransfer must defer ledger writes to the ledger Kafka consumer, got from=%+v to=%+v", fromEntries, toEntries)
 	}
 }
 
@@ -317,8 +308,18 @@ func TestRepositoryLedgerPaginationIsStableNewestFirst(t *testing.T) {
 	from := createWalletFixture(t, ctx, db, userID, 1000)
 	to := createWalletFixture(t, ctx, db, uuid.New(), 0)
 	for range 3 {
-		if _, err := db.CreateTransfer(ctx, userID, from.ID, to.ID, 100); err != nil {
+		transfer, err := db.CreateTransfer(ctx, userID, from.ID, to.ID, 100)
+		if err != nil {
 			t.Fatalf("CreateTransfer: %v", err)
+		}
+		if err := db.AppendTransferEntries(ctx, LedgerTransfer{
+			TransferID:   transfer.ID,
+			FromWalletID: from.ID,
+			ToWalletID:   to.ID,
+			AmountCents:  100,
+			Currency:     "USD",
+		}); err != nil {
+			t.Fatalf("AppendTransferEntries: %v", err)
 		}
 	}
 
@@ -358,6 +359,15 @@ func TestRepositoryLedgerFiltersByWalletID(t *testing.T) {
 	transfer, err := db.CreateTransfer(ctx, userID, from.ID, to.ID, 250)
 	if err != nil {
 		t.Fatalf("CreateTransfer: %v", err)
+	}
+	if err := db.AppendTransferEntries(ctx, LedgerTransfer{
+		TransferID:   transfer.ID,
+		FromWalletID: from.ID,
+		ToWalletID:   to.ID,
+		AmountCents:  250,
+		Currency:     "USD",
+	}); err != nil {
+		t.Fatalf("AppendTransferEntries: %v", err)
 	}
 
 	fromEntries, _, err := db.ListLedgerEntries(ctx, from.ID, LedgerCursor{}, 10)

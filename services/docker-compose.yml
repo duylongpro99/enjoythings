@@ -6,25 +6,129 @@ services:
       POSTGRES_USER: enjoythings
       POSTGRES_PASSWORD: enjoythings_dev_password
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U enjoythings -d enjoythings"]
       interval: 5s
       timeout: 5s
       retries: 10
 
-  api:
+  kafka:
+    image: apache/kafka:3.9.0
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    ports:
+      - "${KAFKA_PORT:-9092}:9092"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+
+  kafka-init:
+    image: apache/kafka:3.9.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command:
+      - /bin/sh
+      - -ec
+      - /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic tx.initiated --partitions 1 --replication-factor 1
+
+  gateway:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        SERVICE: gateway
     environment:
       APP_ENV: local
       HTTP_ADDR: :8080
-      DATABASE_URL: postgres://enjoythings:enjoythings_dev_password@postgres:5432/enjoythings?sslmode=disable
       JWT_SECRET: local-dev-jwt-secret-change-me
-      DB_MAX_CONNS: "10"
+      WALLET_GRPC_ADDR: wallet:9090
+      LEDGER_GRPC_ADDR: ledger:9091
+      RATE_LIMIT_BURST: "600"
+      RATE_LIMIT_REFILL_EVERY: 1s
     ports:
-      - "${API_PORT:-8080}:8080"
+      - "${GATEWAY_PORT:-8080}:8080"
+    depends_on:
+      wallet:
+        condition: service_healthy
+      ledger:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:8080/healthz >/dev/null && wget -q -O- http://localhost:8080/readyz >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  wallet:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: wallet
+    environment:
+      APP_ENV: local
+      HTTP_ADDR: :8080
+      GRPC_ADDR: :9090
+      DATABASE_URL: postgres://enjoythings:enjoythings_dev_password@postgres:5432/enjoythings?sslmode=disable
+      DB_MAX_CONNS: "10"
+      KAFKA_BROKERS: kafka:9092
+      WALLET_OUTBOX_TOPIC: tx.initiated
+      WALLET_OUTBOX_POLL_INTERVAL: 100ms
+      WALLET_OUTBOX_BATCH_SIZE: "100"
+    ports:
+      - "${WALLET_HTTP_PORT:-8081}:8080"
+      - "${WALLET_GRPC_PORT:-9090}:9090"
     depends_on:
       postgres:
         condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:8080/healthz >/dev/null && wget -q -O- http://localhost:8080/readyz >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  ledger:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: ledger
+    environment:
+      APP_ENV: local
+      HTTP_ADDR: :8080
+      GRPC_ADDR: :9091
+      DATABASE_URL: postgres://enjoythings:enjoythings_dev_password@postgres:5432/enjoythings?sslmode=disable
+      DB_MAX_CONNS: "10"
+      KAFKA_BROKERS: kafka:9092
+      LEDGER_CONSUMER_ENABLED: "true"
+      LEDGER_CONSUMER_TOPIC: tx.initiated
+      LEDGER_CONSUMER_GROUP_ID: ledger-service
+    ports:
+      - "${LEDGER_HTTP_PORT:-8082}:8080"
+      - "${LEDGER_GRPC_PORT:-9091}:9091"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:8080/healthz >/dev/null && wget -q -O- http://localhost:8080/readyz >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 20

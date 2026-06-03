@@ -113,25 +113,6 @@ func (db *Database) CreateTransfer(ctx context.Context, userID, fromWalletID, to
 	}
 
 	transfer := transferFromQuery(createdTransfer)
-	if _, err := qtx.CreateLedgerEntry(ctx, queries.CreateLedgerEntryParams{
-		WalletID:     pgUUID(from.ID),
-		TransferID:   pgUUID(transfer.ID),
-		Direction:    "debit",
-		Amount:       amount,
-		BalanceAfter: from.Balance,
-	}); err != nil {
-		return domain.Transfer{}, err
-	}
-	if _, err := qtx.CreateLedgerEntry(ctx, queries.CreateLedgerEntryParams{
-		WalletID:     pgUUID(to.ID),
-		TransferID:   pgUUID(transfer.ID),
-		Direction:    "credit",
-		Amount:       amount,
-		BalanceAfter: to.Balance,
-	}); err != nil {
-		return domain.Transfer{}, err
-	}
-
 	payload, err := event.MarshalTransactionInitiated(transfer, from.Currency)
 	if err != nil {
 		return domain.Transfer{}, err
@@ -259,6 +240,13 @@ func (db *Database) AppendTransferEntries(ctx context.Context, transfer LedgerTr
 }
 
 func (db *Database) RunMigrations(ctx context.Context) error {
+	if _, err := db.pool.Exec(ctx, `SELECT pg_advisory_lock(hashtext('enjoythings_services_migrations'))`); err != nil {
+		return err
+	}
+	defer func() {
+		_, _ = db.pool.Exec(context.Background(), `SELECT pg_advisory_unlock(hashtext('enjoythings_services_migrations'))`)
+	}()
+
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
 		return errors.New("resolve migration path")

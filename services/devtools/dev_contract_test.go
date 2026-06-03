@@ -14,7 +14,7 @@ func TestDevModeHasParameterizedWatcherEntrypoint(t *testing.T) {
 	requireContains(t, makefile, "SERVICE ?= api")
 	requireContains(t, makefile, "DEV_CMD=go run ./cmd/$(SERVICE)")
 	requireContains(t, makefile, "air -c .air.toml")
-	requireContains(t, makefile, "docker compose -f docker-compose.dev.yml up -d postgres")
+	requireContains(t, makefile, "docker compose -f docker-compose.dev.yml up -d postgres kafka kafka-init")
 
 	airConfig := readText(t, filepath.Join(root, ".air.toml"))
 	requireContains(t, airConfig, `cmd = "${DEV_CMD}"`)
@@ -28,6 +28,8 @@ func TestDevComposeDoesNotBuildGoServiceContainer(t *testing.T) {
 	devCompose := readText(t, filepath.Join(root, "docker-compose.dev.yml"))
 	requireContains(t, devCompose, "services:")
 	requireContains(t, devCompose, "postgres:")
+	requireContains(t, devCompose, "kafka:")
+	requireContains(t, devCompose, "kafka-init:")
 
 	if strings.Contains(devCompose, "\n  api:") {
 		t.Fatal("docker-compose.dev.yml must not define the API container; dev mode runs Go services locally")
@@ -45,7 +47,41 @@ func TestReadmeDocumentsWatchModeForAnyGoService(t *testing.T) {
 	requireContains(t, readme, "SERVICE=api make dev")
 	requireContains(t, readme, "SERVICE=<name> make dev")
 	requireContains(t, readme, "go install github.com/air-verse/air@latest")
-	requireContains(t, readme, "docker compose up --build")
+	requireContains(t, readme, "docker compose up -d --build")
+}
+
+func TestPhase2ComposeDeclaresFullLocalStack(t *testing.T) {
+	root := repoRoot(t)
+
+	compose := readText(t, filepath.Join(root, "docker-compose.yml"))
+	for _, service := range []string{
+		"postgres:",
+		"kafka:",
+		"kafka-init:",
+		"gateway:",
+		"wallet:",
+		"ledger:",
+	} {
+		requireContains(t, compose, "\n  "+service)
+	}
+	for _, config := range []string{
+		"WALLET_GRPC_ADDR: wallet:9090",
+		"LEDGER_GRPC_ADDR: ledger:9091",
+		"KAFKA_BROKERS: kafka:9092",
+		"WALLET_OUTBOX_TOPIC: tx.initiated",
+		"LEDGER_CONSUMER_TOPIC: tx.initiated",
+		"LEDGER_CONSUMER_GROUP_ID: ledger-service",
+		"CMD-SHELL",
+		"/healthz",
+		"/readyz",
+	} {
+		requireContains(t, compose, config)
+	}
+
+	readme := readText(t, filepath.Join(root, "README.md"))
+	requireContains(t, readme, "go run ./devtools/phase2_smoke")
+	requireContains(t, readme, "docker compose up -d --build")
+	requireContains(t, readme, "docker compose restart ledger")
 }
 
 func TestWalletRepositoryUsesGeneratedQueries(t *testing.T) {

@@ -5,13 +5,16 @@ import (
 	"errors"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	ledgerv1 "enjoythings/services/gen/ledger/v1"
 	"enjoythings/services/internal/config"
+	healthhandler "enjoythings/services/internal/handler"
 	"enjoythings/services/internal/ledgerconsumer"
 	"enjoythings/services/internal/ledgergrpc"
 	"enjoythings/services/internal/repo"
@@ -41,6 +44,9 @@ func run() error {
 		return err
 	}
 	defer db.Close()
+	if err := db.RunMigrations(ctx); err != nil {
+		return err
+	}
 
 	var consumer *ledgerconsumer.KafkaConsumer
 	if cfg.LedgerConsumerEnabled {
@@ -65,11 +71,16 @@ func run() error {
 
 	grpcServer := grpc.NewServer()
 	ledgerv1.RegisterLedgerServiceServer(grpcServer, ledgergrpc.NewServer(wallet.NewService(db)))
+	httpServer := healthServer(cfg.HTTPAddr, db)
 
 	errCh := make(chan error, 1)
 	go func() {
 		slog.Info("ledger grpc listening", "addr", cfg.GRPCAddr, "env", cfg.AppEnv)
 		errCh <- grpcServer.Serve(listener)
+	}()
+	go func() {
+		slog.Info("ledger health listening", "addr", cfg.HTTPAddr, "env", cfg.AppEnv)
+		errCh <- httpServer.ListenAndServe()
 	}()
 	if consumer != nil {
 		go func() {
@@ -81,9 +92,11 @@ func run() error {
 	select {
 	case <-ctx.Done():
 		grpcServer.GracefulStop()
-		return nil
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return httpServer.Shutdown(shutdownCtx)
 	case err := <-errCh:
-		if errors.Is(err, grpc.ErrServerStopped) {
+		if errors.Is(err, grpc.ErrServerStopped) || errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
 		return err
@@ -100,4 +113,15 @@ func brokersFromConfig(raw string) []string {
 		}
 	}
 	return brokers
+}
+
+func healthServer(addr string, db *repo.Database) *http.Server {
+	mux := http.NewServeMux()
+	mux.Handle("/healthz", healthhandler.Health())
+	mux.Handle("/readyz", healthhandler.Ready(db))
+	return &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 }
