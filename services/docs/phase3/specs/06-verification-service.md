@@ -1,16 +1,16 @@
 # Phase 3.6: Verification Service
 
-**Priority:** P6 - eligibility gate without real KYC  
+**Priority:** P6 - internal eligibility gate
 **Session size:** One implementation session  
 **Depends on:** P1
 
 ## Goal
 
-Replace real KYC with an internal Verification Service that provides a simple eligibility gate for saga payments.
+Add an internal Verification Service that provides a simple eligibility gate for saga payments.
 
 ## Problem
 
-Phase 3 needs a precondition service to exercise distributed validation, state machines, Kafka events, and notifications, but there is no real KYC provider and legal identity verification is outside the intended scope.
+Phase 3 needs a precondition service to exercise distributed validation, state machines, Kafka events, and notifications, but legal identity verification is outside the intended scope.
 
 ## Scope
 
@@ -24,7 +24,7 @@ Phase 3 needs a precondition service to exercise distributed validation, state m
 
 ## Out of Scope
 
-- Real legal KYC.
+- Real legal identity verification.
 - Document upload.
 - Provider webhooks.
 - PII-heavy storage.
@@ -58,4 +58,4 @@ unverified -> verified   # auto mode
 - Saga rejects unverified users with `FAILED_PRECONDITION`.
 - Duplicate submit requests are idempotent.
 - `user.verified` is published when status becomes verified.
-- No real KYC provider or sensitive document storage is introduced.
+- No legal identity provider or sensitive document storage is introduced.

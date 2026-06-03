@@ -18,15 +18,15 @@ Saga Orchestrator ──gRPC──► Wallet Service ──► Postgres
   │                │
   │                └──gRPC──► Ledger Service ──► Event Store
   │
+  ├──gRPC──► Verification Service ──► Postgres
+  │
   ├── Kafka: payment.execute ──► Payment Processor ──► Stub Rail
   │                                    │
   │                           payment.completed/failed
   │
   ├── Kafka: tx.completed / tx.failed
   │
-  ├──gRPC──► KYC Service ──► Postgres
-  │
-  └── Kafka: tx.completed, kyc.verified ──► Notification Service
+  └── Kafka: tx.completed, tx.failed, user.verified, user.rejected ──► Notification Service
 ```
 
 ---
@@ -34,8 +34,9 @@ Saga Orchestrator ──gRPC──► Wallet Service ──► Postgres
 ## 2. Saga state machine
 
 ```
-States: STARTED → WALLET_DEBITED → LEDGER_RESERVED →
-        PAYMENT_PROCESSING → LEDGER_CONFIRMED → COMPLETED
+States: STARTED → VERIFICATION_CHECKED → WALLET_DEBITED →
+        LEDGER_RESERVED → PAYMENT_PROCESSING → LEDGER_CONFIRMED →
+        COMPLETED
 
 Compensation (reverse):
 COMPENSATING_LEDGER → COMPENSATING_WALLET → FAILED
@@ -47,10 +48,13 @@ COMPENSATING_LEDGER → COMPENSATING_WALLET → FAILED
 CREATE TABLE sagas (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   payment_id      UUID NOT NULL UNIQUE,
+  idempotency_key TEXT NOT NULL,
+  user_id         UUID NOT NULL,
   state           TEXT NOT NULL DEFAULT 'STARTED',
   from_wallet_id  UUID NOT NULL,
   to_wallet_id    UUID NOT NULL,
   amount_cents    BIGINT NOT NULL,
+  currency        TEXT NOT NULL,
   last_error      TEXT,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -65,6 +69,14 @@ The orchestrator updates `state` atomically at each step. On restart, it queries
 func (o *Orchestrator) RunSaga(ctx context.Context, saga *Saga) error {
     switch saga.State {
     case "STARTED":
+        if err := o.checkVerification(ctx, saga); err != nil {
+            return o.fail(ctx, saga, err)
+        }
+        saga.State = "VERIFICATION_CHECKED"
+        o.repo.Save(ctx, saga)
+        fallthrough
+
+    case "VERIFICATION_CHECKED":
         if err := o.debitWallet(ctx, saga); err != nil {
             return o.compensate(ctx, saga, err)
         }
@@ -138,41 +150,46 @@ for attempt, wait := range backoff {
 
 ---
 
-## 4. KYC service state machine
+## 4. Verification service state machine
 
 ```
-UNVERIFIED ──submit──► PENDING ──approve──► VERIFIED
-                              └──reject──► REJECTED
+UNVERIFIED ──submit(auto)──► VERIFIED
+UNVERIFIED ──submit(manual)──► PENDING ──approve──► VERIFIED
+                                  └──reject──► REJECTED
 ```
 
 ```go
-type KYCState string
+type VerificationState string
 
 const (
-    Unverified KYCState = "unverified"
-    Pending    KYCState = "pending"
-    Verified   KYCState = "verified"
-    Rejected   KYCState = "rejected"
+    Unverified VerificationState = "unverified"
+    Pending    VerificationState = "pending"
+    Verified   VerificationState = "verified"
+    Rejected   VerificationState = "rejected"
 )
 
-func (k *KYC) Submit() error {
-    if k.State != Unverified {
+func (v *Verification) Submit(mode string) error {
+    if v.State != Unverified {
         return ErrInvalidTransition
     }
-    k.State = Pending
+    if mode == "auto" {
+        v.State = Verified
+        return nil
+    }
+    v.State = Pending
     return nil
 }
 
-func (k *KYC) Approve() error {
-    if k.State != Pending {
+func (v *Verification) Approve() error {
+    if v.State != Pending {
         return ErrInvalidTransition
     }
-    k.State = Verified
+    v.State = Verified
     return nil
 }
 ```
 
-The wallet service calls `KYCService.GetStatus(user_id)` via gRPC before any transfer. If status is not `verified`, the transfer is rejected with `FAILED_PRECONDITION`.
+`VERIFICATION_MODE=auto` is the default local mode. The Saga Orchestrator calls `VerificationService.GetStatus(user_id)` via gRPC before wallet debit. If status is not `verified`, `StartPaymentSaga` fails with `FAILED_PRECONDITION` and the gateway returns HTTP `422`.
 
 ---
 
@@ -190,7 +207,7 @@ charts/
 │       └── configmap.yaml
 ├── wallet/
 ├── ledger/
-├── kyc/
+├── verification/
 ├── saga-orchestrator/
 ├── payment-processor/
 └── notification/
@@ -240,9 +257,9 @@ autoscaling:
 | `payment.completed` | Payment Processor | Saga Orchestrator |
 | `payment.failed` | Payment Processor | Saga Orchestrator |
 | `tx.completed` | Saga Orchestrator | Notification, Ledger |
-| `tx.failed` | Saga Orchestrator | Notification, Wallet (compensate) |
-| `kyc.verified` | KYC Service | Wallet (unblock user), Notification |
-| `kyc.rejected` | KYC Service | Notification |
+| `tx.failed` | Saga Orchestrator | Notification |
+| `user.verified` | Verification Service | Notification |
+| `user.rejected` | Verification Service | Notification |
 
 ---
 
@@ -251,9 +268,9 @@ autoscaling:
 Every service adds these fields to every log line:
 
 ```go
-log.Info("transfer initiated",
+log.Info("payment saga started",
     "trace_id",      traceID,      // manually propagated via gRPC metadata for now
-    "transfer_id",   transferID,
+    "payment_id",    paymentID,
     "from_wallet_id", fromID,
     "amount_cents",  amount,
     "duration_ms",   duration.Milliseconds(),
