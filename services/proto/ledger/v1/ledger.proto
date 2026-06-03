@@ -14,6 +14,9 @@ option go_package = "enjoythings/services/gen/ledger/v1;ledgerv1";
 // - INTERNAL for unexpected persistence or infrastructure errors.
 service LedgerService {
   rpc GetEntries(GetEntriesRequest) returns (GetEntriesResponse);
+  rpc ReserveTransfer(ReserveTransferRequest) returns (ReserveTransferResponse);
+  rpc ConfirmTransfer(ConfirmTransferRequest) returns (ConfirmTransferResponse);
+  rpc CancelReservation(CancelReservationRequest) returns (CancelReservationResponse);
 }
 
 message GetEntriesRequest {
@@ -35,4 +38,49 @@ message LedgerEntry {
   int64 amount_cents = 4;
   int64 balance_after_cents = 5;
   google.protobuf.Timestamp created_at = 6;
+}
+
+message ReserveTransferRequest {
+  string payment_id = 1;
+  string idempotency_key = 2;
+  string trace_id = 3;
+  string from_wallet_id = 4;
+  string to_wallet_id = 5;
+  int64 amount_cents = 6;
+  string currency = 7;
+}
+
+message ReserveTransferResponse {
+  string payment_id = 1;
+  string ledger_reservation_id = 2;
+  string status = 3;
+}
+
+message ConfirmTransferRequest {
+  string payment_id = 1;
+  string idempotency_key = 2;
+  string trace_id = 3;
+  string ledger_reservation_id = 4;
+  string wallet_debit_id = 5;
+}
+
+message ConfirmTransferResponse {
+  string payment_id = 1;
+  string transfer_id = 2;
+  string status = 3;
+  google.protobuf.Timestamp completed_at = 4;
+}
+
+message CancelReservationRequest {
+  string payment_id = 1;
+  string idempotency_key = 2;
+  string trace_id = 3;
+  string ledger_reservation_id = 4;
+  string reason = 5;
+}
+
+message CancelReservationResponse {
+  string payment_id = 1;
+  string ledger_reservation_id = 2;
+  string status = 3;
 }

@@ -18,6 +18,8 @@ service WalletService {
   rpc GetWallet(GetWalletRequest) returns (GetWalletResponse);
   rpc GetBalance(GetBalanceRequest) returns (GetBalanceResponse);
   rpc InitiateTransfer(InitiateTransferRequest) returns (InitiateTransferResponse);
+  rpc DebitForSaga(DebitForSagaRequest) returns (DebitForSagaResponse);
+  rpc CompensateDebit(CompensateDebitRequest) returns (CompensateDebitResponse);
 }
 
 message CreateWalletRequest {
@@ -71,4 +73,39 @@ message Wallet {
 message BalanceChange {
   int64 from_balance_cents = 1;
   int64 to_balance_cents = 2;
+}
+
+message DebitForSagaRequest {
+  string payment_id = 1;
+  string idempotency_key = 2;
+  string trace_id = 3;
+  string from_wallet_id = 4;
+  int64 amount_cents = 5;
+  string currency = 6;
+  string ledger_reservation_id = 7;
+}
+
+message DebitForSagaResponse {
+  string payment_id = 1;
+  string wallet_debit_id = 2;
+  string status = 3;
+  int64 balance_after_cents = 4;
+}
+
+message CompensateDebitRequest {
+  string payment_id = 1;
+  string idempotency_key = 2;
+  string trace_id = 3;
+  string from_wallet_id = 4;
+  string wallet_debit_id = 5;
+  int64 amount_cents = 6;
+  string currency = 7;
+  string reason = 8;
+}
+
+message CompensateDebitResponse {
+  string payment_id = 1;
+  string compensation_id = 2;
+  string status = 3;
+  int64 balance_after_cents = 4;
 }

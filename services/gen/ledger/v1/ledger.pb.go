@@ -226,6 +226,438 @@ func (x *LedgerEntry) GetCreatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+type ReserveTransferRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	PaymentId      string                 `protobuf:"bytes,1,opt,name=payment_id,json=paymentId,proto3" json:"payment_id,omitempty"`
+	IdempotencyKey string                 `protobuf:"bytes,2,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	TraceId        string                 `protobuf:"bytes,3,opt,name=trace_id,json=traceId,proto3" json:"trace_id,omitempty"`
+	FromWalletId   string                 `protobuf:"bytes,4,opt,name=from_wallet_id,json=fromWalletId,proto3" json:"from_wallet_id,omitempty"`
+	ToWalletId     string                 `protobuf:"bytes,5,opt,name=to_wallet_id,json=toWalletId,proto3" json:"to_wallet_id,omitempty"`
+	AmountCents    int64                  `protobuf:"varint,6,opt,name=amount_cents,json=amountCents,proto3" json:"amount_cents,omitempty"`
+	Currency       string                 `protobuf:"bytes,7,opt,name=currency,proto3" json:"currency,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ReserveTransferRequest) Reset() {
+	*x = ReserveTransferRequest{}
+	mi := &file_ledger_v1_ledger_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReserveTransferRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReserveTransferRequest) ProtoMessage() {}
+
+func (x *ReserveTransferRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ledger_v1_ledger_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReserveTransferRequest.ProtoReflect.Descriptor instead.
+func (*ReserveTransferRequest) Descriptor() ([]byte, []int) {
+	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ReserveTransferRequest) GetPaymentId() string {
+	if x != nil {
+		return x.PaymentId
+	}
+	return ""
+}
+
+func (x *ReserveTransferRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
+func (x *ReserveTransferRequest) GetTraceId() string {
+	if x != nil {
+		return x.TraceId
+	}
+	return ""
+}
+
+func (x *ReserveTransferRequest) GetFromWalletId() string {
+	if x != nil {
+		return x.FromWalletId
+	}
+	return ""
+}
+
+func (x *ReserveTransferRequest) GetToWalletId() string {
+	if x != nil {
+		return x.ToWalletId
+	}
+	return ""
+}
+
+func (x *ReserveTransferRequest) GetAmountCents() int64 {
+	if x != nil {
+		return x.AmountCents
+	}
+	return 0
+}
+
+func (x *ReserveTransferRequest) GetCurrency() string {
+	if x != nil {
+		return x.Currency
+	}
+	return ""
+}
+
+type ReserveTransferResponse struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	PaymentId           string                 `protobuf:"bytes,1,opt,name=payment_id,json=paymentId,proto3" json:"payment_id,omitempty"`
+	LedgerReservationId string                 `protobuf:"bytes,2,opt,name=ledger_reservation_id,json=ledgerReservationId,proto3" json:"ledger_reservation_id,omitempty"`
+	Status              string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *ReserveTransferResponse) Reset() {
+	*x = ReserveTransferResponse{}
+	mi := &file_ledger_v1_ledger_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReserveTransferResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReserveTransferResponse) ProtoMessage() {}
+
+func (x *ReserveTransferResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_ledger_v1_ledger_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReserveTransferResponse.ProtoReflect.Descriptor instead.
+func (*ReserveTransferResponse) Descriptor() ([]byte, []int) {
+	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *ReserveTransferResponse) GetPaymentId() string {
+	if x != nil {
+		return x.PaymentId
+	}
+	return ""
+}
+
+func (x *ReserveTransferResponse) GetLedgerReservationId() string {
+	if x != nil {
+		return x.LedgerReservationId
+	}
+	return ""
+}
+
+func (x *ReserveTransferResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+type ConfirmTransferRequest struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	PaymentId           string                 `protobuf:"bytes,1,opt,name=payment_id,json=paymentId,proto3" json:"payment_id,omitempty"`
+	IdempotencyKey      string                 `protobuf:"bytes,2,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	TraceId             string                 `protobuf:"bytes,3,opt,name=trace_id,json=traceId,proto3" json:"trace_id,omitempty"`
+	LedgerReservationId string                 `protobuf:"bytes,4,opt,name=ledger_reservation_id,json=ledgerReservationId,proto3" json:"ledger_reservation_id,omitempty"`
+	WalletDebitId       string                 `protobuf:"bytes,5,opt,name=wallet_debit_id,json=walletDebitId,proto3" json:"wallet_debit_id,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *ConfirmTransferRequest) Reset() {
+	*x = ConfirmTransferRequest{}
+	mi := &file_ledger_v1_ledger_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConfirmTransferRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConfirmTransferRequest) ProtoMessage() {}
+
+func (x *ConfirmTransferRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ledger_v1_ledger_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConfirmTransferRequest.ProtoReflect.Descriptor instead.
+func (*ConfirmTransferRequest) Descriptor() ([]byte, []int) {
+	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *ConfirmTransferRequest) GetPaymentId() string {
+	if x != nil {
+		return x.PaymentId
+	}
+	return ""
+}
+
+func (x *ConfirmTransferRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
+func (x *ConfirmTransferRequest) GetTraceId() string {
+	if x != nil {
+		return x.TraceId
+	}
+	return ""
+}
+
+func (x *ConfirmTransferRequest) GetLedgerReservationId() string {
+	if x != nil {
+		return x.LedgerReservationId
+	}
+	return ""
+}
+
+func (x *ConfirmTransferRequest) GetWalletDebitId() string {
+	if x != nil {
+		return x.WalletDebitId
+	}
+	return ""
+}
+
+type ConfirmTransferResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PaymentId     string                 `protobuf:"bytes,1,opt,name=payment_id,json=paymentId,proto3" json:"payment_id,omitempty"`
+	TransferId    string                 `protobuf:"bytes,2,opt,name=transfer_id,json=transferId,proto3" json:"transfer_id,omitempty"`
+	Status        string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
+	CompletedAt   *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=completed_at,json=completedAt,proto3" json:"completed_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConfirmTransferResponse) Reset() {
+	*x = ConfirmTransferResponse{}
+	mi := &file_ledger_v1_ledger_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConfirmTransferResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConfirmTransferResponse) ProtoMessage() {}
+
+func (x *ConfirmTransferResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_ledger_v1_ledger_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConfirmTransferResponse.ProtoReflect.Descriptor instead.
+func (*ConfirmTransferResponse) Descriptor() ([]byte, []int) {
+	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ConfirmTransferResponse) GetPaymentId() string {
+	if x != nil {
+		return x.PaymentId
+	}
+	return ""
+}
+
+func (x *ConfirmTransferResponse) GetTransferId() string {
+	if x != nil {
+		return x.TransferId
+	}
+	return ""
+}
+
+func (x *ConfirmTransferResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *ConfirmTransferResponse) GetCompletedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CompletedAt
+	}
+	return nil
+}
+
+type CancelReservationRequest struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	PaymentId           string                 `protobuf:"bytes,1,opt,name=payment_id,json=paymentId,proto3" json:"payment_id,omitempty"`
+	IdempotencyKey      string                 `protobuf:"bytes,2,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	TraceId             string                 `protobuf:"bytes,3,opt,name=trace_id,json=traceId,proto3" json:"trace_id,omitempty"`
+	LedgerReservationId string                 `protobuf:"bytes,4,opt,name=ledger_reservation_id,json=ledgerReservationId,proto3" json:"ledger_reservation_id,omitempty"`
+	Reason              string                 `protobuf:"bytes,5,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *CancelReservationRequest) Reset() {
+	*x = CancelReservationRequest{}
+	mi := &file_ledger_v1_ledger_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelReservationRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelReservationRequest) ProtoMessage() {}
+
+func (x *CancelReservationRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ledger_v1_ledger_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelReservationRequest.ProtoReflect.Descriptor instead.
+func (*CancelReservationRequest) Descriptor() ([]byte, []int) {
+	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *CancelReservationRequest) GetPaymentId() string {
+	if x != nil {
+		return x.PaymentId
+	}
+	return ""
+}
+
+func (x *CancelReservationRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
+func (x *CancelReservationRequest) GetTraceId() string {
+	if x != nil {
+		return x.TraceId
+	}
+	return ""
+}
+
+func (x *CancelReservationRequest) GetLedgerReservationId() string {
+	if x != nil {
+		return x.LedgerReservationId
+	}
+	return ""
+}
+
+func (x *CancelReservationRequest) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+type CancelReservationResponse struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	PaymentId           string                 `protobuf:"bytes,1,opt,name=payment_id,json=paymentId,proto3" json:"payment_id,omitempty"`
+	LedgerReservationId string                 `protobuf:"bytes,2,opt,name=ledger_reservation_id,json=ledgerReservationId,proto3" json:"ledger_reservation_id,omitempty"`
+	Status              string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *CancelReservationResponse) Reset() {
+	*x = CancelReservationResponse{}
+	mi := &file_ledger_v1_ledger_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelReservationResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelReservationResponse) ProtoMessage() {}
+
+func (x *CancelReservationResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_ledger_v1_ledger_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelReservationResponse.ProtoReflect.Descriptor instead.
+func (*CancelReservationResponse) Descriptor() ([]byte, []int) {
+	return file_ledger_v1_ledger_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *CancelReservationResponse) GetPaymentId() string {
+	if x != nil {
+		return x.PaymentId
+	}
+	return ""
+}
+
+func (x *CancelReservationResponse) GetLedgerReservationId() string {
+	if x != nil {
+		return x.LedgerReservationId
+	}
+	return ""
+}
+
+func (x *CancelReservationResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
 var File_ledger_v1_ledger_proto protoreflect.FileDescriptor
 
 const file_ledger_v1_ledger_proto_rawDesc = "" +
@@ -248,10 +680,54 @@ const file_ledger_v1_ledger_proto_rawDesc = "" +
 	"\famount_cents\x18\x04 \x01(\x03R\vamountCents\x12.\n" +
 	"\x13balance_after_cents\x18\x05 \x01(\x03R\x11balanceAfterCents\x129\n" +
 	"\n" +
-	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt2Z\n" +
+	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\x82\x02\n" +
+	"\x16ReserveTransferRequest\x12\x1d\n" +
+	"\n" +
+	"payment_id\x18\x01 \x01(\tR\tpaymentId\x12'\n" +
+	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\x12\x19\n" +
+	"\btrace_id\x18\x03 \x01(\tR\atraceId\x12$\n" +
+	"\x0efrom_wallet_id\x18\x04 \x01(\tR\ffromWalletId\x12 \n" +
+	"\fto_wallet_id\x18\x05 \x01(\tR\n" +
+	"toWalletId\x12!\n" +
+	"\famount_cents\x18\x06 \x01(\x03R\vamountCents\x12\x1a\n" +
+	"\bcurrency\x18\a \x01(\tR\bcurrency\"\x84\x01\n" +
+	"\x17ReserveTransferResponse\x12\x1d\n" +
+	"\n" +
+	"payment_id\x18\x01 \x01(\tR\tpaymentId\x122\n" +
+	"\x15ledger_reservation_id\x18\x02 \x01(\tR\x13ledgerReservationId\x12\x16\n" +
+	"\x06status\x18\x03 \x01(\tR\x06status\"\xd7\x01\n" +
+	"\x16ConfirmTransferRequest\x12\x1d\n" +
+	"\n" +
+	"payment_id\x18\x01 \x01(\tR\tpaymentId\x12'\n" +
+	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\x12\x19\n" +
+	"\btrace_id\x18\x03 \x01(\tR\atraceId\x122\n" +
+	"\x15ledger_reservation_id\x18\x04 \x01(\tR\x13ledgerReservationId\x12&\n" +
+	"\x0fwallet_debit_id\x18\x05 \x01(\tR\rwalletDebitId\"\xb0\x01\n" +
+	"\x17ConfirmTransferResponse\x12\x1d\n" +
+	"\n" +
+	"payment_id\x18\x01 \x01(\tR\tpaymentId\x12\x1f\n" +
+	"\vtransfer_id\x18\x02 \x01(\tR\n" +
+	"transferId\x12\x16\n" +
+	"\x06status\x18\x03 \x01(\tR\x06status\x12=\n" +
+	"\fcompleted_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\vcompletedAt\"\xc9\x01\n" +
+	"\x18CancelReservationRequest\x12\x1d\n" +
+	"\n" +
+	"payment_id\x18\x01 \x01(\tR\tpaymentId\x12'\n" +
+	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\x12\x19\n" +
+	"\btrace_id\x18\x03 \x01(\tR\atraceId\x122\n" +
+	"\x15ledger_reservation_id\x18\x04 \x01(\tR\x13ledgerReservationId\x12\x16\n" +
+	"\x06reason\x18\x05 \x01(\tR\x06reason\"\x86\x01\n" +
+	"\x19CancelReservationResponse\x12\x1d\n" +
+	"\n" +
+	"payment_id\x18\x01 \x01(\tR\tpaymentId\x122\n" +
+	"\x15ledger_reservation_id\x18\x02 \x01(\tR\x13ledgerReservationId\x12\x16\n" +
+	"\x06status\x18\x03 \x01(\tR\x06status2\xee\x02\n" +
 	"\rLedgerService\x12I\n" +
 	"\n" +
-	"GetEntries\x12\x1c.ledger.v1.GetEntriesRequest\x1a\x1d.ledger.v1.GetEntriesResponseB-Z+enjoythings/services/gen/ledger/v1;ledgerv1b\x06proto3"
+	"GetEntries\x12\x1c.ledger.v1.GetEntriesRequest\x1a\x1d.ledger.v1.GetEntriesResponse\x12X\n" +
+	"\x0fReserveTransfer\x12!.ledger.v1.ReserveTransferRequest\x1a\".ledger.v1.ReserveTransferResponse\x12X\n" +
+	"\x0fConfirmTransfer\x12!.ledger.v1.ConfirmTransferRequest\x1a\".ledger.v1.ConfirmTransferResponse\x12^\n" +
+	"\x11CancelReservation\x12#.ledger.v1.CancelReservationRequest\x1a$.ledger.v1.CancelReservationResponseB-Z+enjoythings/services/gen/ledger/v1;ledgerv1b\x06proto3"
 
 var (
 	file_ledger_v1_ledger_proto_rawDescOnce sync.Once
@@ -265,23 +741,36 @@ func file_ledger_v1_ledger_proto_rawDescGZIP() []byte {
 	return file_ledger_v1_ledger_proto_rawDescData
 }
 
-var file_ledger_v1_ledger_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_ledger_v1_ledger_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_ledger_v1_ledger_proto_goTypes = []any{
-	(*GetEntriesRequest)(nil),     // 0: ledger.v1.GetEntriesRequest
-	(*GetEntriesResponse)(nil),    // 1: ledger.v1.GetEntriesResponse
-	(*LedgerEntry)(nil),           // 2: ledger.v1.LedgerEntry
-	(*timestamppb.Timestamp)(nil), // 3: google.protobuf.Timestamp
+	(*GetEntriesRequest)(nil),         // 0: ledger.v1.GetEntriesRequest
+	(*GetEntriesResponse)(nil),        // 1: ledger.v1.GetEntriesResponse
+	(*LedgerEntry)(nil),               // 2: ledger.v1.LedgerEntry
+	(*ReserveTransferRequest)(nil),    // 3: ledger.v1.ReserveTransferRequest
+	(*ReserveTransferResponse)(nil),   // 4: ledger.v1.ReserveTransferResponse
+	(*ConfirmTransferRequest)(nil),    // 5: ledger.v1.ConfirmTransferRequest
+	(*ConfirmTransferResponse)(nil),   // 6: ledger.v1.ConfirmTransferResponse
+	(*CancelReservationRequest)(nil),  // 7: ledger.v1.CancelReservationRequest
+	(*CancelReservationResponse)(nil), // 8: ledger.v1.CancelReservationResponse
+	(*timestamppb.Timestamp)(nil),     // 9: google.protobuf.Timestamp
 }
 var file_ledger_v1_ledger_proto_depIdxs = []int32{
 	2, // 0: ledger.v1.GetEntriesResponse.entries:type_name -> ledger.v1.LedgerEntry
-	3, // 1: ledger.v1.LedgerEntry.created_at:type_name -> google.protobuf.Timestamp
-	0, // 2: ledger.v1.LedgerService.GetEntries:input_type -> ledger.v1.GetEntriesRequest
-	1, // 3: ledger.v1.LedgerService.GetEntries:output_type -> ledger.v1.GetEntriesResponse
-	3, // [3:4] is the sub-list for method output_type
-	2, // [2:3] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	9, // 1: ledger.v1.LedgerEntry.created_at:type_name -> google.protobuf.Timestamp
+	9, // 2: ledger.v1.ConfirmTransferResponse.completed_at:type_name -> google.protobuf.Timestamp
+	0, // 3: ledger.v1.LedgerService.GetEntries:input_type -> ledger.v1.GetEntriesRequest
+	3, // 4: ledger.v1.LedgerService.ReserveTransfer:input_type -> ledger.v1.ReserveTransferRequest
+	5, // 5: ledger.v1.LedgerService.ConfirmTransfer:input_type -> ledger.v1.ConfirmTransferRequest
+	7, // 6: ledger.v1.LedgerService.CancelReservation:input_type -> ledger.v1.CancelReservationRequest
+	1, // 7: ledger.v1.LedgerService.GetEntries:output_type -> ledger.v1.GetEntriesResponse
+	4, // 8: ledger.v1.LedgerService.ReserveTransfer:output_type -> ledger.v1.ReserveTransferResponse
+	6, // 9: ledger.v1.LedgerService.ConfirmTransfer:output_type -> ledger.v1.ConfirmTransferResponse
+	8, // 10: ledger.v1.LedgerService.CancelReservation:output_type -> ledger.v1.CancelReservationResponse
+	7, // [7:11] is the sub-list for method output_type
+	3, // [3:7] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_ledger_v1_ledger_proto_init() }
@@ -295,7 +784,7 @@ func file_ledger_v1_ledger_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ledger_v1_ledger_proto_rawDesc), len(file_ledger_v1_ledger_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -19,7 +19,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	LedgerService_GetEntries_FullMethodName = "/ledger.v1.LedgerService/GetEntries"
+	LedgerService_GetEntries_FullMethodName        = "/ledger.v1.LedgerService/GetEntries"
+	LedgerService_ReserveTransfer_FullMethodName   = "/ledger.v1.LedgerService/ReserveTransfer"
+	LedgerService_ConfirmTransfer_FullMethodName   = "/ledger.v1.LedgerService/ConfirmTransfer"
+	LedgerService_CancelReservation_FullMethodName = "/ledger.v1.LedgerService/CancelReservation"
 )
 
 // LedgerServiceClient is the client API for LedgerService service.
@@ -34,6 +37,9 @@ const (
 // - INTERNAL for unexpected persistence or infrastructure errors.
 type LedgerServiceClient interface {
 	GetEntries(ctx context.Context, in *GetEntriesRequest, opts ...grpc.CallOption) (*GetEntriesResponse, error)
+	ReserveTransfer(ctx context.Context, in *ReserveTransferRequest, opts ...grpc.CallOption) (*ReserveTransferResponse, error)
+	ConfirmTransfer(ctx context.Context, in *ConfirmTransferRequest, opts ...grpc.CallOption) (*ConfirmTransferResponse, error)
+	CancelReservation(ctx context.Context, in *CancelReservationRequest, opts ...grpc.CallOption) (*CancelReservationResponse, error)
 }
 
 type ledgerServiceClient struct {
@@ -54,6 +60,36 @@ func (c *ledgerServiceClient) GetEntries(ctx context.Context, in *GetEntriesRequ
 	return out, nil
 }
 
+func (c *ledgerServiceClient) ReserveTransfer(ctx context.Context, in *ReserveTransferRequest, opts ...grpc.CallOption) (*ReserveTransferResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReserveTransferResponse)
+	err := c.cc.Invoke(ctx, LedgerService_ReserveTransfer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *ledgerServiceClient) ConfirmTransfer(ctx context.Context, in *ConfirmTransferRequest, opts ...grpc.CallOption) (*ConfirmTransferResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ConfirmTransferResponse)
+	err := c.cc.Invoke(ctx, LedgerService_ConfirmTransfer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *ledgerServiceClient) CancelReservation(ctx context.Context, in *CancelReservationRequest, opts ...grpc.CallOption) (*CancelReservationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CancelReservationResponse)
+	err := c.cc.Invoke(ctx, LedgerService_CancelReservation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LedgerServiceServer is the server API for LedgerService service.
 // All implementations must embed UnimplementedLedgerServiceServer
 // for forward compatibility.
@@ -66,6 +102,9 @@ func (c *ledgerServiceClient) GetEntries(ctx context.Context, in *GetEntriesRequ
 // - INTERNAL for unexpected persistence or infrastructure errors.
 type LedgerServiceServer interface {
 	GetEntries(context.Context, *GetEntriesRequest) (*GetEntriesResponse, error)
+	ReserveTransfer(context.Context, *ReserveTransferRequest) (*ReserveTransferResponse, error)
+	ConfirmTransfer(context.Context, *ConfirmTransferRequest) (*ConfirmTransferResponse, error)
+	CancelReservation(context.Context, *CancelReservationRequest) (*CancelReservationResponse, error)
 	mustEmbedUnimplementedLedgerServiceServer()
 }
 
@@ -78,6 +117,15 @@ type UnimplementedLedgerServiceServer struct{}
 
 func (UnimplementedLedgerServiceServer) GetEntries(context.Context, *GetEntriesRequest) (*GetEntriesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetEntries not implemented")
+}
+func (UnimplementedLedgerServiceServer) ReserveTransfer(context.Context, *ReserveTransferRequest) (*ReserveTransferResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReserveTransfer not implemented")
+}
+func (UnimplementedLedgerServiceServer) ConfirmTransfer(context.Context, *ConfirmTransferRequest) (*ConfirmTransferResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ConfirmTransfer not implemented")
+}
+func (UnimplementedLedgerServiceServer) CancelReservation(context.Context, *CancelReservationRequest) (*CancelReservationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CancelReservation not implemented")
 }
 func (UnimplementedLedgerServiceServer) mustEmbedUnimplementedLedgerServiceServer() {}
 func (UnimplementedLedgerServiceServer) testEmbeddedByValue()                       {}
@@ -118,6 +166,60 @@ func _LedgerService_GetEntries_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LedgerService_ReserveTransfer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReserveTransferRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LedgerServiceServer).ReserveTransfer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LedgerService_ReserveTransfer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LedgerServiceServer).ReserveTransfer(ctx, req.(*ReserveTransferRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LedgerService_ConfirmTransfer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ConfirmTransferRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LedgerServiceServer).ConfirmTransfer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LedgerService_ConfirmTransfer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LedgerServiceServer).ConfirmTransfer(ctx, req.(*ConfirmTransferRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LedgerService_CancelReservation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CancelReservationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LedgerServiceServer).CancelReservation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LedgerService_CancelReservation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LedgerServiceServer).CancelReservation(ctx, req.(*CancelReservationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // LedgerService_ServiceDesc is the grpc.ServiceDesc for LedgerService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -128,6 +230,18 @@ var LedgerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetEntries",
 			Handler:    _LedgerService_GetEntries_Handler,
+		},
+		{
+			MethodName: "ReserveTransfer",
+			Handler:    _LedgerService_ReserveTransfer_Handler,
+		},
+		{
+			MethodName: "ConfirmTransfer",
+			Handler:    _LedgerService_ConfirmTransfer_Handler,
+		},
+		{
+			MethodName: "CancelReservation",
+			Handler:    _LedgerService_CancelReservation_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

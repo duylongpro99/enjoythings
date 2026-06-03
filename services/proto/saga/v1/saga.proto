@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package saga.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "enjoythings/services/gen/saga/v1;sagav1";
+
+// SagaService owns Phase 3 payment orchestration state.
+//
+// Expected gRPC status mapping:
+// - INVALID_ARGUMENT for malformed input.
+// - NOT_FOUND for missing wallets, payments, or users.
+// - FAILED_PRECONDITION for insufficient funds, unverified users, or invalid state transitions.
+// - ALREADY_EXISTS for conflicting idempotency keys.
+// - UNAVAILABLE for temporarily unavailable dependencies.
+// - INTERNAL for unexpected persistence or infrastructure errors.
+service SagaService {
+  rpc StartPaymentSaga(StartPaymentSagaRequest) returns (StartPaymentSagaResponse);
+  rpc GetPaymentSaga(GetPaymentSagaRequest) returns (GetPaymentSagaResponse);
+}
+
+message StartPaymentSagaRequest {
+  string payment_id = 1;
+  string idempotency_key = 2;
+  string trace_id = 3;
+  string from_wallet_id = 4;
+  string to_wallet_id = 5;
+  int64 amount_cents = 6;
+  string currency = 7;
+  string user_id = 8;
+  string description = 9;
+}
+
+message StartPaymentSagaResponse {
+  string payment_id = 1;
+  string status = 2;
+  google.protobuf.Timestamp accepted_at = 3;
+}
+
+message GetPaymentSagaRequest {
+  string payment_id = 1;
+  string trace_id = 2;
+}
+
+message GetPaymentSagaResponse {
+  PaymentSaga saga = 1;
+}
+
+message PaymentSaga {
+  string payment_id = 1;
+  string status = 2;
+  string from_wallet_id = 3;
+  string to_wallet_id = 4;
+  int64 amount_cents = 5;
+  string currency = 6;
+  string failure_code = 7;
+  string failure_message = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+}

@@ -9,7 +9,9 @@ import (
 
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -124,6 +126,14 @@ func (client *fakeWalletServiceClient) InitiateTransfer(ctx context.Context, req
 	client.transferRequest = req
 	client.captureOutgoingUserID(ctx)
 	return client.transferResponse, client.err
+}
+
+func (client *fakeWalletServiceClient) DebitForSaga(context.Context, *walletv1.DebitForSagaRequest, ...grpc.CallOption) (*walletv1.DebitForSagaResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "DebitForSaga is not used by these tests")
+}
+
+func (client *fakeWalletServiceClient) CompensateDebit(context.Context, *walletv1.CompensateDebitRequest, ...grpc.CallOption) (*walletv1.CompensateDebitResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "CompensateDebit is not used by these tests")
 }
 
 func (client *fakeWalletServiceClient) captureOutgoingUserID(ctx context.Context) {

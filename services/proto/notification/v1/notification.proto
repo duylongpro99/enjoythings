@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package notification.v1;
+
+option go_package = "enjoythings/services/gen/notification/v1;notificationv1";
+
+// NotificationService exposes optional Phase 3 notification health and control APIs.
+service NotificationService {
+  rpc Health(HealthRequest) returns (HealthResponse);
+  rpc PauseDelivery(PauseDeliveryRequest) returns (PauseDeliveryResponse);
+  rpc ResumeDelivery(ResumeDeliveryRequest) returns (ResumeDeliveryResponse);
+}
+
+message HealthRequest {
+  string trace_id = 1;
+}
+
+message HealthResponse {
+  string status = 1;
+}
+
+message PauseDeliveryRequest {
+  string idempotency_key = 1;
+  string trace_id = 2;
+  string reason = 3;
+}
+
+message PauseDeliveryResponse {
+  string status = 1;
+}
+
+message ResumeDeliveryRequest {
+  string idempotency_key = 1;
+  string trace_id = 2;
+  string reason = 3;
+}
+
+message ResumeDeliveryResponse {
+  string status = 1;
+}

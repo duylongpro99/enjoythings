@@ -10,7 +10,9 @@ import (
 
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -77,4 +79,16 @@ func (client *fakeLedgerServiceClient) GetEntries(ctx context.Context, req *ledg
 		}
 	}
 	return client.response, client.err
+}
+
+func (client *fakeLedgerServiceClient) ReserveTransfer(context.Context, *ledgerv1.ReserveTransferRequest, ...grpc.CallOption) (*ledgerv1.ReserveTransferResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "ReserveTransfer is not used by these tests")
+}
+
+func (client *fakeLedgerServiceClient) ConfirmTransfer(context.Context, *ledgerv1.ConfirmTransferRequest, ...grpc.CallOption) (*ledgerv1.ConfirmTransferResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "ConfirmTransfer is not used by these tests")
+}
+
+func (client *fakeLedgerServiceClient) CancelReservation(context.Context, *ledgerv1.CancelReservationRequest, ...grpc.CallOption) (*ledgerv1.CancelReservationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "CancelReservation is not used by these tests")
 }

@@ -23,6 +23,8 @@ const (
 	WalletService_GetWallet_FullMethodName        = "/wallet.v1.WalletService/GetWallet"
 	WalletService_GetBalance_FullMethodName       = "/wallet.v1.WalletService/GetBalance"
 	WalletService_InitiateTransfer_FullMethodName = "/wallet.v1.WalletService/InitiateTransfer"
+	WalletService_DebitForSaga_FullMethodName     = "/wallet.v1.WalletService/DebitForSaga"
+	WalletService_CompensateDebit_FullMethodName  = "/wallet.v1.WalletService/CompensateDebit"
 )
 
 // WalletServiceClient is the client API for WalletService service.
@@ -41,6 +43,8 @@ type WalletServiceClient interface {
 	GetWallet(ctx context.Context, in *GetWalletRequest, opts ...grpc.CallOption) (*GetWalletResponse, error)
 	GetBalance(ctx context.Context, in *GetBalanceRequest, opts ...grpc.CallOption) (*GetBalanceResponse, error)
 	InitiateTransfer(ctx context.Context, in *InitiateTransferRequest, opts ...grpc.CallOption) (*InitiateTransferResponse, error)
+	DebitForSaga(ctx context.Context, in *DebitForSagaRequest, opts ...grpc.CallOption) (*DebitForSagaResponse, error)
+	CompensateDebit(ctx context.Context, in *CompensateDebitRequest, opts ...grpc.CallOption) (*CompensateDebitResponse, error)
 }
 
 type walletServiceClient struct {
@@ -91,6 +95,26 @@ func (c *walletServiceClient) InitiateTransfer(ctx context.Context, in *Initiate
 	return out, nil
 }
 
+func (c *walletServiceClient) DebitForSaga(ctx context.Context, in *DebitForSagaRequest, opts ...grpc.CallOption) (*DebitForSagaResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DebitForSagaResponse)
+	err := c.cc.Invoke(ctx, WalletService_DebitForSaga_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *walletServiceClient) CompensateDebit(ctx context.Context, in *CompensateDebitRequest, opts ...grpc.CallOption) (*CompensateDebitResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CompensateDebitResponse)
+	err := c.cc.Invoke(ctx, WalletService_CompensateDebit_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // WalletServiceServer is the server API for WalletService service.
 // All implementations must embed UnimplementedWalletServiceServer
 // for forward compatibility.
@@ -107,6 +131,8 @@ type WalletServiceServer interface {
 	GetWallet(context.Context, *GetWalletRequest) (*GetWalletResponse, error)
 	GetBalance(context.Context, *GetBalanceRequest) (*GetBalanceResponse, error)
 	InitiateTransfer(context.Context, *InitiateTransferRequest) (*InitiateTransferResponse, error)
+	DebitForSaga(context.Context, *DebitForSagaRequest) (*DebitForSagaResponse, error)
+	CompensateDebit(context.Context, *CompensateDebitRequest) (*CompensateDebitResponse, error)
 	mustEmbedUnimplementedWalletServiceServer()
 }
 
@@ -128,6 +154,12 @@ func (UnimplementedWalletServiceServer) GetBalance(context.Context, *GetBalanceR
 }
 func (UnimplementedWalletServiceServer) InitiateTransfer(context.Context, *InitiateTransferRequest) (*InitiateTransferResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method InitiateTransfer not implemented")
+}
+func (UnimplementedWalletServiceServer) DebitForSaga(context.Context, *DebitForSagaRequest) (*DebitForSagaResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DebitForSaga not implemented")
+}
+func (UnimplementedWalletServiceServer) CompensateDebit(context.Context, *CompensateDebitRequest) (*CompensateDebitResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CompensateDebit not implemented")
 }
 func (UnimplementedWalletServiceServer) mustEmbedUnimplementedWalletServiceServer() {}
 func (UnimplementedWalletServiceServer) testEmbeddedByValue()                       {}
@@ -222,6 +254,42 @@ func _WalletService_InitiateTransfer_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _WalletService_DebitForSaga_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DebitForSagaRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WalletServiceServer).DebitForSaga(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WalletService_DebitForSaga_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WalletServiceServer).DebitForSaga(ctx, req.(*DebitForSagaRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WalletService_CompensateDebit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CompensateDebitRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WalletServiceServer).CompensateDebit(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WalletService_CompensateDebit_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WalletServiceServer).CompensateDebit(ctx, req.(*CompensateDebitRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // WalletService_ServiceDesc is the grpc.ServiceDesc for WalletService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -244,6 +312,14 @@ var WalletService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "InitiateTransfer",
 			Handler:    _WalletService_InitiateTransfer_Handler,
+		},
+		{
+			MethodName: "DebitForSaga",
+			Handler:    _WalletService_DebitForSaga_Handler,
+		},
+		{
+			MethodName: "CompensateDebit",
+			Handler:    _WalletService_CompensateDebit_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

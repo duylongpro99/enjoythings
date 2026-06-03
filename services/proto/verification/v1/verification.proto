@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package verification.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "enjoythings/services/gen/verification/v1;verificationv1";
+
+// VerificationService owns internal user verification state.
+//
+// Expected gRPC status mapping:
+// - INVALID_ARGUMENT for malformed input.
+// - NOT_FOUND for missing user verification records.
+// - FAILED_PRECONDITION for invalid state transitions.
+// - ALREADY_EXISTS for conflicting idempotency keys.
+// - UNAVAILABLE for temporarily unavailable dependencies.
+// - INTERNAL for unexpected persistence or infrastructure errors.
+service VerificationService {
+  rpc SubmitVerification(SubmitVerificationRequest) returns (SubmitVerificationResponse);
+  rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
+}
+
+message SubmitVerificationRequest {
+  string payment_id = 1;
+  string idempotency_key = 2;
+  string trace_id = 3;
+  string user_id = 4;
+  string verification_id = 5;
+  string decision = 6;
+  string reason = 7;
+}
+
+message SubmitVerificationResponse {
+  string verification_id = 1;
+  string user_id = 2;
+  string status = 3;
+  google.protobuf.Timestamp decided_at = 4;
+}
+
+message GetStatusRequest {
+  string user_id = 1;
+  string trace_id = 2;
+}
+
+message GetStatusResponse {
+  string user_id = 1;
+  string status = 2;
+  string verification_id = 3;
+  string reason = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
