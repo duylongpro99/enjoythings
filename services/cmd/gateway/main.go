@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -59,7 +60,29 @@ func run() error {
 	routes.Handle("/v1/ledger/", gatewayhandler.NewLedger(ledgerClient))
 
 	limiter := gatewaymiddleware.NewRateLimiter(cfg.RateLimitBurst, cfg.RateLimitRefillEvery)
-	handler := auth.Middleware(cfg.JWTSecret)(limiter.Middleware(routes))
+	protected := auth.Middleware(cfg.JWTSecret)(limiter.Middleware(routes))
+	handler := http.NewServeMux()
+	handler.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.NotFound(w, r)
+			return
+		}
+		writeStatus(w, "ok")
+	})
+	handler.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.NotFound(w, r)
+			return
+		}
+		if err := dialReady(r.Context(), cfg.WalletGRPCAddr, cfg.LedgerGRPCAddr); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"error":{"code":"service_unavailable","message":"upstream service is not ready"}}` + "\n"))
+			return
+		}
+		writeStatus(w, "ready")
+	})
+	handler.Handle("/", protected)
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           handler,
@@ -83,4 +106,22 @@ func run() error {
 		}
 		return err
 	}
+}
+
+func dialReady(ctx context.Context, addrs ...string) error {
+	dialer := net.Dialer{Timeout: time.Second}
+	for _, addr := range addrs {
+		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		if err != nil {
+			return err
+		}
+		_ = conn.Close()
+	}
+	return nil
+}
+
+func writeStatus(w http.ResponseWriter, status string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"status":"` + status + `"}` + "\n"))
 }

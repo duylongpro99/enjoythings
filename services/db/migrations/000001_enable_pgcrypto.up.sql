@@ -1,6 +1,6 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
-CREATE TABLE wallets (
+CREATE TABLE IF NOT EXISTS wallets (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL,
   balance BIGINT NOT NULL DEFAULT 0,
@@ -10,9 +10,9 @@ CREATE TABLE wallets (
   CONSTRAINT wallets_non_negative_balance CHECK (balance >= 0)
 );
 
-CREATE INDEX wallets_user_id_idx ON wallets(user_id);
+CREATE INDEX IF NOT EXISTS wallets_user_id_idx ON wallets(user_id);
 
-CREATE TABLE transfers (
+CREATE TABLE IF NOT EXISTS transfers (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   from_wallet_id UUID NOT NULL REFERENCES wallets(id),
   to_wallet_id UUID NOT NULL REFERENCES wallets(id),
@@ -22,11 +22,11 @@ CREATE TABLE transfers (
   CONSTRAINT transfers_distinct_wallets CHECK (from_wallet_id <> to_wallet_id)
 );
 
-CREATE INDEX transfers_from_wallet_id_idx ON transfers(from_wallet_id);
-CREATE INDEX transfers_to_wallet_id_idx ON transfers(to_wallet_id);
-CREATE INDEX transfers_created_at_idx ON transfers(created_at DESC);
+CREATE INDEX IF NOT EXISTS transfers_from_wallet_id_idx ON transfers(from_wallet_id);
+CREATE INDEX IF NOT EXISTS transfers_to_wallet_id_idx ON transfers(to_wallet_id);
+CREATE INDEX IF NOT EXISTS transfers_created_at_idx ON transfers(created_at DESC);
 
-CREATE TABLE ledger_entries (
+CREATE TABLE IF NOT EXISTS ledger_entries (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   wallet_id UUID NOT NULL REFERENCES wallets(id),
   transfer_id UUID NOT NULL REFERENCES transfers(id),
@@ -36,8 +36,8 @@ CREATE TABLE ledger_entries (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX ledger_entries_wallet_created_idx
+CREATE INDEX IF NOT EXISTS ledger_entries_wallet_created_idx
   ON ledger_entries(wallet_id, created_at DESC, id DESC);
 
-CREATE INDEX ledger_entries_transfer_id_idx
+CREATE INDEX IF NOT EXISTS ledger_entries_transfer_id_idx
   ON ledger_entries(transfer_id);

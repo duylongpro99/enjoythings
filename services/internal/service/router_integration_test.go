@@ -46,6 +46,21 @@ func TestRouterFullWalletAndTransferFlowAgainstPostgres(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("transfer status = %d, want %d; body %s", rec.Code, http.StatusCreated, rec.Body.String())
 	}
+	var transferResponse struct {
+		ID uuid.UUID `json:"id"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&transferResponse); err != nil {
+		t.Fatalf("decode transfer response: %v", err)
+	}
+	if err := db.AppendTransferEntries(ctx, repo.LedgerTransfer{
+		TransferID:   transferResponse.ID,
+		FromWalletID: fromWalletID,
+		ToWalletID:   toWalletID,
+		AmountCents:  250,
+		Currency:     "USD",
+	}); err != nil {
+		t.Fatalf("append ledger entries: %v", err)
+	}
 
 	req = httptest.NewRequest(http.MethodGet, "/v1/wallets/"+fromWalletID.String()+"/balance", nil)
 	req.Header.Set("Authorization", "Bearer "+integrationToken(t, userID))

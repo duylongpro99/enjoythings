@@ -1,6 +1,6 @@
 # EnjoyThings Services
 
-Phase 1 services are a single Go API binary backed by Postgres.
+Phase 2 services run as a local gateway, wallet gRPC service, ledger gRPC service, Kafka, and Postgres stack.
 
 ## Local Development
 
@@ -20,25 +20,25 @@ SERVICE=api make dev
 SERVICE=<name> make dev
 ```
 
-The dev target starts Postgres with `docker-compose.dev.yml`, then runs `go run ./cmd/<service>` locally through `air`. It does not build or start the API container. Override ports or config with environment variables when needed:
+The dev target starts Postgres and Kafka with `docker-compose.dev.yml`, then runs `go run ./cmd/<service>` locally through `air`. It does not build or start Go service containers. Override ports or config with environment variables when needed:
 
 ```sh
 cd services
 HTTP_ADDR=:18080 POSTGRES_PORT=15432 SERVICE=api make dev
 ```
 
-Start Postgres and the API:
+Start the full Phase 2 stack:
 
 ```sh
 cd services
-docker compose up --build
+docker compose up -d --build
 ```
 
 If host port `8080` is already in use, keep the container on `8080` and change only the host port:
 
 ```sh
 cd services
-API_PORT=18080 docker compose up --build
+GATEWAY_PORT=18080 docker compose up -d --build
 curl http://localhost:18080/healthz
 ```
 
@@ -47,9 +47,40 @@ Health checks:
 ```sh
 curl http://localhost:8080/healthz
 curl http://localhost:8080/readyz
+curl http://localhost:8081/healthz
+curl http://localhost:8081/readyz
+curl http://localhost:8082/healthz
+curl http://localhost:8082/readyz
 ```
 
-## Phase 1 API
+Run the Phase 2 happy-path smoke test after the stack is healthy:
+
+```sh
+cd services
+docker compose up -d --build
+go run ./devtools/phase2_smoke
+```
+
+The smoke test creates wallets through the gateway, seeds a local source balance directly in Postgres, verifies invalid JWT returns `401`, verifies insufficient funds returns `422`, creates a transfer, and waits for the ledger service to consume `tx.initiated` and expose the debit entry through the gateway.
+
+Manual ledger catch-up check:
+
+```sh
+cd services
+docker compose up -d --build
+docker compose stop ledger
+USER_ID=11111111-1111-1111-1111-111111111111
+go run ./devtools/phase2_smoke -user-id "$USER_ID" -skip-ledger-wait
+docker compose restart ledger
+go run ./devtools/phase2_smoke \
+  -user-id "$USER_ID" \
+  -expect-ledger-wallet-id "<from_wallet_id printed above>" \
+  -expect-ledger-transfer-id "<transfer_id printed above>"
+```
+
+The Compose credentials and JWT secret are local development values only. Do not use them as production guidance.
+
+## Phase 2 API
 
 Business endpoints are served under `/v1` and require a bearer JWT. Requests with a JSON body must include `Content-Type: application/json`.
 
@@ -214,7 +245,15 @@ The API loads configuration from environment variables at startup.
 | `APP_ENV` | No | `local` |
 | `HTTP_ADDR` | No | `:8080` |
 | `DATABASE_URL` | Yes | none |
-| `JWT_SECRET` | Yes | none |
+| `JWT_SECRET` | Yes for `api` and `gateway` | none |
+| `GRPC_ADDR` | No for `wallet` and `ledger` | `:9090` for wallet, `:9091` for ledger |
+| `WALLET_GRPC_ADDR` | No for `gateway` | `127.0.0.1:9090` |
+| `LEDGER_GRPC_ADDR` | No for `gateway` | `127.0.0.1:9091` |
+| `KAFKA_BROKERS` | No for `wallet` and `ledger` | `127.0.0.1:9092` |
+| `WALLET_OUTBOX_TOPIC` | No for `wallet` | `tx.initiated` |
+| `LEDGER_CONSUMER_TOPIC` | No for `ledger` | `tx.initiated` |
+| `LEDGER_CONSUMER_GROUP_ID` | No for `ledger` | `ledger-service` |
+| `LEDGER_CONSUMER_ENABLED` | No for `ledger` | `true` |
 | `DB_MAX_CONNS` | No | `10` |
 
 Missing required values or invalid `DB_MAX_CONNS` values fail startup.
