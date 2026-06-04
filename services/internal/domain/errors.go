@@ -12,4 +12,6 @@ var (
 	ErrNotFound            = errors.New("not found")
 	ErrUnsupportedCurrency = errors.New("unsupported currency")
 	ErrUnauthenticated     = errors.New("unauthenticated")
+	ErrAlreadyExists       = errors.New("already exists")
+	ErrFailedPrecondition  = errors.New("failed precondition")
 )

@@ -22,6 +22,9 @@ const userIDMetadataKey = "x-user-id"
 
 type App interface {
 	ListLedger(context.Context, uuid.UUID, uuid.UUID, repo.LedgerCursor, int) ([]domain.LedgerEntry, repo.LedgerCursor, error)
+	ReserveTransfer(context.Context, domain.LedgerReserveCommand) (domain.LedgerReservation, error)
+	ConfirmTransfer(context.Context, domain.LedgerConfirmCommand) (domain.LedgerConfirmation, error)
+	CancelReservation(context.Context, domain.LedgerCancelCommand) (domain.LedgerReservation, error)
 }
 
 type Server struct {
@@ -64,6 +67,125 @@ func (server *Server) GetEntries(ctx context.Context, req *ledgerv1.GetEntriesRe
 	}, nil
 }
 
+func (server *Server) ReserveTransfer(ctx context.Context, req *ledgerv1.ReserveTransferRequest) (*ledgerv1.ReserveTransferResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	paymentID, err := parseUUID(req.GetPaymentId(), "payment_id")
+	if err != nil {
+		return nil, err
+	}
+	fromWalletID, err := parseUUID(req.GetFromWalletId(), "from_wallet_id")
+	if err != nil {
+		return nil, err
+	}
+	toWalletID, err := parseUUID(req.GetToWalletId(), "to_wallet_id")
+	if err != nil {
+		return nil, err
+	}
+	if req.GetIdempotencyKey() == "" {
+		return nil, status.Error(codes.InvalidArgument, "idempotency_key is required")
+	}
+	if req.GetAmountCents() <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "amount_cents must be positive")
+	}
+	if req.GetCurrency() == "" {
+		return nil, status.Error(codes.InvalidArgument, "currency is required")
+	}
+	if fromWalletID == toWalletID {
+		return nil, status.Error(codes.InvalidArgument, "from_wallet_id and to_wallet_id must differ")
+	}
+
+	reservation, err := server.app.ReserveTransfer(ctx, domain.LedgerReserveCommand{
+		PaymentID:      paymentID,
+		IdempotencyKey: req.GetIdempotencyKey(),
+		TraceID:        req.GetTraceId(),
+		FromWalletID:   fromWalletID,
+		ToWalletID:     toWalletID,
+		AmountCents:    req.GetAmountCents(),
+		Currency:       req.GetCurrency(),
+	})
+	if err != nil {
+		return nil, statusFromDomain(err)
+	}
+	return &ledgerv1.ReserveTransferResponse{
+		PaymentId:           reservation.PaymentID.String(),
+		LedgerReservationId: reservation.ID.String(),
+		Status:              reservation.Status,
+	}, nil
+}
+
+func (server *Server) ConfirmTransfer(ctx context.Context, req *ledgerv1.ConfirmTransferRequest) (*ledgerv1.ConfirmTransferResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	paymentID, err := parseUUID(req.GetPaymentId(), "payment_id")
+	if err != nil {
+		return nil, err
+	}
+	reservationID, err := parseUUID(req.GetLedgerReservationId(), "ledger_reservation_id")
+	if err != nil {
+		return nil, err
+	}
+	walletDebitID, err := parseUUID(req.GetWalletDebitId(), "wallet_debit_id")
+	if err != nil {
+		return nil, err
+	}
+	if req.GetIdempotencyKey() == "" {
+		return nil, status.Error(codes.InvalidArgument, "idempotency_key is required")
+	}
+
+	confirmation, err := server.app.ConfirmTransfer(ctx, domain.LedgerConfirmCommand{
+		PaymentID:           paymentID,
+		IdempotencyKey:      req.GetIdempotencyKey(),
+		TraceID:             req.GetTraceId(),
+		LedgerReservationID: reservationID,
+		WalletDebitID:       walletDebitID,
+	})
+	if err != nil {
+		return nil, statusFromDomain(err)
+	}
+	return &ledgerv1.ConfirmTransferResponse{
+		PaymentId:   confirmation.PaymentID.String(),
+		TransferId:  confirmation.TransferID.String(),
+		Status:      confirmation.Status,
+		CompletedAt: timestamppb.New(confirmation.CompletedAt),
+	}, nil
+}
+
+func (server *Server) CancelReservation(ctx context.Context, req *ledgerv1.CancelReservationRequest) (*ledgerv1.CancelReservationResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	paymentID, err := parseUUID(req.GetPaymentId(), "payment_id")
+	if err != nil {
+		return nil, err
+	}
+	reservationID, err := parseUUID(req.GetLedgerReservationId(), "ledger_reservation_id")
+	if err != nil {
+		return nil, err
+	}
+	if req.GetIdempotencyKey() == "" {
+		return nil, status.Error(codes.InvalidArgument, "idempotency_key is required")
+	}
+
+	reservation, err := server.app.CancelReservation(ctx, domain.LedgerCancelCommand{
+		PaymentID:           paymentID,
+		IdempotencyKey:      req.GetIdempotencyKey(),
+		TraceID:             req.GetTraceId(),
+		LedgerReservationID: reservationID,
+		Reason:              req.GetReason(),
+	})
+	if err != nil {
+		return nil, statusFromDomain(err)
+	}
+	return &ledgerv1.CancelReservationResponse{
+		PaymentId:           reservation.PaymentID.String(),
+		LedgerReservationId: reservation.ID.String(),
+		Status:              reservation.Status,
+	}, nil
+}
+
 func userIDFromMetadata(ctx context.Context) (uuid.UUID, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
@@ -86,10 +208,20 @@ func parseUUID(raw string, field string) (uuid.UUID, error) {
 
 func statusFromDomain(err error) error {
 	switch {
+	case errors.Is(err, domain.ErrAlreadyExists):
+		return status.Error(codes.AlreadyExists, "reservation conflicts with existing payload")
+	case errors.Is(err, domain.ErrFailedPrecondition):
+		return status.Error(codes.FailedPrecondition, "reservation state does not allow this operation")
 	case errors.Is(err, domain.ErrNotFound):
 		return status.Error(codes.NotFound, "wallet not found")
 	case errors.Is(err, domain.ErrInvalidAmount):
-		return status.Error(codes.InvalidArgument, "pagination is invalid")
+		return status.Error(codes.InvalidArgument, "amount or pagination is invalid")
+	case errors.Is(err, domain.ErrInvalidTransfer):
+		return status.Error(codes.InvalidArgument, "transfer is invalid")
+	case errors.Is(err, domain.ErrUnsupportedCurrency):
+		return status.Error(codes.InvalidArgument, "currency is unsupported")
+	case errors.Is(err, domain.ErrCurrencyMismatch):
+		return status.Error(codes.InvalidArgument, "currency mismatch")
 	default:
 		return status.Error(codes.Internal, "internal server error")
 	}

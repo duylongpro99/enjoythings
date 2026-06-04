@@ -74,6 +74,64 @@ type LedgerEntry struct {
 }
 
 const (
+	LedgerReservationReserved  = "RESERVED"
+	LedgerReservationConfirmed = "CONFIRMED"
+	LedgerReservationCanceled  = "CANCELED"
+)
+
+type LedgerReserveCommand struct {
+	PaymentID      uuid.UUID
+	IdempotencyKey string
+	TraceID        string
+	FromWalletID   uuid.UUID
+	ToWalletID     uuid.UUID
+	AmountCents    int64
+	Currency       string
+}
+
+type LedgerConfirmCommand struct {
+	PaymentID           uuid.UUID
+	IdempotencyKey      string
+	TraceID             string
+	LedgerReservationID uuid.UUID
+	WalletDebitID       uuid.UUID
+}
+
+type LedgerCancelCommand struct {
+	PaymentID           uuid.UUID
+	IdempotencyKey      string
+	TraceID             string
+	LedgerReservationID uuid.UUID
+	Reason              string
+}
+
+type LedgerReservation struct {
+	ID             uuid.UUID
+	PaymentID      uuid.UUID
+	IdempotencyKey string
+	TraceID        string
+	FromWalletID   uuid.UUID
+	ToWalletID     uuid.UUID
+	AmountCents    int64
+	Currency       string
+	Status         string
+	TransferID     uuid.UUID
+	WalletDebitID  uuid.UUID
+	CompletedAt    time.Time
+	CanceledAt     time.Time
+	CancelReason   string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type LedgerConfirmation struct {
+	PaymentID   uuid.UUID
+	TransferID  uuid.UUID
+	Status      string
+	CompletedAt time.Time
+}
+
+const (
 	SagaWalletOperationDebit        = "debit"
 	SagaWalletOperationCompensation = "compensation"
 	SagaWalletOperationCompleted    = "completed"

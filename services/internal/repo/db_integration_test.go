@@ -276,6 +276,240 @@ func TestRepositoryCompensateDebitIsIdempotentAndRequiresDebit(t *testing.T) {
 	}
 }
 
+func TestRepositoryReserveTransferIsIdempotentAndDoesNotCreateLedgerEntries(t *testing.T) {
+	ctx := context.Background()
+	db := newIntegrationDB(t, ctx)
+	from := createWalletFixture(t, ctx, db, uuid.New(), 3750)
+	to := createWalletFixture(t, ctx, db, uuid.New(), 0)
+	paymentID := uuid.New()
+
+	first, err := db.ReserveTransfer(ctx, domain.LedgerReserveCommand{
+		PaymentID:      paymentID,
+		IdempotencyKey: "reserve-key",
+		TraceID:        "trace-1",
+		FromWalletID:   from.ID,
+		ToWalletID:     to.ID,
+		AmountCents:    1250,
+		Currency:       "USD",
+	})
+	if err != nil {
+		t.Fatalf("ReserveTransfer first: %v", err)
+	}
+	second, err := db.ReserveTransfer(ctx, domain.LedgerReserveCommand{
+		PaymentID:      paymentID,
+		IdempotencyKey: "reserve-key",
+		TraceID:        "trace-1",
+		FromWalletID:   from.ID,
+		ToWalletID:     to.ID,
+		AmountCents:    1250,
+		Currency:       "USD",
+	})
+	if err != nil {
+		t.Fatalf("ReserveTransfer duplicate: %v", err)
+	}
+	if first.ID != second.ID || first.Status != domain.LedgerReservationReserved || second.Status != domain.LedgerReservationReserved {
+		t.Fatalf("reservations = %+v/%+v, want same reserved row", first, second)
+	}
+
+	fromEntries, _, err := db.ListLedgerEntries(ctx, from.ID, LedgerCursor{}, 10)
+	if err != nil {
+		t.Fatalf("ListLedgerEntries(from): %v", err)
+	}
+	toEntries, _, err := db.ListLedgerEntries(ctx, to.ID, LedgerCursor{}, 10)
+	if err != nil {
+		t.Fatalf("ListLedgerEntries(to): %v", err)
+	}
+	if len(fromEntries) != 0 || len(toEntries) != 0 {
+		t.Fatalf("reservation leaked into settled ledger reads: from=%+v to=%+v", fromEntries, toEntries)
+	}
+}
+
+func TestRepositoryReserveTransferRejectsConflictingPayload(t *testing.T) {
+	ctx := context.Background()
+	db := newIntegrationDB(t, ctx)
+	from := createWalletFixture(t, ctx, db, uuid.New(), 3750)
+	to := createWalletFixture(t, ctx, db, uuid.New(), 0)
+	paymentID := uuid.New()
+
+	if _, err := db.ReserveTransfer(ctx, domain.LedgerReserveCommand{
+		PaymentID:      paymentID,
+		IdempotencyKey: "reserve-key",
+		FromWalletID:   from.ID,
+		ToWalletID:     to.ID,
+		AmountCents:    1250,
+		Currency:       "USD",
+	}); err != nil {
+		t.Fatalf("ReserveTransfer first: %v", err)
+	}
+	_, err := db.ReserveTransfer(ctx, domain.LedgerReserveCommand{
+		PaymentID:      paymentID,
+		IdempotencyKey: "reserve-key",
+		FromWalletID:   from.ID,
+		ToWalletID:     to.ID,
+		AmountCents:    1300,
+		Currency:       "USD",
+	})
+	if err != domain.ErrAlreadyExists {
+		t.Fatalf("ReserveTransfer conflict error = %v, want %v", err, domain.ErrAlreadyExists)
+	}
+}
+
+func TestRepositoryConfirmTransferAppendsLedgerEntriesExactlyOnce(t *testing.T) {
+	ctx := context.Background()
+	db := newIntegrationDB(t, ctx)
+	from := createWalletFixture(t, ctx, db, uuid.New(), 3750)
+	to := createWalletFixture(t, ctx, db, uuid.New(), 0)
+	paymentID := uuid.New()
+	walletDebitID := uuid.New()
+	reservation, err := db.ReserveTransfer(ctx, domain.LedgerReserveCommand{
+		PaymentID:      paymentID,
+		IdempotencyKey: "reserve-key",
+		FromWalletID:   from.ID,
+		ToWalletID:     to.ID,
+		AmountCents:    1250,
+		Currency:       "USD",
+	})
+	if err != nil {
+		t.Fatalf("ReserveTransfer: %v", err)
+	}
+
+	first, err := db.ConfirmTransfer(ctx, domain.LedgerConfirmCommand{
+		PaymentID:           paymentID,
+		IdempotencyKey:      "confirm-key",
+		LedgerReservationID: reservation.ID,
+		WalletDebitID:       walletDebitID,
+	})
+	if err != nil {
+		t.Fatalf("ConfirmTransfer first: %v", err)
+	}
+	second, err := db.ConfirmTransfer(ctx, domain.LedgerConfirmCommand{
+		PaymentID:           paymentID,
+		IdempotencyKey:      "confirm-key",
+		LedgerReservationID: reservation.ID,
+		WalletDebitID:       walletDebitID,
+	})
+	if err != nil {
+		t.Fatalf("ConfirmTransfer duplicate: %v", err)
+	}
+	if first.TransferID == uuid.Nil || first.TransferID != second.TransferID || first.Status != domain.LedgerReservationConfirmed || second.Status != domain.LedgerReservationConfirmed {
+		t.Fatalf("confirmations = %+v/%+v, want same confirmed transfer", first, second)
+	}
+
+	fromEntries, _, err := db.ListLedgerEntries(ctx, from.ID, LedgerCursor{}, 10)
+	if err != nil {
+		t.Fatalf("ListLedgerEntries(from): %v", err)
+	}
+	toEntries, _, err := db.ListLedgerEntries(ctx, to.ID, LedgerCursor{}, 10)
+	if err != nil {
+		t.Fatalf("ListLedgerEntries(to): %v", err)
+	}
+	if len(fromEntries) != 1 || fromEntries[0].TransferID != first.TransferID || fromEntries[0].Direction != "debit" || fromEntries[0].Amount != 1250 || fromEntries[0].BalanceAfter != 3750 {
+		t.Fatalf("from ledger entries = %+v", fromEntries)
+	}
+	if len(toEntries) != 1 || toEntries[0].TransferID != first.TransferID || toEntries[0].Direction != "credit" || toEntries[0].Amount != 1250 || toEntries[0].BalanceAfter != 0 {
+		t.Fatalf("to ledger entries = %+v", toEntries)
+	}
+}
+
+func TestRepositoryCancelReservationDoesNotAppendLedgerEntriesAndBlocksConfirm(t *testing.T) {
+	ctx := context.Background()
+	db := newIntegrationDB(t, ctx)
+	from := createWalletFixture(t, ctx, db, uuid.New(), 3750)
+	to := createWalletFixture(t, ctx, db, uuid.New(), 0)
+	paymentID := uuid.New()
+	reservation, err := db.ReserveTransfer(ctx, domain.LedgerReserveCommand{
+		PaymentID:      paymentID,
+		IdempotencyKey: "reserve-key",
+		FromWalletID:   from.ID,
+		ToWalletID:     to.ID,
+		AmountCents:    1250,
+		Currency:       "USD",
+	})
+	if err != nil {
+		t.Fatalf("ReserveTransfer: %v", err)
+	}
+
+	first, err := db.CancelReservation(ctx, domain.LedgerCancelCommand{
+		PaymentID:           paymentID,
+		IdempotencyKey:      "cancel-key",
+		LedgerReservationID: reservation.ID,
+		Reason:              "payment failed",
+	})
+	if err != nil {
+		t.Fatalf("CancelReservation first: %v", err)
+	}
+	second, err := db.CancelReservation(ctx, domain.LedgerCancelCommand{
+		PaymentID:           paymentID,
+		IdempotencyKey:      "cancel-key",
+		LedgerReservationID: reservation.ID,
+		Reason:              "payment failed",
+	})
+	if err != nil {
+		t.Fatalf("CancelReservation duplicate: %v", err)
+	}
+	if first.ID != second.ID || first.Status != domain.LedgerReservationCanceled || second.Status != domain.LedgerReservationCanceled {
+		t.Fatalf("cancellations = %+v/%+v, want same canceled reservation", first, second)
+	}
+
+	_, err = db.ConfirmTransfer(ctx, domain.LedgerConfirmCommand{
+		PaymentID:           paymentID,
+		IdempotencyKey:      "confirm-key",
+		LedgerReservationID: reservation.ID,
+		WalletDebitID:       uuid.New(),
+	})
+	if err != domain.ErrFailedPrecondition {
+		t.Fatalf("ConfirmTransfer after cancel error = %v, want %v", err, domain.ErrFailedPrecondition)
+	}
+	fromEntries, _, err := db.ListLedgerEntries(ctx, from.ID, LedgerCursor{}, 10)
+	if err != nil {
+		t.Fatalf("ListLedgerEntries(from): %v", err)
+	}
+	toEntries, _, err := db.ListLedgerEntries(ctx, to.ID, LedgerCursor{}, 10)
+	if err != nil {
+		t.Fatalf("ListLedgerEntries(to): %v", err)
+	}
+	if len(fromEntries) != 0 || len(toEntries) != 0 {
+		t.Fatalf("canceled reservation created settled entries: from=%+v to=%+v", fromEntries, toEntries)
+	}
+}
+
+func TestRepositoryCancelReservationAfterConfirmFails(t *testing.T) {
+	ctx := context.Background()
+	db := newIntegrationDB(t, ctx)
+	from := createWalletFixture(t, ctx, db, uuid.New(), 3750)
+	to := createWalletFixture(t, ctx, db, uuid.New(), 0)
+	paymentID := uuid.New()
+	reservation, err := db.ReserveTransfer(ctx, domain.LedgerReserveCommand{
+		PaymentID:      paymentID,
+		IdempotencyKey: "reserve-key",
+		FromWalletID:   from.ID,
+		ToWalletID:     to.ID,
+		AmountCents:    1250,
+		Currency:       "USD",
+	})
+	if err != nil {
+		t.Fatalf("ReserveTransfer: %v", err)
+	}
+	if _, err := db.ConfirmTransfer(ctx, domain.LedgerConfirmCommand{
+		PaymentID:           paymentID,
+		IdempotencyKey:      "confirm-key",
+		LedgerReservationID: reservation.ID,
+		WalletDebitID:       uuid.New(),
+	}); err != nil {
+		t.Fatalf("ConfirmTransfer: %v", err)
+	}
+
+	_, err = db.CancelReservation(ctx, domain.LedgerCancelCommand{
+		PaymentID:           paymentID,
+		IdempotencyKey:      "cancel-key",
+		LedgerReservationID: reservation.ID,
+		Reason:              "too late",
+	})
+	if err != domain.ErrFailedPrecondition {
+		t.Fatalf("CancelReservation after confirm error = %v, want %v", err, domain.ErrFailedPrecondition)
+	}
+}
+
 func TestRepositoryAppendTransferEntriesCreatesDebitAndCreditIdempotently(t *testing.T) {
 	ctx := context.Background()
 	db := newIntegrationDB(t, ctx)

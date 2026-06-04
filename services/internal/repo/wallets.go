@@ -424,6 +424,249 @@ func (db *Database) AppendTransferEntries(ctx context.Context, transfer LedgerTr
 	return tx.Commit(ctx)
 }
 
+func (db *Database) ReserveTransfer(ctx context.Context, cmd domain.LedgerReserveCommand) (domain.LedgerReservation, error) {
+	if cmd.PaymentID == uuid.Nil || cmd.FromWalletID == uuid.Nil || cmd.ToWalletID == uuid.Nil || cmd.IdempotencyKey == "" {
+		return domain.LedgerReservation{}, domain.ErrInvalidTransfer
+	}
+	if cmd.AmountCents <= 0 {
+		return domain.LedgerReservation{}, domain.ErrInvalidAmount
+	}
+	if cmd.FromWalletID == cmd.ToWalletID {
+		return domain.LedgerReservation{}, domain.ErrInvalidTransfer
+	}
+	currency, err := domain.NormalizeCurrency(cmd.Currency)
+	if err != nil {
+		return domain.LedgerReservation{}, err
+	}
+	cmd.Currency = currency
+
+	tx, err := db.pool.Begin(ctx)
+	if err != nil {
+		return domain.LedgerReservation{}, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	existing, err := getLedgerReservationByPaymentID(ctx, tx, cmd.PaymentID)
+	if err == nil {
+		if !sameReservationPayload(existing, cmd) {
+			return domain.LedgerReservation{}, domain.ErrAlreadyExists
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return domain.LedgerReservation{}, err
+		}
+		return existing, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return domain.LedgerReservation{}, err
+	}
+
+	locked, err := lockWallets(ctx, tx, cmd.FromWalletID, cmd.ToWalletID)
+	if err != nil {
+		return domain.LedgerReservation{}, err
+	}
+	from, ok := locked[cmd.FromWalletID]
+	if !ok {
+		return domain.LedgerReservation{}, domain.ErrNotFound
+	}
+	to, ok := locked[cmd.ToWalletID]
+	if !ok {
+		return domain.LedgerReservation{}, domain.ErrNotFound
+	}
+	if from.Currency != to.Currency || from.Currency != cmd.Currency {
+		return domain.LedgerReservation{}, domain.ErrCurrencyMismatch
+	}
+
+	row := tx.QueryRow(ctx, `
+INSERT INTO ledger_transfer_reservations (
+  payment_id, idempotency_key, trace_id, from_wallet_id, to_wallet_id, amount_cents, currency, status
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, payment_id, idempotency_key, trace_id, from_wallet_id, to_wallet_id, amount_cents, currency, status,
+  transfer_id, wallet_debit_id, completed_at, canceled_at, cancel_reason, created_at, updated_at`,
+		pgUUID(cmd.PaymentID),
+		cmd.IdempotencyKey,
+		cmd.TraceID,
+		pgUUID(cmd.FromWalletID),
+		pgUUID(cmd.ToWalletID),
+		cmd.AmountCents,
+		cmd.Currency,
+		domain.LedgerReservationReserved,
+	)
+	reservation, err := scanLedgerReservation(row)
+	if err != nil {
+		if isUniqueViolation(err) {
+			_ = tx.Rollback(ctx)
+			existing, lookupErr := db.getLedgerReservationByPaymentID(ctx, cmd.PaymentID)
+			if lookupErr != nil {
+				return domain.LedgerReservation{}, lookupErr
+			}
+			if !sameReservationPayload(existing, cmd) {
+				return domain.LedgerReservation{}, domain.ErrAlreadyExists
+			}
+			return existing, nil
+		}
+		return domain.LedgerReservation{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.LedgerReservation{}, err
+	}
+	return reservation, nil
+}
+
+func (db *Database) ConfirmTransfer(ctx context.Context, cmd domain.LedgerConfirmCommand) (domain.LedgerConfirmation, error) {
+	if cmd.PaymentID == uuid.Nil || cmd.LedgerReservationID == uuid.Nil || cmd.WalletDebitID == uuid.Nil || cmd.IdempotencyKey == "" {
+		return domain.LedgerConfirmation{}, domain.ErrInvalidTransfer
+	}
+
+	tx, err := db.pool.Begin(ctx)
+	if err != nil {
+		return domain.LedgerConfirmation{}, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	reservation, err := getLedgerReservationByPaymentID(ctx, tx, cmd.PaymentID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.LedgerConfirmation{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.LedgerConfirmation{}, err
+	}
+	if reservation.ID != cmd.LedgerReservationID {
+		return domain.LedgerConfirmation{}, domain.ErrFailedPrecondition
+	}
+	switch reservation.Status {
+	case domain.LedgerReservationConfirmed:
+		if err := tx.Commit(ctx); err != nil {
+			return domain.LedgerConfirmation{}, err
+		}
+		return ledgerConfirmationFromReservation(reservation), nil
+	case domain.LedgerReservationCanceled:
+		return domain.LedgerConfirmation{}, domain.ErrFailedPrecondition
+	}
+
+	locked, err := lockWallets(ctx, tx, reservation.FromWalletID, reservation.ToWalletID)
+	if err != nil {
+		return domain.LedgerConfirmation{}, err
+	}
+	from, ok := locked[reservation.FromWalletID]
+	if !ok {
+		return domain.LedgerConfirmation{}, domain.ErrNotFound
+	}
+	to, ok := locked[reservation.ToWalletID]
+	if !ok {
+		return domain.LedgerConfirmation{}, domain.ErrNotFound
+	}
+	if from.Currency != to.Currency || from.Currency != reservation.Currency {
+		return domain.LedgerConfirmation{}, domain.ErrCurrencyMismatch
+	}
+
+	qtx := db.queries.WithTx(tx)
+	createdTransfer, err := qtx.CreateTransfer(ctx, queries.CreateTransferParams{
+		FromWalletID: pgUUID(reservation.FromWalletID),
+		ToWalletID:   pgUUID(reservation.ToWalletID),
+		Amount:       reservation.AmountCents,
+	})
+	if err != nil {
+		return domain.LedgerConfirmation{}, err
+	}
+	transfer := transferFromQuery(createdTransfer)
+	if _, err := qtx.CreateLedgerEntry(ctx, queries.CreateLedgerEntryParams{
+		WalletID:     pgUUID(from.ID),
+		TransferID:   pgUUID(transfer.ID),
+		Direction:    "debit",
+		Amount:       reservation.AmountCents,
+		BalanceAfter: from.Balance,
+	}); err != nil {
+		return domain.LedgerConfirmation{}, err
+	}
+	if _, err := qtx.CreateLedgerEntry(ctx, queries.CreateLedgerEntryParams{
+		WalletID:     pgUUID(to.ID),
+		TransferID:   pgUUID(transfer.ID),
+		Direction:    "credit",
+		Amount:       reservation.AmountCents,
+		BalanceAfter: to.Balance,
+	}); err != nil {
+		return domain.LedgerConfirmation{}, err
+	}
+
+	row := tx.QueryRow(ctx, `
+UPDATE ledger_transfer_reservations
+SET status = $2, transfer_id = $3, wallet_debit_id = $4, completed_at = now(), updated_at = now()
+WHERE id = $1
+RETURNING id, payment_id, idempotency_key, trace_id, from_wallet_id, to_wallet_id, amount_cents, currency, status,
+  transfer_id, wallet_debit_id, completed_at, canceled_at, cancel_reason, created_at, updated_at`,
+		pgUUID(reservation.ID),
+		domain.LedgerReservationConfirmed,
+		pgUUID(transfer.ID),
+		pgUUID(cmd.WalletDebitID),
+	)
+	confirmed, err := scanLedgerReservation(row)
+	if err != nil {
+		return domain.LedgerConfirmation{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.LedgerConfirmation{}, err
+	}
+	return ledgerConfirmationFromReservation(confirmed), nil
+}
+
+func (db *Database) CancelReservation(ctx context.Context, cmd domain.LedgerCancelCommand) (domain.LedgerReservation, error) {
+	if cmd.PaymentID == uuid.Nil || cmd.LedgerReservationID == uuid.Nil || cmd.IdempotencyKey == "" {
+		return domain.LedgerReservation{}, domain.ErrInvalidTransfer
+	}
+
+	tx, err := db.pool.Begin(ctx)
+	if err != nil {
+		return domain.LedgerReservation{}, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	reservation, err := getLedgerReservationByPaymentID(ctx, tx, cmd.PaymentID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.LedgerReservation{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.LedgerReservation{}, err
+	}
+	if reservation.ID != cmd.LedgerReservationID {
+		return domain.LedgerReservation{}, domain.ErrFailedPrecondition
+	}
+	switch reservation.Status {
+	case domain.LedgerReservationCanceled:
+		if err := tx.Commit(ctx); err != nil {
+			return domain.LedgerReservation{}, err
+		}
+		return reservation, nil
+	case domain.LedgerReservationConfirmed:
+		return domain.LedgerReservation{}, domain.ErrFailedPrecondition
+	}
+
+	row := tx.QueryRow(ctx, `
+UPDATE ledger_transfer_reservations
+SET status = $2, canceled_at = now(), cancel_reason = $3, updated_at = now()
+WHERE id = $1
+RETURNING id, payment_id, idempotency_key, trace_id, from_wallet_id, to_wallet_id, amount_cents, currency, status,
+  transfer_id, wallet_debit_id, completed_at, canceled_at, cancel_reason, created_at, updated_at`,
+		pgUUID(reservation.ID),
+		domain.LedgerReservationCanceled,
+		cmd.Reason,
+	)
+	canceled, err := scanLedgerReservation(row)
+	if err != nil {
+		return domain.LedgerReservation{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.LedgerReservation{}, err
+	}
+	return canceled, nil
+}
+
 func (db *Database) RunMigrations(ctx context.Context) error {
 	if _, err := db.pool.Exec(ctx, `SELECT pg_advisory_lock(hashtext('enjoythings_services_migrations'))`); err != nil {
 		return err
@@ -456,7 +699,7 @@ func (db *Database) RunMigrations(ctx context.Context) error {
 }
 
 func (db *Database) Truncate(ctx context.Context) error {
-	_, err := db.pool.Exec(ctx, `TRUNCATE sagas, saga_wallet_operations, outbox_events, ledger_entries, transfers, wallets RESTART IDENTITY CASCADE`)
+	_, err := db.pool.Exec(ctx, `TRUNCATE sagas, saga_wallet_operations, ledger_transfer_reservations, outbox_events, ledger_entries, transfers, wallets RESTART IDENTITY CASCADE`)
 	return err
 }
 
@@ -520,6 +763,102 @@ func getSagaWalletOperation(ctx context.Context, qtx *queries.Queries, paymentID
 		return domain.SagaWalletOperation{}, err
 	}
 	return sagaWalletOperationFromQuery(row), nil
+}
+
+func (db *Database) getLedgerReservationByPaymentID(ctx context.Context, paymentID uuid.UUID) (domain.LedgerReservation, error) {
+	return scanLedgerReservation(db.pool.QueryRow(ctx, `
+SELECT id, payment_id, idempotency_key, trace_id, from_wallet_id, to_wallet_id, amount_cents, currency, status,
+  transfer_id, wallet_debit_id, completed_at, canceled_at, cancel_reason, created_at, updated_at
+FROM ledger_transfer_reservations
+WHERE payment_id = $1`,
+		pgUUID(paymentID),
+	))
+}
+
+func getLedgerReservationByPaymentID(ctx context.Context, tx pgx.Tx, paymentID uuid.UUID) (domain.LedgerReservation, error) {
+	return scanLedgerReservation(tx.QueryRow(ctx, `
+SELECT id, payment_id, idempotency_key, trace_id, from_wallet_id, to_wallet_id, amount_cents, currency, status,
+  transfer_id, wallet_debit_id, completed_at, canceled_at, cancel_reason, created_at, updated_at
+FROM ledger_transfer_reservations
+WHERE payment_id = $1
+FOR UPDATE`,
+		pgUUID(paymentID),
+	))
+}
+
+type ledgerReservationScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanLedgerReservation(row ledgerReservationScanner) (domain.LedgerReservation, error) {
+	var reservation domain.LedgerReservation
+	var id pgtype.UUID
+	var paymentID pgtype.UUID
+	var fromWalletID pgtype.UUID
+	var toWalletID pgtype.UUID
+	var transferID pgtype.UUID
+	var walletDebitID pgtype.UUID
+	var completedAt pgtype.Timestamptz
+	var canceledAt pgtype.Timestamptz
+	var createdAt pgtype.Timestamptz
+	var updatedAt pgtype.Timestamptz
+	if err := row.Scan(
+		&id,
+		&paymentID,
+		&reservation.IdempotencyKey,
+		&reservation.TraceID,
+		&fromWalletID,
+		&toWalletID,
+		&reservation.AmountCents,
+		&reservation.Currency,
+		&reservation.Status,
+		&transferID,
+		&walletDebitID,
+		&completedAt,
+		&canceledAt,
+		&reservation.CancelReason,
+		&createdAt,
+		&updatedAt,
+	); err != nil {
+		return domain.LedgerReservation{}, err
+	}
+	reservation.ID = uuidFromPG(id)
+	reservation.PaymentID = uuidFromPG(paymentID)
+	reservation.FromWalletID = uuidFromPG(fromWalletID)
+	reservation.ToWalletID = uuidFromPG(toWalletID)
+	reservation.TransferID = uuidFromPG(transferID)
+	reservation.WalletDebitID = uuidFromPG(walletDebitID)
+	if completedAt.Valid {
+		reservation.CompletedAt = completedAt.Time
+	}
+	if canceledAt.Valid {
+		reservation.CanceledAt = canceledAt.Time
+	}
+	if createdAt.Valid {
+		reservation.CreatedAt = createdAt.Time
+	}
+	if updatedAt.Valid {
+		reservation.UpdatedAt = updatedAt.Time
+	}
+	return reservation, nil
+}
+
+func sameReservationPayload(existing domain.LedgerReservation, cmd domain.LedgerReserveCommand) bool {
+	return existing.PaymentID == cmd.PaymentID &&
+		existing.IdempotencyKey == cmd.IdempotencyKey &&
+		existing.FromWalletID == cmd.FromWalletID &&
+		existing.ToWalletID == cmd.ToWalletID &&
+		existing.AmountCents == cmd.AmountCents &&
+		existing.Currency == cmd.Currency
+}
+
+func ledgerConfirmationFromReservation(reservation domain.LedgerReservation) domain.LedgerConfirmation {
+	return domain.LedgerConfirmation{
+		PaymentID:   reservation.PaymentID,
+		TransferID:  reservation.TransferID,
+		Status:      reservation.Status,
+		CompletedAt: reservation.CompletedAt,
+	}
 }
 
 func (cursor LedgerCursor) String() string {
