@@ -4,6 +4,7 @@ import "errors"
 
 var (
 	ErrCurrencyMismatch    = errors.New("currency mismatch")
+	ErrDebitNotFound       = errors.New("debit not found")
 	ErrInsufficientFunds   = errors.New("insufficient funds")
 	ErrInvalidAmount       = errors.New("invalid amount")
 	ErrInvalidCursor       = errors.New("invalid cursor")

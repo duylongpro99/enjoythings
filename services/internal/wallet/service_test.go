@@ -77,6 +77,92 @@ func TestServiceTransfersPropagateDomainErrors(t *testing.T) {
 	}
 }
 
+func TestServiceDebitForSagaValidatesAndChecksOwnership(t *testing.T) {
+	userID := uuid.New()
+	walletID := uuid.New()
+	paymentID := uuid.New()
+	service := NewService(&fakeStore{
+		wallets: map[uuid.UUID]domain.Wallet{
+			walletID: {ID: walletID, UserID: uuid.New(), Currency: "USD"},
+		},
+	})
+
+	if _, err := service.DebitForSaga(context.Background(), uuid.Nil, domain.SagaDebitCommand{}); err != domain.ErrInvalidTransfer {
+		t.Fatalf("missing payment error = %v, want %v", err, domain.ErrInvalidTransfer)
+	}
+	if _, err := service.DebitForSaga(context.Background(), uuid.Nil, domain.SagaDebitCommand{
+		PaymentID:      paymentID,
+		FromWalletID:   walletID,
+		AmountCents:    100,
+		Currency:       "EUR",
+		IdempotencyKey: "debit-key",
+	}); err != domain.ErrUnsupportedCurrency {
+		t.Fatalf("unsupported currency error = %v, want %v", err, domain.ErrUnsupportedCurrency)
+	}
+	if _, err := service.DebitForSaga(context.Background(), userID, domain.SagaDebitCommand{
+		PaymentID:      paymentID,
+		FromWalletID:   walletID,
+		AmountCents:    100,
+		Currency:       "USD",
+		IdempotencyKey: "debit-key",
+	}); err != domain.ErrNotFound {
+		t.Fatalf("ownership error = %v, want %v", err, domain.ErrNotFound)
+	}
+}
+
+func TestServiceDebitForSagaPassesNormalizedCommandToStore(t *testing.T) {
+	userID := uuid.New()
+	walletID := uuid.New()
+	paymentID := uuid.New()
+	store := &fakeStore{
+		wallets: map[uuid.UUID]domain.Wallet{
+			walletID: {ID: walletID, UserID: userID, Currency: "USD"},
+		},
+		sagaDebit: domain.SagaWalletOperation{
+			ID:                uuid.New(),
+			PaymentID:         paymentID,
+			Operation:         domain.SagaWalletOperationDebit,
+			WalletID:          walletID,
+			AmountCents:       250,
+			Currency:          "USD",
+			Status:            domain.SagaWalletOperationCompleted,
+			BalanceAfterCents: 750,
+		},
+	}
+	service := NewService(store)
+
+	op, err := service.DebitForSaga(context.Background(), userID, domain.SagaDebitCommand{
+		PaymentID:      paymentID,
+		FromWalletID:   walletID,
+		AmountCents:    250,
+		Currency:       "usd",
+		IdempotencyKey: "debit-key",
+	})
+	if err != nil {
+		t.Fatalf("DebitForSaga: %v", err)
+	}
+	if store.sagaDebitCommand.Currency != "USD" {
+		t.Fatalf("store currency = %q, want USD", store.sagaDebitCommand.Currency)
+	}
+	if op.BalanceAfterCents != 750 || op.ID == uuid.Nil {
+		t.Fatalf("operation = %+v, want completed debit with balance 750", op)
+	}
+}
+
+func TestServiceCompensateDebitValidatesCommand(t *testing.T) {
+	service := NewService(&fakeStore{})
+
+	if _, err := service.CompensateDebit(context.Background(), domain.SagaCompensationCommand{}); err != domain.ErrInvalidTransfer {
+		t.Fatalf("missing payment error = %v, want %v", err, domain.ErrInvalidTransfer)
+	}
+	if _, err := service.CompensateDebit(context.Background(), domain.SagaCompensationCommand{
+		PaymentID:      uuid.New(),
+		IdempotencyKey: "comp-key",
+	}); err != domain.ErrInvalidTransfer {
+		t.Fatalf("missing wallet error = %v, want %v", err, domain.ErrInvalidTransfer)
+	}
+}
+
 func TestServiceListsLedgerOnlyForOwnedWalletAndBoundsLimit(t *testing.T) {
 	userID := uuid.New()
 	walletID := uuid.New()
@@ -117,13 +203,17 @@ func TestServiceListsLedgerOnlyForOwnedWalletAndBoundsLimit(t *testing.T) {
 }
 
 type fakeStore struct {
-	wallets         map[uuid.UUID]domain.Wallet
-	entries         []domain.LedgerEntry
-	createdCurrency string
-	transferCalled  bool
-	listLimit       int
-	listCursor      repo.LedgerCursor
-	next            repo.LedgerCursor
+	wallets                 map[uuid.UUID]domain.Wallet
+	entries                 []domain.LedgerEntry
+	createdCurrency         string
+	transferCalled          bool
+	listLimit               int
+	listCursor              repo.LedgerCursor
+	next                    repo.LedgerCursor
+	sagaDebit               domain.SagaWalletOperation
+	sagaDebitCommand        domain.SagaDebitCommand
+	sagaCompensation        domain.SagaWalletOperation
+	sagaCompensationCommand domain.SagaCompensationCommand
 }
 
 func (store *fakeStore) CreateWallet(_ context.Context, userID uuid.UUID, currency string) (domain.Wallet, error) {
@@ -151,6 +241,22 @@ func (store *fakeStore) CreateTransfer(_ context.Context, userID, fromWalletID, 
 		return domain.Transfer{}, errors.New("unexpected nil user")
 	}
 	return domain.Transfer{ID: uuid.New(), FromWalletID: fromWalletID, ToWalletID: toWalletID, Amount: amount}, nil
+}
+
+func (store *fakeStore) DebitForSaga(_ context.Context, cmd domain.SagaDebitCommand) (domain.SagaWalletOperation, error) {
+	store.sagaDebitCommand = cmd
+	if store.sagaDebit.ID == uuid.Nil {
+		return domain.SagaWalletOperation{}, domain.ErrInsufficientFunds
+	}
+	return store.sagaDebit, nil
+}
+
+func (store *fakeStore) CompensateDebit(_ context.Context, cmd domain.SagaCompensationCommand) (domain.SagaWalletOperation, error) {
+	store.sagaCompensationCommand = cmd
+	if store.sagaCompensation.ID == uuid.Nil {
+		return domain.SagaWalletOperation{}, domain.ErrNotFound
+	}
+	return store.sagaCompensation, nil
 }
 
 func (store *fakeStore) ListLedgerEntries(_ context.Context, _ uuid.UUID, cursor repo.LedgerCursor, limit int) ([]domain.LedgerEntry, repo.LedgerCursor, error) {

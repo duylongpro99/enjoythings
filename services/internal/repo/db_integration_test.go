@@ -139,6 +139,143 @@ func TestRepositoryTransferCreatesUnpublishedOutboxEvent(t *testing.T) {
 	}
 }
 
+func TestRepositoryDebitForSagaIsIdempotentAndDoesNotPublishOutbox(t *testing.T) {
+	ctx := context.Background()
+	db := newIntegrationDB(t, ctx)
+	userID := uuid.New()
+	from := createWalletFixture(t, ctx, db, userID, 5000)
+	paymentID := uuid.New()
+
+	first, err := db.DebitForSaga(ctx, domain.SagaDebitCommand{
+		PaymentID:      paymentID,
+		FromWalletID:   from.ID,
+		AmountCents:    1250,
+		Currency:       "USD",
+		IdempotencyKey: "debit-key",
+	})
+	if err != nil {
+		t.Fatalf("DebitForSaga first: %v", err)
+	}
+	second, err := db.DebitForSaga(ctx, domain.SagaDebitCommand{
+		PaymentID:      paymentID,
+		FromWalletID:   from.ID,
+		AmountCents:    1250,
+		Currency:       "USD",
+		IdempotencyKey: "debit-key",
+	})
+	if err != nil {
+		t.Fatalf("DebitForSaga duplicate: %v", err)
+	}
+	if first.ID != second.ID || first.BalanceAfterCents != 3750 || second.BalanceAfterCents != 3750 {
+		t.Fatalf("operations = %+v/%+v, want same completed debit with balance 3750", first, second)
+	}
+
+	fromAfter, err := db.GetWallet(ctx, from.ID)
+	if err != nil {
+		t.Fatalf("GetWallet: %v", err)
+	}
+	if fromAfter.Balance != 3750 {
+		t.Fatalf("source balance = %d, want 3750", fromAfter.Balance)
+	}
+	outboxEvents, err := outbox.NewRepository(db.pool).ClaimUnpublished(ctx, 10)
+	if err != nil {
+		t.Fatalf("ClaimUnpublished: %v", err)
+	}
+	if len(outboxEvents) != 0 {
+		t.Fatalf("saga debit published outbox events: %+v", outboxEvents)
+	}
+}
+
+func TestRepositoryDebitForSagaRollsBackOnInsufficientFunds(t *testing.T) {
+	ctx := context.Background()
+	db := newIntegrationDB(t, ctx)
+	from := createWalletFixture(t, ctx, db, uuid.New(), 100)
+
+	_, err := db.DebitForSaga(ctx, domain.SagaDebitCommand{
+		PaymentID:      uuid.New(),
+		FromWalletID:   from.ID,
+		AmountCents:    101,
+		Currency:       "USD",
+		IdempotencyKey: "debit-key",
+	})
+	if err != domain.ErrInsufficientFunds {
+		t.Fatalf("DebitForSaga error = %v, want %v", err, domain.ErrInsufficientFunds)
+	}
+	fromAfter, err := db.GetWallet(ctx, from.ID)
+	if err != nil {
+		t.Fatalf("GetWallet: %v", err)
+	}
+	if fromAfter.Balance != 100 {
+		t.Fatalf("source balance = %d, want 100", fromAfter.Balance)
+	}
+	var operations int
+	if err := db.pool.QueryRow(ctx, `SELECT count(*) FROM saga_wallet_operations`).Scan(&operations); err != nil {
+		t.Fatalf("count saga wallet operations: %v", err)
+	}
+	if operations != 0 {
+		t.Fatalf("operation rows = %d, want 0 after insufficient funds", operations)
+	}
+}
+
+func TestRepositoryCompensateDebitIsIdempotentAndRequiresDebit(t *testing.T) {
+	ctx := context.Background()
+	db := newIntegrationDB(t, ctx)
+	from := createWalletFixture(t, ctx, db, uuid.New(), 5000)
+	paymentID := uuid.New()
+
+	_, err := db.CompensateDebit(ctx, domain.SagaCompensationCommand{
+		PaymentID:      paymentID,
+		FromWalletID:   from.ID,
+		IdempotencyKey: "comp-key",
+	})
+	if err != domain.ErrDebitNotFound {
+		t.Fatalf("CompensateDebit without debit error = %v, want %v", err, domain.ErrDebitNotFound)
+	}
+
+	debit, err := db.DebitForSaga(ctx, domain.SagaDebitCommand{
+		PaymentID:      paymentID,
+		FromWalletID:   from.ID,
+		AmountCents:    1250,
+		Currency:       "USD",
+		IdempotencyKey: "debit-key",
+	})
+	if err != nil {
+		t.Fatalf("DebitForSaga: %v", err)
+	}
+	first, err := db.CompensateDebit(ctx, domain.SagaCompensationCommand{
+		PaymentID:      paymentID,
+		FromWalletID:   from.ID,
+		WalletDebitID:  debit.ID,
+		AmountCents:    1250,
+		Currency:       "USD",
+		IdempotencyKey: "comp-key",
+	})
+	if err != nil {
+		t.Fatalf("CompensateDebit first: %v", err)
+	}
+	second, err := db.CompensateDebit(ctx, domain.SagaCompensationCommand{
+		PaymentID:      paymentID,
+		FromWalletID:   from.ID,
+		WalletDebitID:  debit.ID,
+		AmountCents:    1250,
+		Currency:       "USD",
+		IdempotencyKey: "comp-key",
+	})
+	if err != nil {
+		t.Fatalf("CompensateDebit duplicate: %v", err)
+	}
+	if first.ID != second.ID || first.BalanceAfterCents != 5000 || second.BalanceAfterCents != 5000 {
+		t.Fatalf("compensations = %+v/%+v, want same completed compensation with balance 5000", first, second)
+	}
+	fromAfter, err := db.GetWallet(ctx, from.ID)
+	if err != nil {
+		t.Fatalf("GetWallet: %v", err)
+	}
+	if fromAfter.Balance != 5000 {
+		t.Fatalf("source balance = %d, want 5000", fromAfter.Balance)
+	}
+}
+
 func TestRepositoryAppendTransferEntriesCreatesDebitAndCreditIdempotently(t *testing.T) {
 	ctx := context.Background()
 	db := newIntegrationDB(t, ctx)

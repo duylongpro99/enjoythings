@@ -18,6 +18,8 @@ type Store interface {
 	CreateWallet(context.Context, uuid.UUID, string) (domain.Wallet, error)
 	GetWallet(context.Context, uuid.UUID) (domain.Wallet, error)
 	CreateTransfer(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, int64) (domain.Transfer, error)
+	DebitForSaga(context.Context, domain.SagaDebitCommand) (domain.SagaWalletOperation, error)
+	CompensateDebit(context.Context, domain.SagaCompensationCommand) (domain.SagaWalletOperation, error)
 	ListLedgerEntries(context.Context, uuid.UUID, repo.LedgerCursor, int) ([]domain.LedgerEntry, repo.LedgerCursor, error)
 }
 
@@ -60,6 +62,47 @@ func (service *Service) CreateTransfer(ctx context.Context, userID, fromWalletID
 		return domain.Transfer{}, domain.ErrInvalidTransfer
 	}
 	return service.store.CreateTransfer(ctx, userID, fromWalletID, toWalletID, amount)
+}
+
+func (service *Service) DebitForSaga(ctx context.Context, userID uuid.UUID, cmd domain.SagaDebitCommand) (domain.SagaWalletOperation, error) {
+	if cmd.PaymentID == uuid.Nil || cmd.FromWalletID == uuid.Nil || cmd.IdempotencyKey == "" {
+		return domain.SagaWalletOperation{}, domain.ErrInvalidTransfer
+	}
+	if cmd.AmountCents <= 0 {
+		return domain.SagaWalletOperation{}, domain.ErrInvalidAmount
+	}
+	currency, err := domain.NormalizeCurrency(cmd.Currency)
+	if err != nil {
+		return domain.SagaWalletOperation{}, err
+	}
+	cmd.Currency = currency
+	if userID != uuid.Nil {
+		wallet, err := service.GetWallet(ctx, userID, cmd.FromWalletID)
+		if err != nil {
+			return domain.SagaWalletOperation{}, err
+		}
+		if wallet.Currency != cmd.Currency {
+			return domain.SagaWalletOperation{}, domain.ErrCurrencyMismatch
+		}
+	}
+	return service.store.DebitForSaga(ctx, cmd)
+}
+
+func (service *Service) CompensateDebit(ctx context.Context, cmd domain.SagaCompensationCommand) (domain.SagaWalletOperation, error) {
+	if cmd.PaymentID == uuid.Nil || cmd.FromWalletID == uuid.Nil || cmd.IdempotencyKey == "" {
+		return domain.SagaWalletOperation{}, domain.ErrInvalidTransfer
+	}
+	if cmd.AmountCents < 0 {
+		return domain.SagaWalletOperation{}, domain.ErrInvalidAmount
+	}
+	if cmd.Currency != "" {
+		currency, err := domain.NormalizeCurrency(cmd.Currency)
+		if err != nil {
+			return domain.SagaWalletOperation{}, err
+		}
+		cmd.Currency = currency
+	}
+	return service.store.CompensateDebit(ctx, cmd)
 }
 
 func (service *Service) ListLedger(ctx context.Context, userID, walletID uuid.UUID, cursor repo.LedgerCursor, limit int) ([]domain.LedgerEntry, repo.LedgerCursor, error) {

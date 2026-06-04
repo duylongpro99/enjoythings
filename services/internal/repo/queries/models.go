@@ -28,6 +28,41 @@ type OutboxEvent struct {
 	CreatedAt    pgtype.Timestamptz
 }
 
+type Saga struct {
+	ID                  pgtype.UUID
+	PaymentID           string
+	IdempotencyKey      string
+	CommandType         string
+	UserID              string
+	FromWalletID        string
+	ToWalletID          string
+	AmountCents         int64
+	Currency            string
+	State               string
+	LastError           string
+	TraceID             string
+	WalletDebitID       string
+	LedgerReservationID string
+	TransferID          string
+	FailureCode         string
+	CreatedAt           pgtype.Timestamptz
+	UpdatedAt           pgtype.Timestamptz
+}
+
+type SagaWalletOperation struct {
+	ID                pgtype.UUID
+	PaymentID         pgtype.UUID
+	Operation         string
+	IdempotencyKey    string
+	WalletID          pgtype.UUID
+	AmountCents       int64
+	Currency          string
+	Status            string
+	BalanceAfterCents int64
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+}
+
 type Transfer struct {
 	ID           pgtype.UUID
 	FromWalletID pgtype.UUID
