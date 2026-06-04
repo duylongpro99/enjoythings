@@ -271,7 +271,7 @@ func (db *Database) RunMigrations(ctx context.Context) error {
 }
 
 func (db *Database) Truncate(ctx context.Context) error {
-	_, err := db.pool.Exec(ctx, `TRUNCATE outbox_events, ledger_entries, transfers, wallets RESTART IDENTITY CASCADE`)
+	_, err := db.pool.Exec(ctx, `TRUNCATE sagas, outbox_events, ledger_entries, transfers, wallets RESTART IDENTITY CASCADE`)
 	return err
 }
 

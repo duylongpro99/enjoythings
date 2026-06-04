@@ -6,6 +6,7 @@ import (
 	"enjoythings/services/internal/event"
 	"enjoythings/services/internal/outbox"
 	"enjoythings/services/internal/repo/queries"
+	"enjoythings/services/internal/saga"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -53,6 +54,10 @@ func (db *Database) SetOutboxTopic(topic string) {
 
 func (db *Database) OutboxRepository() *outbox.Repository {
 	return outbox.NewRepository(db.pool)
+}
+
+func (db *Database) SagaStore() *saga.PostgresStore {
+	return saga.NewPostgresStore(db.pool)
 }
 
 func (db *Database) Ping(ctx context.Context) error {
