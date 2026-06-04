@@ -21,6 +21,8 @@ type App interface {
 	GetWallet(context.Context, uuid.UUID, uuid.UUID) (domain.Wallet, error)
 	GetBalance(context.Context, uuid.UUID, uuid.UUID) (domain.Wallet, error)
 	CreateTransfer(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, int64) (domain.Transfer, error)
+	DebitForSaga(context.Context, uuid.UUID, domain.SagaDebitCommand) (domain.SagaWalletOperation, error)
+	CompensateDebit(context.Context, domain.SagaCompensationCommand) (domain.SagaWalletOperation, error)
 }
 
 type Server struct {
@@ -125,6 +127,91 @@ func (server *Server) InitiateTransfer(ctx context.Context, req *walletv1.Initia
 	}, nil
 }
 
+func (server *Server) DebitForSaga(ctx context.Context, req *walletv1.DebitForSagaRequest) (*walletv1.DebitForSagaResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	paymentID, err := parseUUID(req.GetPaymentId(), "payment_id")
+	if err != nil {
+		return nil, err
+	}
+	fromWalletID, err := parseUUID(req.GetFromWalletId(), "from_wallet_id")
+	if err != nil {
+		return nil, err
+	}
+	if req.GetIdempotencyKey() == "" {
+		return nil, status.Error(codes.InvalidArgument, "idempotency_key is required")
+	}
+	if req.GetAmountCents() <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "amount_cents must be positive")
+	}
+	if req.GetCurrency() == "" {
+		return nil, status.Error(codes.InvalidArgument, "currency is required")
+	}
+	userID, err := optionalUserIDFromMetadata(ctx)
+	if err != nil {
+		return nil, err
+	}
+	op, err := server.app.DebitForSaga(ctx, userID, domain.SagaDebitCommand{
+		PaymentID:      paymentID,
+		FromWalletID:   fromWalletID,
+		AmountCents:    req.GetAmountCents(),
+		Currency:       req.GetCurrency(),
+		IdempotencyKey: req.GetIdempotencyKey(),
+	})
+	if err != nil {
+		return nil, statusFromDomain(err)
+	}
+	return &walletv1.DebitForSagaResponse{
+		PaymentId:         op.PaymentID.String(),
+		WalletDebitId:     op.ID.String(),
+		Status:            op.Status,
+		BalanceAfterCents: op.BalanceAfterCents,
+	}, nil
+}
+
+func (server *Server) CompensateDebit(ctx context.Context, req *walletv1.CompensateDebitRequest) (*walletv1.CompensateDebitResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	paymentID, err := parseUUID(req.GetPaymentId(), "payment_id")
+	if err != nil {
+		return nil, err
+	}
+	fromWalletID, err := parseUUID(req.GetFromWalletId(), "from_wallet_id")
+	if err != nil {
+		return nil, err
+	}
+	if req.GetIdempotencyKey() == "" {
+		return nil, status.Error(codes.InvalidArgument, "idempotency_key is required")
+	}
+	var walletDebitID uuid.UUID
+	if req.GetWalletDebitId() != "" {
+		walletDebitID, err = parseUUID(req.GetWalletDebitId(), "wallet_debit_id")
+		if err != nil {
+			return nil, err
+		}
+	}
+	op, err := server.app.CompensateDebit(ctx, domain.SagaCompensationCommand{
+		PaymentID:      paymentID,
+		FromWalletID:   fromWalletID,
+		WalletDebitID:  walletDebitID,
+		AmountCents:    req.GetAmountCents(),
+		Currency:       req.GetCurrency(),
+		IdempotencyKey: req.GetIdempotencyKey(),
+		Reason:         req.GetReason(),
+	})
+	if err != nil {
+		return nil, statusFromDomain(err)
+	}
+	return &walletv1.CompensateDebitResponse{
+		PaymentId:         op.PaymentID.String(),
+		CompensationId:    op.ID.String(),
+		Status:            op.Status,
+		BalanceAfterCents: op.BalanceAfterCents,
+	}, nil
+}
+
 func userIDFromMetadata(ctx context.Context) (uuid.UUID, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
@@ -133,6 +220,18 @@ func userIDFromMetadata(ctx context.Context) (uuid.UUID, error) {
 	values := md.Get(userIDMetadataKey)
 	if len(values) == 0 || values[0] == "" {
 		return uuid.Nil, status.Error(codes.InvalidArgument, "x-user-id metadata is required")
+	}
+	return parseUUID(values[0], userIDMetadataKey)
+}
+
+func optionalUserIDFromMetadata(ctx context.Context) (uuid.UUID, error) {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return uuid.Nil, nil
+	}
+	values := md.Get(userIDMetadataKey)
+	if len(values) == 0 || values[0] == "" {
+		return uuid.Nil, nil
 	}
 	return parseUUID(values[0], userIDMetadataKey)
 }
@@ -159,6 +258,8 @@ func statusFromDomain(err error) error {
 		return status.Error(codes.InvalidArgument, "currency mismatch")
 	case errors.Is(err, domain.ErrInsufficientFunds):
 		return status.Error(codes.FailedPrecondition, "insufficient funds")
+	case errors.Is(err, domain.ErrDebitNotFound):
+		return status.Error(codes.FailedPrecondition, "debit not found")
 	default:
 		return status.Error(codes.Internal, "internal server error")
 	}

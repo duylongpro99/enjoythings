@@ -133,6 +133,191 @@ func (db *Database) CreateTransfer(ctx context.Context, userID, fromWalletID, to
 	return transfer, nil
 }
 
+func (db *Database) DebitForSaga(ctx context.Context, cmd domain.SagaDebitCommand) (domain.SagaWalletOperation, error) {
+	if cmd.PaymentID == uuid.Nil || cmd.FromWalletID == uuid.Nil || cmd.IdempotencyKey == "" {
+		return domain.SagaWalletOperation{}, domain.ErrInvalidTransfer
+	}
+	if cmd.AmountCents <= 0 {
+		return domain.SagaWalletOperation{}, domain.ErrInvalidAmount
+	}
+	if _, err := domain.NormalizeCurrency(cmd.Currency); err != nil {
+		return domain.SagaWalletOperation{}, err
+	}
+
+	tx, err := db.pool.Begin(ctx)
+	if err != nil {
+		return domain.SagaWalletOperation{}, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	qtx := db.queries.WithTx(tx)
+	if existing, err := getSagaWalletOperation(ctx, qtx, cmd.PaymentID, domain.SagaWalletOperationDebit); err == nil {
+		if err := tx.Commit(ctx); err != nil {
+			return domain.SagaWalletOperation{}, err
+		}
+		return existing, nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return domain.SagaWalletOperation{}, err
+	}
+
+	wallet, err := lockWallet(ctx, tx, cmd.FromWalletID)
+	if err != nil {
+		return domain.SagaWalletOperation{}, err
+	}
+	if existing, err := getSagaWalletOperation(ctx, qtx, cmd.PaymentID, domain.SagaWalletOperationDebit); err == nil {
+		if err := tx.Commit(ctx); err != nil {
+			return domain.SagaWalletOperation{}, err
+		}
+		return existing, nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return domain.SagaWalletOperation{}, err
+	}
+	if wallet.ID == uuid.Nil {
+		return domain.SagaWalletOperation{}, domain.ErrNotFound
+	}
+	if wallet.Currency != cmd.Currency {
+		return domain.SagaWalletOperation{}, domain.ErrCurrencyMismatch
+	}
+	if err := wallet.Debit(cmd.AmountCents); err != nil {
+		return domain.SagaWalletOperation{}, err
+	}
+
+	if _, err := qtx.UpdateWalletBalance(ctx, queries.UpdateWalletBalanceParams{ID: pgUUID(wallet.ID), Balance: wallet.Balance}); err != nil {
+		return domain.SagaWalletOperation{}, err
+	}
+	created, err := qtx.CreateSagaWalletOperation(ctx, queries.CreateSagaWalletOperationParams{
+		PaymentID:         pgUUID(cmd.PaymentID),
+		Operation:         domain.SagaWalletOperationDebit,
+		IdempotencyKey:    cmd.IdempotencyKey,
+		WalletID:          pgUUID(wallet.ID),
+		AmountCents:       cmd.AmountCents,
+		Currency:          cmd.Currency,
+		Status:            domain.SagaWalletOperationCompleted,
+		BalanceAfterCents: wallet.Balance,
+	})
+	if err != nil {
+		if isUniqueViolation(err) {
+			_ = tx.Rollback(ctx)
+			existing, lookupErr := db.getSagaWalletOperation(ctx, cmd.PaymentID, domain.SagaWalletOperationDebit)
+			if errors.Is(lookupErr, pgx.ErrNoRows) {
+				return domain.SagaWalletOperation{}, domain.ErrInvalidTransfer
+			}
+			return existing, lookupErr
+		}
+		return domain.SagaWalletOperation{}, err
+	}
+	op := sagaWalletOperationFromQuery(created)
+
+	if err := tx.Commit(ctx); err != nil {
+		return domain.SagaWalletOperation{}, err
+	}
+	return op, nil
+}
+
+func (db *Database) CompensateDebit(ctx context.Context, cmd domain.SagaCompensationCommand) (domain.SagaWalletOperation, error) {
+	if cmd.PaymentID == uuid.Nil || cmd.FromWalletID == uuid.Nil || cmd.IdempotencyKey == "" {
+		return domain.SagaWalletOperation{}, domain.ErrInvalidTransfer
+	}
+	if cmd.AmountCents < 0 {
+		return domain.SagaWalletOperation{}, domain.ErrInvalidAmount
+	}
+	if cmd.Currency != "" {
+		if _, err := domain.NormalizeCurrency(cmd.Currency); err != nil {
+			return domain.SagaWalletOperation{}, err
+		}
+	}
+
+	tx, err := db.pool.Begin(ctx)
+	if err != nil {
+		return domain.SagaWalletOperation{}, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	qtx := db.queries.WithTx(tx)
+	if existing, err := getSagaWalletOperation(ctx, qtx, cmd.PaymentID, domain.SagaWalletOperationCompensation); err == nil {
+		if err := tx.Commit(ctx); err != nil {
+			return domain.SagaWalletOperation{}, err
+		}
+		return existing, nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return domain.SagaWalletOperation{}, err
+	}
+
+	debit, err := getSagaWalletOperation(ctx, qtx, cmd.PaymentID, domain.SagaWalletOperationDebit)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.SagaWalletOperation{}, domain.ErrDebitNotFound
+	}
+	if err != nil {
+		return domain.SagaWalletOperation{}, err
+	}
+	if existing, err := getSagaWalletOperation(ctx, qtx, cmd.PaymentID, domain.SagaWalletOperationCompensation); err == nil {
+		if err := tx.Commit(ctx); err != nil {
+			return domain.SagaWalletOperation{}, err
+		}
+		return existing, nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return domain.SagaWalletOperation{}, err
+	}
+	if cmd.WalletDebitID != uuid.Nil && cmd.WalletDebitID != debit.ID {
+		return domain.SagaWalletOperation{}, domain.ErrDebitNotFound
+	}
+	if debit.WalletID != cmd.FromWalletID {
+		return domain.SagaWalletOperation{}, domain.ErrDebitNotFound
+	}
+	if cmd.AmountCents > 0 && cmd.AmountCents != debit.AmountCents {
+		return domain.SagaWalletOperation{}, domain.ErrInvalidAmount
+	}
+	if cmd.Currency != "" && cmd.Currency != debit.Currency {
+		return domain.SagaWalletOperation{}, domain.ErrCurrencyMismatch
+	}
+
+	wallet, err := lockWallet(ctx, tx, debit.WalletID)
+	if err != nil {
+		return domain.SagaWalletOperation{}, err
+	}
+	if wallet.ID == uuid.Nil {
+		return domain.SagaWalletOperation{}, domain.ErrNotFound
+	}
+	if err := wallet.Credit(debit.AmountCents); err != nil {
+		return domain.SagaWalletOperation{}, err
+	}
+
+	if _, err := qtx.UpdateWalletBalance(ctx, queries.UpdateWalletBalanceParams{ID: pgUUID(wallet.ID), Balance: wallet.Balance}); err != nil {
+		return domain.SagaWalletOperation{}, err
+	}
+	created, err := qtx.CreateSagaWalletOperation(ctx, queries.CreateSagaWalletOperationParams{
+		PaymentID:         pgUUID(cmd.PaymentID),
+		Operation:         domain.SagaWalletOperationCompensation,
+		IdempotencyKey:    cmd.IdempotencyKey,
+		WalletID:          pgUUID(wallet.ID),
+		AmountCents:       debit.AmountCents,
+		Currency:          debit.Currency,
+		Status:            domain.SagaWalletOperationCompleted,
+		BalanceAfterCents: wallet.Balance,
+	})
+	if err != nil {
+		if isUniqueViolation(err) {
+			_ = tx.Rollback(ctx)
+			existing, lookupErr := db.getSagaWalletOperation(ctx, cmd.PaymentID, domain.SagaWalletOperationCompensation)
+			if errors.Is(lookupErr, pgx.ErrNoRows) {
+				return domain.SagaWalletOperation{}, domain.ErrInvalidTransfer
+			}
+			return existing, lookupErr
+		}
+		return domain.SagaWalletOperation{}, err
+	}
+	op := sagaWalletOperationFromQuery(created)
+
+	if err := tx.Commit(ctx); err != nil {
+		return domain.SagaWalletOperation{}, err
+	}
+	return op, nil
+}
+
 func (db *Database) ListLedgerEntries(ctx context.Context, walletID uuid.UUID, cursor LedgerCursor, limit int) ([]domain.LedgerEntry, LedgerCursor, error) {
 	if limit < 1 {
 		return nil, LedgerCursor{}, domain.ErrInvalidAmount
@@ -271,7 +456,7 @@ func (db *Database) RunMigrations(ctx context.Context) error {
 }
 
 func (db *Database) Truncate(ctx context.Context) error {
-	_, err := db.pool.Exec(ctx, `TRUNCATE sagas, outbox_events, ledger_entries, transfers, wallets RESTART IDENTITY CASCADE`)
+	_, err := db.pool.Exec(ctx, `TRUNCATE sagas, saga_wallet_operations, outbox_events, ledger_entries, transfers, wallets RESTART IDENTITY CASCADE`)
 	return err
 }
 
@@ -302,6 +487,39 @@ func lockWallets(ctx context.Context, tx pgx.Tx, firstID, secondID uuid.UUID) (m
 		return wallets, nil
 	}
 	return wallets, nil
+}
+
+func lockWallet(ctx context.Context, tx pgx.Tx, id uuid.UUID) (domain.Wallet, error) {
+	row, err := queries.New(tx).LockWalletForUpdate(ctx, pgUUID(id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Wallet{}, nil
+	}
+	if err != nil {
+		return domain.Wallet{}, err
+	}
+	return walletFromQuery(row), nil
+}
+
+func (db *Database) getSagaWalletOperation(ctx context.Context, paymentID uuid.UUID, operation string) (domain.SagaWalletOperation, error) {
+	row, err := db.queries.GetSagaWalletOperation(ctx, queries.GetSagaWalletOperationParams{
+		PaymentID: pgUUID(paymentID),
+		Operation: operation,
+	})
+	if err != nil {
+		return domain.SagaWalletOperation{}, err
+	}
+	return sagaWalletOperationFromQuery(row), nil
+}
+
+func getSagaWalletOperation(ctx context.Context, qtx *queries.Queries, paymentID uuid.UUID, operation string) (domain.SagaWalletOperation, error) {
+	row, err := qtx.GetSagaWalletOperationForUpdate(ctx, queries.GetSagaWalletOperationForUpdateParams{
+		PaymentID: pgUUID(paymentID),
+		Operation: operation,
+	})
+	if err != nil {
+		return domain.SagaWalletOperation{}, err
+	}
+	return sagaWalletOperationFromQuery(row), nil
 }
 
 func (cursor LedgerCursor) String() string {
@@ -346,6 +564,22 @@ func transferFromQuery(transfer queries.Transfer) domain.Transfer {
 		Amount:       transfer.Amount,
 		Status:       transfer.Status,
 		CreatedAt:    transfer.CreatedAt.Time,
+	}
+}
+
+func sagaWalletOperationFromQuery(operation queries.SagaWalletOperation) domain.SagaWalletOperation {
+	return domain.SagaWalletOperation{
+		ID:                uuidFromPG(operation.ID),
+		PaymentID:         uuidFromPG(operation.PaymentID),
+		Operation:         operation.Operation,
+		IdempotencyKey:    operation.IdempotencyKey,
+		WalletID:          uuidFromPG(operation.WalletID),
+		AmountCents:       operation.AmountCents,
+		Currency:          operation.Currency,
+		Status:            operation.Status,
+		BalanceAfterCents: operation.BalanceAfterCents,
+		CreatedAt:         operation.CreatedAt.Time,
+		UpdatedAt:         operation.UpdatedAt.Time,
 	}
 }
 

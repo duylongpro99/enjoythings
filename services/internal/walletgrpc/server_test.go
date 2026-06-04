@@ -244,6 +244,135 @@ func TestInitiateTransferMapsResponse(t *testing.T) {
 	}
 }
 
+func TestDebitForSagaValidatesRequest(t *testing.T) {
+	tests := map[string]*walletv1.DebitForSagaRequest{
+		"invalid payment":     {PaymentId: "bad", IdempotencyKey: "debit-key", FromWalletId: uuid.NewString(), AmountCents: 1, Currency: "USD"},
+		"missing idempotency": {PaymentId: uuid.NewString(), FromWalletId: uuid.NewString(), AmountCents: 1, Currency: "USD"},
+		"invalid wallet":      {PaymentId: uuid.NewString(), IdempotencyKey: "debit-key", FromWalletId: "bad", AmountCents: 1, Currency: "USD"},
+		"non-positive amount": {PaymentId: uuid.NewString(), IdempotencyKey: "debit-key", FromWalletId: uuid.NewString(), AmountCents: 0, Currency: "USD"},
+		"missing currency":    {PaymentId: uuid.NewString(), IdempotencyKey: "debit-key", FromWalletId: uuid.NewString(), AmountCents: 1},
+	}
+
+	for name, req := range tests {
+		t.Run(name, func(t *testing.T) {
+			server := NewServer(&fakeApp{})
+
+			_, err := server.DebitForSaga(context.Background(), req)
+
+			assertCode(t, err, codes.InvalidArgument)
+		})
+	}
+}
+
+func TestDebitForSagaMapsResponseAndMetadataUserID(t *testing.T) {
+	userID := uuid.New()
+	paymentID := uuid.New()
+	walletID := uuid.New()
+	opID := uuid.New()
+	app := &fakeApp{
+		sagaDebit: domain.SagaWalletOperation{
+			ID:                opID,
+			PaymentID:         paymentID,
+			Operation:         domain.SagaWalletOperationDebit,
+			WalletID:          walletID,
+			AmountCents:       1250,
+			Currency:          "USD",
+			Status:            domain.SagaWalletOperationCompleted,
+			BalanceAfterCents: 3750,
+		},
+	}
+	server := NewServer(app)
+
+	resp, err := server.DebitForSaga(contextWithUserID(userID), &walletv1.DebitForSagaRequest{
+		PaymentId:      paymentID.String(),
+		IdempotencyKey: "debit-key",
+		FromWalletId:   walletID.String(),
+		AmountCents:    1250,
+		Currency:       "USD",
+	})
+	if err != nil {
+		t.Fatalf("DebitForSaga error = %v", err)
+	}
+
+	if app.sagaDebitUserID != userID {
+		t.Fatalf("DebitForSaga userID = %s, want %s", app.sagaDebitUserID, userID)
+	}
+	if resp.GetWalletDebitId() != opID.String() || resp.GetPaymentId() != paymentID.String() {
+		t.Fatalf("response IDs = %s/%s, want %s/%s", resp.GetWalletDebitId(), resp.GetPaymentId(), opID, paymentID)
+	}
+	if resp.GetStatus() != domain.SagaWalletOperationCompleted || resp.GetBalanceAfterCents() != 3750 {
+		t.Fatalf("response = %+v, want completed balance 3750", resp)
+	}
+}
+
+func TestDebitForSagaMapsInsufficientFunds(t *testing.T) {
+	server := NewServer(&fakeApp{sagaDebitErr: domain.ErrInsufficientFunds})
+
+	_, err := server.DebitForSaga(context.Background(), &walletv1.DebitForSagaRequest{
+		PaymentId:      uuid.NewString(),
+		IdempotencyKey: "debit-key",
+		FromWalletId:   uuid.NewString(),
+		AmountCents:    1250,
+		Currency:       "USD",
+	})
+
+	assertCode(t, err, codes.FailedPrecondition)
+}
+
+func TestCompensateDebitValidatesRequest(t *testing.T) {
+	tests := map[string]*walletv1.CompensateDebitRequest{
+		"invalid payment":     {PaymentId: "bad", IdempotencyKey: "comp-key", FromWalletId: uuid.NewString()},
+		"missing idempotency": {PaymentId: uuid.NewString(), FromWalletId: uuid.NewString()},
+		"invalid wallet":      {PaymentId: uuid.NewString(), IdempotencyKey: "comp-key", FromWalletId: "bad"},
+	}
+
+	for name, req := range tests {
+		t.Run(name, func(t *testing.T) {
+			server := NewServer(&fakeApp{})
+
+			_, err := server.CompensateDebit(context.Background(), req)
+
+			assertCode(t, err, codes.InvalidArgument)
+		})
+	}
+}
+
+func TestCompensateDebitMapsResponseAndMissingDebit(t *testing.T) {
+	paymentID := uuid.New()
+	walletID := uuid.New()
+	opID := uuid.New()
+	app := &fakeApp{
+		sagaCompensation: domain.SagaWalletOperation{
+			ID:                opID,
+			PaymentID:         paymentID,
+			Operation:         domain.SagaWalletOperationCompensation,
+			WalletID:          walletID,
+			Status:            domain.SagaWalletOperationCompleted,
+			BalanceAfterCents: 5000,
+		},
+	}
+	server := NewServer(app)
+
+	resp, err := server.CompensateDebit(context.Background(), &walletv1.CompensateDebitRequest{
+		PaymentId:      paymentID.String(),
+		IdempotencyKey: "comp-key",
+		FromWalletId:   walletID.String(),
+	})
+	if err != nil {
+		t.Fatalf("CompensateDebit error = %v", err)
+	}
+	if resp.GetCompensationId() != opID.String() || resp.GetBalanceAfterCents() != 5000 {
+		t.Fatalf("response = %+v, want compensation %s balance 5000", resp, opID)
+	}
+
+	_, err = NewServer(&fakeApp{sagaCompensationErr: domain.ErrDebitNotFound}).CompensateDebit(context.Background(), &walletv1.CompensateDebitRequest{
+		PaymentId:      paymentID.String(),
+		IdempotencyKey: "comp-key",
+		FromWalletId:   walletID.String(),
+	})
+	assertCode(t, err, codes.FailedPrecondition)
+}
+
 type fakeApp struct {
 	createWallet domain.Wallet
 	createErr    error
@@ -260,6 +389,15 @@ type fakeApp struct {
 	transfer       domain.Transfer
 	transferErr    error
 	transferUserID uuid.UUID
+
+	sagaDebit        domain.SagaWalletOperation
+	sagaDebitErr     error
+	sagaDebitUserID  uuid.UUID
+	sagaDebitCommand domain.SagaDebitCommand
+
+	sagaCompensation        domain.SagaWalletOperation
+	sagaCompensationErr     error
+	sagaCompensationCommand domain.SagaCompensationCommand
 }
 
 func (app *fakeApp) CreateWallet(_ context.Context, userID uuid.UUID, currency string) (domain.Wallet, error) {
@@ -305,6 +443,23 @@ func (app *fakeApp) CreateTransfer(_ context.Context, userID, fromWalletID, toWa
 	transfer.ToWalletID = toWalletID
 	transfer.Amount = amount
 	return transfer, nil
+}
+
+func (app *fakeApp) DebitForSaga(_ context.Context, userID uuid.UUID, cmd domain.SagaDebitCommand) (domain.SagaWalletOperation, error) {
+	app.sagaDebitUserID = userID
+	app.sagaDebitCommand = cmd
+	if app.sagaDebitErr != nil {
+		return domain.SagaWalletOperation{}, app.sagaDebitErr
+	}
+	return app.sagaDebit, nil
+}
+
+func (app *fakeApp) CompensateDebit(_ context.Context, cmd domain.SagaCompensationCommand) (domain.SagaWalletOperation, error) {
+	app.sagaCompensationCommand = cmd
+	if app.sagaCompensationErr != nil {
+		return domain.SagaWalletOperation{}, app.sagaCompensationErr
+	}
+	return app.sagaCompensation, nil
 }
 
 func contextWithUserID(userID uuid.UUID) context.Context {

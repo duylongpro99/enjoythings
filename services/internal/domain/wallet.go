@@ -72,3 +72,41 @@ type LedgerEntry struct {
 	BalanceAfter int64
 	CreatedAt    time.Time
 }
+
+const (
+	SagaWalletOperationDebit        = "debit"
+	SagaWalletOperationCompensation = "compensation"
+	SagaWalletOperationCompleted    = "completed"
+)
+
+type SagaDebitCommand struct {
+	PaymentID      uuid.UUID
+	FromWalletID   uuid.UUID
+	AmountCents    int64
+	Currency       string
+	IdempotencyKey string
+}
+
+type SagaCompensationCommand struct {
+	PaymentID      uuid.UUID
+	FromWalletID   uuid.UUID
+	WalletDebitID  uuid.UUID
+	AmountCents    int64
+	Currency       string
+	IdempotencyKey string
+	Reason         string
+}
+
+type SagaWalletOperation struct {
+	ID                uuid.UUID
+	PaymentID         uuid.UUID
+	Operation         string
+	IdempotencyKey    string
+	WalletID          uuid.UUID
+	AmountCents       int64
+	Currency          string
+	Status            string
+	BalanceAfterCents int64
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}

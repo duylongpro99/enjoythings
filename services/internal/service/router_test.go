@@ -145,6 +145,14 @@ func (store *routerStore) CreateTransfer(context.Context, uuid.UUID, uuid.UUID, 
 	return domain.Transfer{}, domain.ErrNotFound
 }
 
+func (store *routerStore) DebitForSaga(context.Context, domain.SagaDebitCommand) (domain.SagaWalletOperation, error) {
+	return domain.SagaWalletOperation{}, domain.ErrNotFound
+}
+
+func (store *routerStore) CompensateDebit(context.Context, domain.SagaCompensationCommand) (domain.SagaWalletOperation, error) {
+	return domain.SagaWalletOperation{}, domain.ErrNotFound
+}
+
 func (store *routerStore) ListLedgerEntries(context.Context, uuid.UUID, repo.LedgerCursor, int) ([]domain.LedgerEntry, repo.LedgerCursor, error) {
 	return nil, repo.LedgerCursor{}, nil
 }
