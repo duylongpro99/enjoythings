@@ -170,3 +170,56 @@ func TestLoadLedgerFromLookupRejectsInvalidConsumerEnabled(t *testing.T) {
 		t.Fatal("expected invalid LEDGER_CONSUMER_ENABLED to fail")
 	}
 }
+
+func TestLoadPaymentProcessorFromLookupUsesDefaults(t *testing.T) {
+	cfg, err := LoadPaymentProcessorFromLookup(mapLookup(map[string]string{
+		"DATABASE_URL": "postgres://user:pass@localhost:5432/payments?sslmode=disable",
+	}))
+	if err != nil {
+		t.Fatalf("load payment processor config: %v", err)
+	}
+
+	if cfg.KafkaBrokers != "127.0.0.1:9092" {
+		t.Fatalf("KafkaBrokers = %q, want 127.0.0.1:9092", cfg.KafkaBrokers)
+	}
+	if cfg.PaymentProcessorGroupID != "payment-processor" {
+		t.Fatalf("PaymentProcessorGroupID = %q, want payment-processor", cfg.PaymentProcessorGroupID)
+	}
+	if cfg.PaymentRailURL != "http://127.0.0.1:18090" {
+		t.Fatalf("PaymentRailURL = %q, want default stub rail URL", cfg.PaymentRailURL)
+	}
+	if cfg.PaymentRailTimeout.String() != "2s" {
+		t.Fatalf("PaymentRailTimeout = %s, want 2s", cfg.PaymentRailTimeout)
+	}
+}
+
+func TestLoadPaymentProcessorFromLookupUsesCustomValues(t *testing.T) {
+	cfg, err := LoadPaymentProcessorFromLookup(mapLookup(map[string]string{
+		"DATABASE_URL":                        "postgres://user:pass@localhost:5432/payments?sslmode=disable",
+		"KAFKA_BROKERS":                       "kafka:9092",
+		"PAYMENT_PROCESSOR_CONSUMER_GROUP":    "custom-payments",
+		"PAYMENT_RAIL_URL":                    "http://stub-rail:18090",
+		"PAYMENT_RAIL_TIMEOUT":                "5s",
+		"PAYMENT_PROCESSOR_OUTBOX_INTERVAL":   "250ms",
+		"PAYMENT_PROCESSOR_OUTBOX_BATCH_SIZE": "25",
+	}))
+	if err != nil {
+		t.Fatalf("load payment processor config: %v", err)
+	}
+
+	if cfg.PaymentProcessorGroupID != "custom-payments" {
+		t.Fatalf("PaymentProcessorGroupID = %q, want custom-payments", cfg.PaymentProcessorGroupID)
+	}
+	if cfg.PaymentRailURL != "http://stub-rail:18090" {
+		t.Fatalf("PaymentRailURL = %q, want custom URL", cfg.PaymentRailURL)
+	}
+	if cfg.PaymentRailTimeout.String() != "5s" {
+		t.Fatalf("PaymentRailTimeout = %s, want 5s", cfg.PaymentRailTimeout)
+	}
+	if cfg.WalletOutboxPollInterval.String() != "250ms" {
+		t.Fatalf("WalletOutboxPollInterval = %s, want 250ms", cfg.WalletOutboxPollInterval)
+	}
+	if cfg.WalletOutboxBatchSize != 25 {
+		t.Fatalf("WalletOutboxBatchSize = %d, want 25", cfg.WalletOutboxBatchSize)
+	}
+}

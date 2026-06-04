@@ -9,24 +9,27 @@ import (
 )
 
 const (
-	defaultAppEnv                = "local"
-	defaultHTTPAddr              = ":8080"
-	defaultGRPCAddr              = ":9090"
-	defaultWalletGRPCAddr        = "127.0.0.1:9090"
-	defaultLedgerGRPCAddr        = "127.0.0.1:9091"
-	defaultLedgerServiceGRPCAddr = ":9091"
-	defaultSagaGRPCAddr          = ":9093"
-	defaultVerificationGRPCAddr  = "127.0.0.1:9094"
-	defaultKafkaBrokers          = "127.0.0.1:9092"
-	defaultWalletOutboxTopic     = "tx.initiated"
-	defaultLedgerConsumerTopic   = "tx.initiated"
-	defaultLedgerConsumerGroupID = "ledger-service"
-	defaultSagaConsumerGroupID   = "saga-orchestrator"
-	defaultDBMaxConns            = 10
-	defaultWalletOutboxBatchSize = 100
-	defaultRateLimitBurst        = 60
-	defaultRateLimitRefillEvery  = time.Second
-	defaultWalletOutboxPollEvery = 100 * time.Millisecond
+	defaultAppEnv                  = "local"
+	defaultHTTPAddr                = ":8080"
+	defaultGRPCAddr                = ":9090"
+	defaultWalletGRPCAddr          = "127.0.0.1:9090"
+	defaultLedgerGRPCAddr          = "127.0.0.1:9091"
+	defaultLedgerServiceGRPCAddr   = ":9091"
+	defaultSagaGRPCAddr            = ":9093"
+	defaultVerificationGRPCAddr    = "127.0.0.1:9094"
+	defaultKafkaBrokers            = "127.0.0.1:9092"
+	defaultPaymentRailURL          = "http://127.0.0.1:18090"
+	defaultWalletOutboxTopic       = "tx.initiated"
+	defaultLedgerConsumerTopic     = "tx.initiated"
+	defaultLedgerConsumerGroupID   = "ledger-service"
+	defaultSagaConsumerGroupID     = "saga-orchestrator"
+	defaultPaymentProcessorGroupID = "payment-processor"
+	defaultDBMaxConns              = 10
+	defaultWalletOutboxBatchSize   = 100
+	defaultRateLimitBurst          = 60
+	defaultRateLimitRefillEvery    = time.Second
+	defaultWalletOutboxPollEvery   = 100 * time.Millisecond
+	defaultPaymentRailTimeout      = 2 * time.Second
 )
 
 type Config struct {
@@ -43,11 +46,14 @@ type Config struct {
 	LedgerConsumerTopic      string
 	LedgerConsumerGroupID    string
 	SagaConsumerGroupID      string
+	PaymentProcessorGroupID  string
+	PaymentRailURL           string
 	LedgerConsumerEnabled    bool
 	SagaConsumerEnabled      bool
 	DBMaxConns               int32
 	WalletOutboxBatchSize    int
 	WalletOutboxPollInterval time.Duration
+	PaymentRailTimeout       time.Duration
 	RateLimitBurst           int
 	RateLimitRefillEvery     time.Duration
 }
@@ -66,6 +72,10 @@ func LoadLedger() (Config, error) {
 
 func LoadSaga() (Config, error) {
 	return LoadSagaFromLookup(os.LookupEnv)
+}
+
+func LoadPaymentProcessor() (Config, error) {
+	return LoadPaymentProcessorFromLookup(os.LookupEnv)
 }
 
 func LoadGateway() (Config, error) {
@@ -167,6 +177,42 @@ func LoadSagaFromLookup(lookup func(string) (string, bool)) (Config, error) {
 		value, err := strconv.Atoi(raw)
 		if err != nil || value <= 0 {
 			return Config{}, fmt.Errorf("SAGA_OUTBOX_BATCH_SIZE must be a positive integer")
+		}
+		cfg.WalletOutboxBatchSize = value
+	}
+	return cfg, nil
+}
+
+func LoadPaymentProcessorFromLookup(lookup func(string) (string, bool)) (Config, error) {
+	cfg, err := loadBase(lookup, defaultHTTPAddr)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.KafkaBrokers = valueOrDefault(lookup, "KAFKA_BROKERS", defaultKafkaBrokers)
+	cfg.PaymentProcessorGroupID = valueOrDefault(lookup, "PAYMENT_PROCESSOR_CONSUMER_GROUP", defaultPaymentProcessorGroupID)
+	cfg.PaymentRailURL = valueOrDefault(lookup, "PAYMENT_RAIL_URL", defaultPaymentRailURL)
+	cfg.PaymentRailTimeout = defaultPaymentRailTimeout
+	cfg.WalletOutboxPollInterval = defaultWalletOutboxPollEvery
+	cfg.WalletOutboxBatchSize = defaultWalletOutboxBatchSize
+
+	if raw, ok := lookup("PAYMENT_RAIL_TIMEOUT"); ok && raw != "" {
+		value, err := time.ParseDuration(raw)
+		if err != nil || value <= 0 {
+			return Config{}, fmt.Errorf("PAYMENT_RAIL_TIMEOUT must be a positive duration")
+		}
+		cfg.PaymentRailTimeout = value
+	}
+	if raw, ok := lookup("PAYMENT_PROCESSOR_OUTBOX_INTERVAL"); ok && raw != "" {
+		value, err := time.ParseDuration(raw)
+		if err != nil || value <= 0 {
+			return Config{}, fmt.Errorf("PAYMENT_PROCESSOR_OUTBOX_INTERVAL must be a positive duration")
+		}
+		cfg.WalletOutboxPollInterval = value
+	}
+	if raw, ok := lookup("PAYMENT_PROCESSOR_OUTBOX_BATCH_SIZE"); ok && raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value <= 0 {
+			return Config{}, fmt.Errorf("PAYMENT_PROCESSOR_OUTBOX_BATCH_SIZE must be a positive integer")
 		}
 		cfg.WalletOutboxBatchSize = value
 	}

@@ -19,9 +19,11 @@ const (
 
 	VerificationVerified = "VERIFIED"
 
-	TopicPaymentExecute = "payment.execute"
-	TopicTxCompleted    = "tx.completed"
-	TopicTxFailed       = "tx.failed"
+	TopicPaymentExecute   = "payment.execute"
+	TopicPaymentCompleted = "payment.completed"
+	TopicPaymentFailed    = "payment.failed"
+	TopicTxCompleted      = "tx.completed"
+	TopicTxFailed         = "tx.failed"
 )
 
 var (

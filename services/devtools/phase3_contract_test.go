@@ -95,3 +95,32 @@ func TestPhase3ContractSpecDocumentsRoutesTopicsAndOperationalSemantics(t *testi
 		requireContains(t, spec, snippet)
 	}
 }
+
+func TestPhase3PaymentProcessorExecutableAndComposeWiring(t *testing.T) {
+	root := repoRoot(t)
+
+	paymentProcessor := readText(t, filepath.Join(root, "cmd", "payment-processor", "main.go"))
+	for _, snippet := range []string{
+		"LoadPaymentProcessor",
+		"NewHTTPRail",
+		"NewKafkaConsumer",
+		"NewPublisher",
+	} {
+		requireContains(t, paymentProcessor, snippet)
+	}
+
+	stubRail := readText(t, filepath.Join(root, "cmd", "stub-payment-rail", "main.go"))
+	requireContains(t, stubRail, "NewStubRailHandler")
+
+	compose := readText(t, filepath.Join(root, "docker-compose.yml"))
+	for _, snippet := range []string{
+		"--topic payment.execute",
+		"--topic payment.completed",
+		"--topic payment.failed",
+		"payment-processor:",
+		"stub-payment-rail:",
+		"PAYMENT_RAIL_URL: http://stub-payment-rail:18090",
+	} {
+		requireContains(t, compose, snippet)
+	}
+}

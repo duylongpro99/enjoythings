@@ -5,6 +5,7 @@ import (
 
 	"enjoythings/services/internal/event"
 	"enjoythings/services/internal/outbox"
+	"enjoythings/services/internal/paymentprocessor"
 	"enjoythings/services/internal/repo/queries"
 	"enjoythings/services/internal/saga"
 
@@ -58,6 +59,10 @@ func (db *Database) OutboxRepository() *outbox.Repository {
 
 func (db *Database) SagaStore() *saga.PostgresStore {
 	return saga.NewPostgresStore(db.pool)
+}
+
+func (db *Database) PaymentAttemptStore() *paymentprocessor.PostgresStore {
+	return paymentprocessor.NewPostgresStore(db.pool)
 }
 
 func (db *Database) Ping(ctx context.Context) error {

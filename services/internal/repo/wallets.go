@@ -699,7 +699,7 @@ func (db *Database) RunMigrations(ctx context.Context) error {
 }
 
 func (db *Database) Truncate(ctx context.Context) error {
-	_, err := db.pool.Exec(ctx, `TRUNCATE sagas, saga_wallet_operations, ledger_transfer_reservations, outbox_events, ledger_entries, transfers, wallets RESTART IDENTITY CASCADE`)
+	_, err := db.pool.Exec(ctx, `TRUNCATE payment_attempts, sagas, saga_wallet_operations, ledger_transfer_reservations, outbox_events, ledger_entries, transfers, wallets RESTART IDENTITY CASCADE`)
 	return err
 }
 
