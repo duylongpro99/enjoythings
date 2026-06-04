@@ -14,12 +14,14 @@ import (
 
 	ledgerv1 "enjoythings/services/gen/ledger/v1"
 	"enjoythings/services/internal/config"
+	"enjoythings/services/internal/domain"
 	healthhandler "enjoythings/services/internal/handler"
 	"enjoythings/services/internal/ledgerconsumer"
 	"enjoythings/services/internal/ledgergrpc"
 	"enjoythings/services/internal/repo"
 	"enjoythings/services/internal/wallet"
 
+	"github.com/google/uuid"
 	"google.golang.org/grpc"
 )
 
@@ -70,7 +72,7 @@ func run() error {
 	defer listener.Close()
 
 	grpcServer := grpc.NewServer()
-	ledgerv1.RegisterLedgerServiceServer(grpcServer, ledgergrpc.NewServer(wallet.NewService(db)))
+	ledgerv1.RegisterLedgerServiceServer(grpcServer, ledgergrpc.NewServer(newLedgerApp(db)))
 	httpServer := healthServer(cfg.HTTPAddr, db)
 
 	errCh := make(chan error, 1)
@@ -101,6 +103,34 @@ func run() error {
 		}
 		return err
 	}
+}
+
+type ledgerApp struct {
+	reader *wallet.Service
+	store  *repo.Database
+}
+
+func newLedgerApp(store *repo.Database) *ledgerApp {
+	return &ledgerApp{
+		reader: wallet.NewService(store),
+		store:  store,
+	}
+}
+
+func (app *ledgerApp) ListLedger(ctx context.Context, userID, walletID uuid.UUID, cursor repo.LedgerCursor, limit int) ([]domain.LedgerEntry, repo.LedgerCursor, error) {
+	return app.reader.ListLedger(ctx, userID, walletID, cursor, limit)
+}
+
+func (app *ledgerApp) ReserveTransfer(ctx context.Context, cmd domain.LedgerReserveCommand) (domain.LedgerReservation, error) {
+	return app.store.ReserveTransfer(ctx, cmd)
+}
+
+func (app *ledgerApp) ConfirmTransfer(ctx context.Context, cmd domain.LedgerConfirmCommand) (domain.LedgerConfirmation, error) {
+	return app.store.ConfirmTransfer(ctx, cmd)
+}
+
+func (app *ledgerApp) CancelReservation(ctx context.Context, cmd domain.LedgerCancelCommand) (domain.LedgerReservation, error) {
+	return app.store.CancelReservation(ctx, cmd)
 }
 
 func brokersFromConfig(raw string) []string {
