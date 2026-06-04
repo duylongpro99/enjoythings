@@ -15,10 +15,13 @@ const (
 	defaultWalletGRPCAddr        = "127.0.0.1:9090"
 	defaultLedgerGRPCAddr        = "127.0.0.1:9091"
 	defaultLedgerServiceGRPCAddr = ":9091"
+	defaultSagaGRPCAddr          = ":9093"
+	defaultVerificationGRPCAddr  = "127.0.0.1:9094"
 	defaultKafkaBrokers          = "127.0.0.1:9092"
 	defaultWalletOutboxTopic     = "tx.initiated"
 	defaultLedgerConsumerTopic   = "tx.initiated"
 	defaultLedgerConsumerGroupID = "ledger-service"
+	defaultSagaConsumerGroupID   = "saga-orchestrator"
 	defaultDBMaxConns            = 10
 	defaultWalletOutboxBatchSize = 100
 	defaultRateLimitBurst        = 60
@@ -32,13 +35,16 @@ type Config struct {
 	GRPCAddr                 string
 	WalletGRPCAddr           string
 	LedgerGRPCAddr           string
+	VerificationGRPCAddr     string
 	DatabaseURL              string
 	JWTSecret                string
 	KafkaBrokers             string
 	WalletOutboxTopic        string
 	LedgerConsumerTopic      string
 	LedgerConsumerGroupID    string
+	SagaConsumerGroupID      string
 	LedgerConsumerEnabled    bool
+	SagaConsumerEnabled      bool
 	DBMaxConns               int32
 	WalletOutboxBatchSize    int
 	WalletOutboxPollInterval time.Duration
@@ -56,6 +62,10 @@ func LoadWallet() (Config, error) {
 
 func LoadLedger() (Config, error) {
 	return LoadLedgerFromLookup(os.LookupEnv)
+}
+
+func LoadSaga() (Config, error) {
+	return LoadSagaFromLookup(os.LookupEnv)
 }
 
 func LoadGateway() (Config, error) {
@@ -121,6 +131,44 @@ func LoadLedgerFromLookup(lookup func(string) (string, bool)) (Config, error) {
 			return Config{}, fmt.Errorf("LEDGER_CONSUMER_ENABLED must be a boolean")
 		}
 		cfg.LedgerConsumerEnabled = value
+	}
+	return cfg, nil
+}
+
+func LoadSagaFromLookup(lookup func(string) (string, bool)) (Config, error) {
+	cfg, err := loadBase(lookup, defaultSagaGRPCAddr)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.KafkaBrokers = valueOrDefault(lookup, "KAFKA_BROKERS", defaultKafkaBrokers)
+	cfg.WalletGRPCAddr = valueOrDefault(lookup, "WALLET_GRPC_ADDR", defaultWalletGRPCAddr)
+	cfg.LedgerGRPCAddr = valueOrDefault(lookup, "LEDGER_GRPC_ADDR", defaultLedgerGRPCAddr)
+	cfg.VerificationGRPCAddr = valueOrDefault(lookup, "VERIFICATION_GRPC_ADDR", defaultVerificationGRPCAddr)
+	cfg.SagaConsumerGroupID = valueOrDefault(lookup, "SAGA_CONSUMER_GROUP_ID", defaultSagaConsumerGroupID)
+	cfg.SagaConsumerEnabled = true
+	cfg.WalletOutboxPollInterval = defaultWalletOutboxPollEvery
+	cfg.WalletOutboxBatchSize = defaultWalletOutboxBatchSize
+
+	if raw, ok := lookup("SAGA_CONSUMER_ENABLED"); ok && raw != "" {
+		value, err := strconv.ParseBool(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("SAGA_CONSUMER_ENABLED must be a boolean")
+		}
+		cfg.SagaConsumerEnabled = value
+	}
+	if raw, ok := lookup("SAGA_OUTBOX_POLL_INTERVAL"); ok && raw != "" {
+		value, err := time.ParseDuration(raw)
+		if err != nil || value <= 0 {
+			return Config{}, fmt.Errorf("SAGA_OUTBOX_POLL_INTERVAL must be a positive duration")
+		}
+		cfg.WalletOutboxPollInterval = value
+	}
+	if raw, ok := lookup("SAGA_OUTBOX_BATCH_SIZE"); ok && raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value <= 0 {
+			return Config{}, fmt.Errorf("SAGA_OUTBOX_BATCH_SIZE must be a positive integer")
+		}
+		cfg.WalletOutboxBatchSize = value
 	}
 	return cfg, nil
 }
