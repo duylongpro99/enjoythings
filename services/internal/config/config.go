@@ -9,27 +9,29 @@ import (
 )
 
 const (
-	defaultAppEnv                  = "local"
-	defaultHTTPAddr                = ":8080"
-	defaultGRPCAddr                = ":9090"
-	defaultWalletGRPCAddr          = "127.0.0.1:9090"
-	defaultLedgerGRPCAddr          = "127.0.0.1:9091"
-	defaultLedgerServiceGRPCAddr   = ":9091"
-	defaultSagaGRPCAddr            = ":9093"
-	defaultVerificationGRPCAddr    = "127.0.0.1:9094"
-	defaultKafkaBrokers            = "127.0.0.1:9092"
-	defaultPaymentRailURL          = "http://127.0.0.1:18090"
-	defaultWalletOutboxTopic       = "tx.initiated"
-	defaultLedgerConsumerTopic     = "tx.initiated"
-	defaultLedgerConsumerGroupID   = "ledger-service"
-	defaultSagaConsumerGroupID     = "saga-orchestrator"
-	defaultPaymentProcessorGroupID = "payment-processor"
-	defaultDBMaxConns              = 10
-	defaultWalletOutboxBatchSize   = 100
-	defaultRateLimitBurst          = 60
-	defaultRateLimitRefillEvery    = time.Second
-	defaultWalletOutboxPollEvery   = 100 * time.Millisecond
-	defaultPaymentRailTimeout      = 2 * time.Second
+	defaultAppEnv                      = "local"
+	defaultHTTPAddr                    = ":8080"
+	defaultGRPCAddr                    = ":9090"
+	defaultWalletGRPCAddr              = "127.0.0.1:9090"
+	defaultLedgerGRPCAddr              = "127.0.0.1:9091"
+	defaultLedgerServiceGRPCAddr       = ":9091"
+	defaultSagaGRPCAddr                = ":9093"
+	defaultVerificationGRPCAddr        = "127.0.0.1:9094"
+	defaultVerificationServiceGRPCAddr = ":9094"
+	defaultVerificationMode            = "auto"
+	defaultKafkaBrokers                = "127.0.0.1:9092"
+	defaultPaymentRailURL              = "http://127.0.0.1:18090"
+	defaultWalletOutboxTopic           = "tx.initiated"
+	defaultLedgerConsumerTopic         = "tx.initiated"
+	defaultLedgerConsumerGroupID       = "ledger-service"
+	defaultSagaConsumerGroupID         = "saga-orchestrator"
+	defaultPaymentProcessorGroupID     = "payment-processor"
+	defaultDBMaxConns                  = 10
+	defaultWalletOutboxBatchSize       = 100
+	defaultRateLimitBurst              = 60
+	defaultRateLimitRefillEvery        = time.Second
+	defaultWalletOutboxPollEvery       = 100 * time.Millisecond
+	defaultPaymentRailTimeout          = 2 * time.Second
 )
 
 type Config struct {
@@ -47,6 +49,7 @@ type Config struct {
 	LedgerConsumerGroupID    string
 	SagaConsumerGroupID      string
 	PaymentProcessorGroupID  string
+	VerificationMode         string
 	PaymentRailURL           string
 	LedgerConsumerEnabled    bool
 	SagaConsumerEnabled      bool
@@ -76,6 +79,10 @@ func LoadSaga() (Config, error) {
 
 func LoadPaymentProcessor() (Config, error) {
 	return LoadPaymentProcessorFromLookup(os.LookupEnv)
+}
+
+func LoadVerification() (Config, error) {
+	return LoadVerificationFromLookup(os.LookupEnv)
 }
 
 func LoadGateway() (Config, error) {
@@ -219,12 +226,43 @@ func LoadPaymentProcessorFromLookup(lookup func(string) (string, bool)) (Config,
 	return cfg, nil
 }
 
+func LoadVerificationFromLookup(lookup func(string) (string, bool)) (Config, error) {
+	cfg, err := loadBase(lookup, defaultVerificationServiceGRPCAddr)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.KafkaBrokers = valueOrDefault(lookup, "KAFKA_BROKERS", defaultKafkaBrokers)
+	cfg.VerificationMode = valueOrDefault(lookup, "VERIFICATION_MODE", defaultVerificationMode)
+	cfg.WalletOutboxPollInterval = defaultWalletOutboxPollEvery
+	cfg.WalletOutboxBatchSize = defaultWalletOutboxBatchSize
+
+	if cfg.VerificationMode != "auto" && cfg.VerificationMode != "manual" && cfg.VerificationMode != "rules" {
+		return Config{}, fmt.Errorf("VERIFICATION_MODE must be auto, manual, or rules")
+	}
+	if raw, ok := lookup("VERIFICATION_OUTBOX_INTERVAL"); ok && raw != "" {
+		value, err := time.ParseDuration(raw)
+		if err != nil || value <= 0 {
+			return Config{}, fmt.Errorf("VERIFICATION_OUTBOX_INTERVAL must be a positive duration")
+		}
+		cfg.WalletOutboxPollInterval = value
+	}
+	if raw, ok := lookup("VERIFICATION_OUTBOX_BATCH_SIZE"); ok && raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value <= 0 {
+			return Config{}, fmt.Errorf("VERIFICATION_OUTBOX_BATCH_SIZE must be a positive integer")
+		}
+		cfg.WalletOutboxBatchSize = value
+	}
+	return cfg, nil
+}
+
 func LoadGatewayFromLookup(lookup func(string) (string, bool)) (Config, error) {
 	cfg := Config{
 		AppEnv:               valueOrDefault(lookup, "APP_ENV", defaultAppEnv),
 		HTTPAddr:             valueOrDefault(lookup, "HTTP_ADDR", defaultHTTPAddr),
 		WalletGRPCAddr:       valueOrDefault(lookup, "WALLET_GRPC_ADDR", defaultWalletGRPCAddr),
 		LedgerGRPCAddr:       valueOrDefault(lookup, "LEDGER_GRPC_ADDR", defaultLedgerGRPCAddr),
+		VerificationGRPCAddr: valueOrDefault(lookup, "VERIFICATION_GRPC_ADDR", defaultVerificationGRPCAddr),
 		RateLimitBurst:       defaultRateLimitBurst,
 		RateLimitRefillEvery: defaultRateLimitRefillEvery,
 	}

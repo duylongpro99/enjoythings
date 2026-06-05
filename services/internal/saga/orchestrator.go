@@ -3,6 +3,7 @@ package saga
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -202,17 +203,13 @@ func (orchestrator *Orchestrator) advance(ctx context.Context, current Saga) (Sa
 			TraceID: current.TraceID,
 		})
 		if err != nil {
+			if errors.Is(err, ErrVerificationNotFound) {
+				return orchestrator.failUnverified(ctx, current)
+			}
 			return Saga{}, err
 		}
 		if verification.Status != VerificationVerified {
-			current.State = StateFailed
-			current.LastError = ErrUnverified.Error()
-			current.UpdatedAt = orchestrator.clock.Now()
-			updated, updateErr := orchestrator.store.Update(ctx, current)
-			if updateErr != nil {
-				return Saga{}, updateErr
-			}
-			return updated, ErrUnverified
+			return orchestrator.failUnverified(ctx, current)
 		}
 		current.State = StateVerificationChecked
 		current.UpdatedAt = orchestrator.clock.Now()
@@ -294,6 +291,17 @@ func (orchestrator *Orchestrator) advance(ctx context.Context, current Saga) (Sa
 		current = updated
 	}
 	return current, nil
+}
+
+func (orchestrator *Orchestrator) failUnverified(ctx context.Context, current Saga) (Saga, error) {
+	current.State = StateFailed
+	current.LastError = ErrUnverified.Error()
+	current.UpdatedAt = orchestrator.clock.Now()
+	updated, err := orchestrator.store.Update(ctx, current)
+	if err != nil {
+		return Saga{}, err
+	}
+	return updated, ErrUnverified
 }
 
 func (orchestrator *Orchestrator) resumeOne(ctx context.Context, current Saga) error {

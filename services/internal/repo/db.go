@@ -8,6 +8,7 @@ import (
 	"enjoythings/services/internal/paymentprocessor"
 	"enjoythings/services/internal/repo/queries"
 	"enjoythings/services/internal/saga"
+	"enjoythings/services/internal/verification"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -63,6 +64,10 @@ func (db *Database) SagaStore() *saga.PostgresStore {
 
 func (db *Database) PaymentAttemptStore() *paymentprocessor.PostgresStore {
 	return paymentprocessor.NewPostgresStore(db.pool)
+}
+
+func (db *Database) VerificationStore() *verification.PostgresStore {
+	return verification.NewPostgresStore(db.pool)
 }
 
 func (db *Database) Ping(ctx context.Context) error {

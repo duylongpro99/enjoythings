@@ -8,6 +8,8 @@ import (
 	walletv1 "enjoythings/services/gen/wallet/v1"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type VerificationGRPCClient struct {
@@ -24,6 +26,9 @@ func (client *VerificationGRPCClient) GetStatus(ctx context.Context, req Verific
 		TraceId: req.TraceID,
 	})
 	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return VerificationResult{}, ErrVerificationNotFound
+		}
 		return VerificationResult{}, err
 	}
 	return VerificationResult{Status: resp.GetStatus()}, nil

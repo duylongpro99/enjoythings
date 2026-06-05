@@ -74,6 +74,25 @@ func TestStartPaymentSagaDuplicateWithDifferentPayloadReturnsAlreadyExists(t *te
 	}
 }
 
+func TestStartPaymentSagaTreatsMissingVerificationAsUnverified(t *testing.T) {
+	ctx := context.Background()
+	store := newMemoryStore()
+	wallet := &fakeWallet{}
+	orchestrator := NewOrchestrator(store, &fakeVerification{err: ErrVerificationNotFound}, wallet, &fakeLedger{}, fixedClock{})
+	req := startRequest()
+
+	got, err := orchestrator.StartPaymentSaga(ctx, req)
+	if !errors.Is(err, ErrUnverified) {
+		t.Fatalf("StartPaymentSaga error = %v, want %v", err, ErrUnverified)
+	}
+	if got.State != StateFailed {
+		t.Fatalf("state = %s, want %s", got.State, StateFailed)
+	}
+	if wallet.debitCalls != 0 {
+		t.Fatalf("wallet debit calls = %d, want 0", wallet.debitCalls)
+	}
+}
+
 func TestPaymentCompletedConfirmsLedgerAndPublishesTxCompleted(t *testing.T) {
 	ctx := context.Background()
 	store := newMemoryStore()
@@ -329,6 +348,7 @@ func (fixedClock) Now() time.Time {
 
 type fakeVerification struct {
 	status      string
+	err         error
 	calls       int
 	onGetStatus func()
 }
@@ -338,14 +358,19 @@ func (verification *fakeVerification) GetStatus(context.Context, VerificationReq
 	if verification.onGetStatus != nil {
 		verification.onGetStatus()
 	}
+	if verification.err != nil {
+		return VerificationResult{}, verification.err
+	}
 	return VerificationResult{Status: verification.status}, nil
 }
 
 type fakeWallet struct {
+	debitCalls         int
 	compensatedDebitID string
 }
 
 func (wallet *fakeWallet) DebitForSaga(context.Context, WalletDebitRequest) (WalletDebitResult, error) {
+	wallet.debitCalls++
 	return WalletDebitResult{WalletDebitID: "wallet-debit-1"}, nil
 }
 
