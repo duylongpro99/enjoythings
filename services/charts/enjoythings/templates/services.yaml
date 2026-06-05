@@ -1,0 +1,27 @@
+{{- range $name, $app := .Values.applications }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "enjoythings.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  type: {{ ternary "NodePort" "ClusterIP" (and (eq $name "gateway") (hasKey $app "nodePort")) }}
+  selector:
+    {{- include "enjoythings.selectorLabels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}
+  ports:
+    - name: http
+      port: {{ $app.httpPort }}
+      targetPort: http
+      {{- if and (eq $name "gateway") (hasKey $app "nodePort") }}
+      nodePort: {{ $app.nodePort }}
+      {{- end }}
+    {{- if $app.grpcPort }}
+    - name: grpc
+      port: {{ $app.grpcPort }}
+      targetPort: grpc
+    {{- end }}
+---
+{{- end }}

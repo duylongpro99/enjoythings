@@ -1,0 +1,157 @@
+global:
+  appEnv: local
+  imagePullPolicy: IfNotPresent
+
+postgres:
+  enabled: true
+  image: postgres:16-alpine
+  database: enjoythings
+  user: enjoythings
+  password: enjoythings_dev_password
+  service:
+    port: 5432
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+kafka:
+  enabled: true
+  image: apache/kafka:3.9.0
+  service:
+    port: 9092
+  topics:
+    - tx.initiated
+    - payment.execute
+    - payment.completed
+    - payment.failed
+    - tx.completed
+    - tx.failed
+    - user.verified
+    - user.rejected
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+secrets:
+  jwtSecret: local-dev-jwt-secret-change-me
+  databaseUrl: postgres://enjoythings:enjoythings_dev_password@postgres:5432/enjoythings?sslmode=disable
+
+config:
+  dbMaxConns: "10"
+  kafkaBrokers: kafka:9092
+  walletGrpcAddr: wallet:9090
+  ledgerGrpcAddr: ledger:9091
+  verificationGrpcAddr: verification:9094
+  rateLimitBurst: "600"
+  rateLimitRefillEvery: 1s
+  walletOutboxTopic: tx.initiated
+  walletOutboxPollInterval: 100ms
+  walletOutboxBatchSize: "100"
+  ledgerConsumerEnabled: "true"
+  ledgerConsumerTopic: tx.initiated
+  ledgerConsumerGroupId: ledger-service
+  sagaConsumerEnabled: "true"
+  sagaConsumerGroupId: saga-orchestrator
+  sagaOutboxPollInterval: 100ms
+  sagaOutboxBatchSize: "100"
+  paymentProcessorConsumerGroup: payment-processor
+  paymentRailUrl: http://stub-payment-rail:18090
+  paymentRailTimeout: 2s
+  paymentProcessorOutboxInterval: 100ms
+  paymentProcessorOutboxBatchSize: "100"
+  verificationMode: auto
+  verificationOutboxInterval: 100ms
+  verificationOutboxBatchSize: "100"
+  notificationConsumerGroup: notification-service
+  stubRailTimeoutSleep: 3s
+
+applications:
+  gateway:
+    image: enjoythings/gateway:local
+    replicas: 1
+    httpPort: 8080
+    grpcPort: null
+    nodePort: 30080
+    env:
+      HTTP_ADDR: :8080
+  saga-orchestrator:
+    image: enjoythings/saga-orchestrator:local
+    replicas: 1
+    httpPort: 8080
+    grpcPort: 9093
+    env:
+      HTTP_ADDR: :8080
+      GRPC_ADDR: :9093
+  wallet:
+    image: enjoythings/wallet:local
+    replicas: 1
+    httpPort: 8080
+    grpcPort: 9090
+    env:
+      HTTP_ADDR: :8080
+      GRPC_ADDR: :9090
+  ledger:
+    image: enjoythings/ledger:local
+    replicas: 1
+    httpPort: 8080
+    grpcPort: 9091
+    env:
+      HTTP_ADDR: :8080
+      GRPC_ADDR: :9091
+  payment-processor:
+    image: enjoythings/payment-processor:local
+    replicas: 1
+    httpPort: 8080
+    grpcPort: null
+    env:
+      HTTP_ADDR: :8080
+  verification:
+    image: enjoythings/verification:local
+    replicas: 1
+    httpPort: 8080
+    grpcPort: 9094
+    env:
+      HTTP_ADDR: :8080
+      GRPC_ADDR: :9094
+  notification:
+    image: enjoythings/notification:local
+    replicas: 1
+    httpPort: 8080
+    grpcPort: null
+    env:
+      HTTP_ADDR: :8080
+  stub-payment-rail:
+    image: enjoythings/stub-payment-rail:local
+    replicas: 1
+    httpPort: 18090
+    grpcPort: null
+    env:
+      HTTP_ADDR: :18090
+
+applicationResources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi
+
+hpa:
+  enabled: false
+  targets:
+    wallet:
+      minReplicas: 1
+      maxReplicas: 3
+      averageUtilization: 70
+    ledger:
+      minReplicas: 1
+      maxReplicas: 3
+      averageUtilization: 70

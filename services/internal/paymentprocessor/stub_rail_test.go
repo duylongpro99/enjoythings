@@ -55,6 +55,21 @@ func TestStubRailHandlerReturnsTerminalFailure(t *testing.T) {
 	}
 }
 
+func TestStubRailHandlerServesHealthEndpoints(t *testing.T) {
+	handler := NewStubRailHandler(time.Millisecond)
+
+	for _, path := range []string{"/healthz", "/readyz"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, want %d", path, rec.Code, http.StatusOK)
+		}
+	}
+}
+
 func TestStubRailHandlerTimeoutScenarioSleepsThenSucceeds(t *testing.T) {
 	handler := NewStubRailHandler(time.Millisecond)
 	req := httptest.NewRequest(http.MethodPost, "/charge", strings.NewReader(`{"payment_id":"payment-timeout","idempotency_key":"idem-1","amount_cents":1250,"currency":"USD"}`))
