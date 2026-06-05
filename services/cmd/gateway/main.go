@@ -12,6 +12,7 @@ import (
 	"time"
 
 	ledgerv1 "enjoythings/services/gen/ledger/v1"
+	verificationv1 "enjoythings/services/gen/verification/v1"
 	walletv1 "enjoythings/services/gen/wallet/v1"
 	"enjoythings/services/internal/auth"
 	"enjoythings/services/internal/config"
@@ -50,14 +51,22 @@ func run() error {
 		return err
 	}
 	defer ledgerConn.Close()
+	verificationConn, err := grpc.NewClient(cfg.VerificationGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return err
+	}
+	defer verificationConn.Close()
 
 	walletClient := gatewayclient.NewWalletClient(walletv1.NewWalletServiceClient(walletConn))
 	ledgerClient := gatewayclient.NewLedgerClient(ledgerv1.NewLedgerServiceClient(ledgerConn))
+	verificationClient := gatewayclient.NewVerificationClient(verificationv1.NewVerificationServiceClient(verificationConn))
 	routes := http.NewServeMux()
 	routes.Handle("/v1/wallets", gatewayhandler.NewWallets(walletClient))
 	routes.Handle("/v1/wallets/", gatewayhandler.NewWallets(walletClient))
 	routes.Handle("/v1/transfers", gatewayhandler.NewTransfers(walletClient))
 	routes.Handle("/v1/ledger/", gatewayhandler.NewLedger(ledgerClient))
+	routes.Handle("/v1/verification/submit", gatewayhandler.NewVerification(verificationClient))
+	routes.Handle("/v1/verification/status", gatewayhandler.NewVerification(verificationClient))
 
 	limiter := gatewaymiddleware.NewRateLimiter(cfg.RateLimitBurst, cfg.RateLimitRefillEvery)
 	protected := auth.Middleware(cfg.JWTSecret)(limiter.Middleware(routes))
@@ -74,7 +83,7 @@ func run() error {
 			http.NotFound(w, r)
 			return
 		}
-		if err := dialReady(r.Context(), cfg.WalletGRPCAddr, cfg.LedgerGRPCAddr); err != nil {
+		if err := dialReady(r.Context(), cfg.WalletGRPCAddr, cfg.LedgerGRPCAddr, cfg.VerificationGRPCAddr); err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write([]byte(`{"error":{"code":"service_unavailable","message":"upstream service is not ready"}}` + "\n"))
@@ -91,7 +100,7 @@ func run() error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("gateway listening", "addr", cfg.HTTPAddr, "wallet_grpc_addr", cfg.WalletGRPCAddr, "ledger_grpc_addr", cfg.LedgerGRPCAddr, "env", cfg.AppEnv)
+		slog.Info("gateway listening", "addr", cfg.HTTPAddr, "wallet_grpc_addr", cfg.WalletGRPCAddr, "ledger_grpc_addr", cfg.LedgerGRPCAddr, "verification_grpc_addr", cfg.VerificationGRPCAddr, "env", cfg.AppEnv)
 		errCh <- server.ListenAndServe()
 	}()
 

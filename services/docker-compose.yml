@@ -49,6 +49,8 @@ services:
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic payment.execute --partitions 1 --replication-factor 1
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic payment.completed --partitions 1 --replication-factor 1
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic payment.failed --partitions 1 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic user.verified --partitions 1 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic user.rejected --partitions 1 --replication-factor 1
 
   gateway:
     build:
@@ -62,6 +64,7 @@ services:
       JWT_SECRET: local-dev-jwt-secret-change-me
       WALLET_GRPC_ADDR: wallet:9090
       LEDGER_GRPC_ADDR: ledger:9091
+      VERIFICATION_GRPC_ADDR: verification:9094
       RATE_LIMIT_BURST: "600"
       RATE_LIMIT_REFILL_EVERY: 1s
     ports:
@@ -70,6 +73,8 @@ services:
       wallet:
         condition: service_healthy
       ledger:
+        condition: service_healthy
+      verification:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O- http://localhost:8080/healthz >/dev/null && wget -q -O- http://localhost:8080/readyz >/dev/null"]
@@ -180,6 +185,36 @@ services:
         condition: service_completed_successfully
       stub-payment-rail:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:8080/healthz >/dev/null && wget -q -O- http://localhost:8080/readyz >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  verification:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: verification
+    environment:
+      APP_ENV: local
+      HTTP_ADDR: :8080
+      GRPC_ADDR: :9094
+      DATABASE_URL: postgres://enjoythings:enjoythings_dev_password@postgres:5432/enjoythings?sslmode=disable
+      DB_MAX_CONNS: "10"
+      KAFKA_BROKERS: kafka:9092
+      VERIFICATION_MODE: auto
+      VERIFICATION_OUTBOX_INTERVAL: 100ms
+      VERIFICATION_OUTBOX_BATCH_SIZE: "100"
+    ports:
+      - "${VERIFICATION_HTTP_PORT:-8086}:8080"
+      - "${VERIFICATION_GRPC_PORT:-9094}:9094"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O- http://localhost:8080/healthz >/dev/null && wget -q -O- http://localhost:8080/readyz >/dev/null"]
       interval: 5s

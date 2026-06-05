@@ -17,7 +17,7 @@ const (
 	StateCompensatingWallet  = "COMPENSATING_WALLET"
 	StateFailed              = "FAILED"
 
-	VerificationVerified = "VERIFIED"
+	VerificationVerified = "verified"
 
 	TopicPaymentExecute   = "payment.execute"
 	TopicPaymentCompleted = "payment.completed"
@@ -27,9 +27,10 @@ const (
 )
 
 var (
-	ErrAlreadyExists = errors.New("saga idempotency key already exists with different payload")
-	ErrNotFound      = errors.New("saga not found")
-	ErrUnverified    = errors.New("user is not verified")
+	ErrAlreadyExists        = errors.New("saga idempotency key already exists with different payload")
+	ErrNotFound             = errors.New("saga not found")
+	ErrUnverified           = errors.New("user is not verified")
+	ErrVerificationNotFound = errors.New("verification not found")
 )
 
 type Saga struct {

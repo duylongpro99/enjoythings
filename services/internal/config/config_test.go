@@ -91,6 +91,7 @@ func TestLoadGatewayFromLookupUsesGatewaySettings(t *testing.T) {
 		"JWT_SECRET":              "dev-secret",
 		"WALLET_GRPC_ADDR":        "127.0.0.1:19090",
 		"LEDGER_GRPC_ADDR":        "127.0.0.1:19091",
+		"VERIFICATION_GRPC_ADDR":  "127.0.0.1:19094",
 		"RATE_LIMIT_BURST":        "25",
 		"RATE_LIMIT_REFILL_EVERY": "2s",
 	}))
@@ -113,11 +114,30 @@ func TestLoadGatewayFromLookupUsesGatewaySettings(t *testing.T) {
 	if cfg.LedgerGRPCAddr != "127.0.0.1:19091" {
 		t.Fatalf("LedgerGRPCAddr = %q, want 127.0.0.1:19091", cfg.LedgerGRPCAddr)
 	}
+	if cfg.VerificationGRPCAddr != "127.0.0.1:19094" {
+		t.Fatalf("VerificationGRPCAddr = %q, want 127.0.0.1:19094", cfg.VerificationGRPCAddr)
+	}
 	if cfg.RateLimitBurst != 25 {
 		t.Fatalf("RateLimitBurst = %d, want 25", cfg.RateLimitBurst)
 	}
 	if cfg.RateLimitRefillEvery.String() != "2s" {
 		t.Fatalf("RateLimitRefillEvery = %s, want 2s", cfg.RateLimitRefillEvery)
+	}
+}
+
+func TestLoadVerificationFromLookupDefaultsToAutoMode(t *testing.T) {
+	cfg, err := LoadVerificationFromLookup(mapLookup(map[string]string{
+		"DATABASE_URL": "postgres://user:pass@localhost:5432/app?sslmode=disable",
+	}))
+	if err != nil {
+		t.Fatalf("load verification config: %v", err)
+	}
+
+	if cfg.GRPCAddr != ":9094" {
+		t.Fatalf("GRPCAddr = %q, want :9094", cfg.GRPCAddr)
+	}
+	if cfg.VerificationMode != "auto" {
+		t.Fatalf("VerificationMode = %q, want auto", cfg.VerificationMode)
 	}
 }
 
