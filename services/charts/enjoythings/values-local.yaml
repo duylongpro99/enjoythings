@@ -1,0 +1,20 @@
+global:
+  imagePullPolicy: IfNotPresent
+
+applications:
+  gateway:
+    image: enjoythings/gateway:local
+  saga-orchestrator:
+    image: enjoythings/saga-orchestrator:local
+  wallet:
+    image: enjoythings/wallet:local
+  ledger:
+    image: enjoythings/ledger:local
+  payment-processor:
+    image: enjoythings/payment-processor:local
+  verification:
+    image: enjoythings/verification:local
+  notification:
+    image: enjoythings/notification:local
+  stub-payment-rail:
+    image: enjoythings/stub-payment-rail:local

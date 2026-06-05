@@ -22,6 +22,12 @@ func NewStubRailHandler(timeoutSleep time.Duration) *StubRailHandler {
 }
 
 func (handler *StubRailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet && (r.URL.Path == "/healthz" || r.URL.Path == "/readyz") {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok\n"))
+		return
+	}
+
 	if r.Method != http.MethodPost || r.URL.Path != "/charge" {
 		http.NotFound(w, r)
 		return

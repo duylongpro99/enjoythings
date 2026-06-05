@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "enjoythings.configName" . }}
+  labels:
+    {{- include "enjoythings.labels" . | nindent 4 }}
+data:
+  APP_ENV: {{ .Values.global.appEnv | quote }}
+  DB_MAX_CONNS: {{ .Values.config.dbMaxConns | quote }}
+  KAFKA_BROKERS: {{ .Values.config.kafkaBrokers | quote }}
+  WALLET_GRPC_ADDR: {{ .Values.config.walletGrpcAddr | quote }}
+  LEDGER_GRPC_ADDR: {{ .Values.config.ledgerGrpcAddr | quote }}
+  VERIFICATION_GRPC_ADDR: {{ .Values.config.verificationGrpcAddr | quote }}
+  RATE_LIMIT_BURST: {{ .Values.config.rateLimitBurst | quote }}
+  RATE_LIMIT_REFILL_EVERY: {{ .Values.config.rateLimitRefillEvery | quote }}
+  WALLET_OUTBOX_TOPIC: {{ .Values.config.walletOutboxTopic | quote }}
+  WALLET_OUTBOX_POLL_INTERVAL: {{ .Values.config.walletOutboxPollInterval | quote }}
+  WALLET_OUTBOX_BATCH_SIZE: {{ .Values.config.walletOutboxBatchSize | quote }}
+  LEDGER_CONSUMER_ENABLED: {{ .Values.config.ledgerConsumerEnabled | quote }}
+  LEDGER_CONSUMER_TOPIC: {{ .Values.config.ledgerConsumerTopic | quote }}
+  LEDGER_CONSUMER_GROUP_ID: {{ .Values.config.ledgerConsumerGroupId | quote }}
+  SAGA_CONSUMER_ENABLED: {{ .Values.config.sagaConsumerEnabled | quote }}
+  SAGA_CONSUMER_GROUP_ID: {{ .Values.config.sagaConsumerGroupId | quote }}
+  SAGA_OUTBOX_POLL_INTERVAL: {{ .Values.config.sagaOutboxPollInterval | quote }}
+  SAGA_OUTBOX_BATCH_SIZE: {{ .Values.config.sagaOutboxBatchSize | quote }}
+  PAYMENT_PROCESSOR_CONSUMER_GROUP: {{ .Values.config.paymentProcessorConsumerGroup | quote }}
+  PAYMENT_RAIL_URL: {{ .Values.config.paymentRailUrl | quote }}
+  PAYMENT_RAIL_TIMEOUT: {{ .Values.config.paymentRailTimeout | quote }}
+  PAYMENT_PROCESSOR_OUTBOX_INTERVAL: {{ .Values.config.paymentProcessorOutboxInterval | quote }}
+  PAYMENT_PROCESSOR_OUTBOX_BATCH_SIZE: {{ .Values.config.paymentProcessorOutboxBatchSize | quote }}
+  VERIFICATION_MODE: {{ .Values.config.verificationMode | quote }}
+  VERIFICATION_OUTBOX_INTERVAL: {{ .Values.config.verificationOutboxInterval | quote }}
+  VERIFICATION_OUTBOX_BATCH_SIZE: {{ .Values.config.verificationOutboxBatchSize | quote }}
+  NOTIFICATION_CONSUMER_GROUP: {{ .Values.config.notificationConsumerGroup | quote }}
+  STUB_RAIL_TIMEOUT_SLEEP: {{ .Values.config.stubRailTimeoutSleep | quote }}

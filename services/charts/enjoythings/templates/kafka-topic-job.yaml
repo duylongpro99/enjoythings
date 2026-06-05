@@ -1,0 +1,38 @@
+{{- if .Values.kafka.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kafka-topic-init
+  labels:
+    {{- include "enjoythings.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kafka-topic-init
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "1"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "enjoythings.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: kafka-topic-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: kafka-topic-init
+          image: {{ .Values.kafka.image | quote }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+          args:
+            - |
+              until /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list >/dev/null 2>&1; do
+                echo "waiting for kafka:9092"
+                sleep 5
+              done
+              {{- range .Values.kafka.topics }}
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic {{ . | quote }} --partitions 1 --replication-factor 1
+              {{- end }}
+{{- end }}
