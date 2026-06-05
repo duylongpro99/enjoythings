@@ -55,6 +55,32 @@ func TestStubRailHandlerReturnsTerminalFailure(t *testing.T) {
 	}
 }
 
+func TestStubRailHandlerSupportsTerminalFailureForValidUUIDPayment(t *testing.T) {
+	handler := NewStubRailHandler(time.Millisecond)
+	req := httptest.NewRequest(http.MethodPost, "/charge", strings.NewReader(`{"payment_id":"11111111-1111-1111-1111-111111111111","idempotency_key":"idem-1","amount_cents":40901,"currency":"USD"}`))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "terminal_failure") {
+		t.Fatalf("status/body = %d %s, want terminal failure", rec.Code, rec.Body.String())
+	}
+}
+
+func TestStubRailHandlerSupportsRetryOnceForValidUUIDPayment(t *testing.T) {
+	handler := NewStubRailHandler(time.Millisecond)
+	body := `{"payment_id":"22222222-2222-2222-2222-222222222222","idempotency_key":"idem-1","amount_cents":50301,"currency":"USD"}`
+
+	first := httptest.NewRecorder()
+	handler.ServeHTTP(first, httptest.NewRequest(http.MethodPost, "/charge", strings.NewReader(body)))
+	second := httptest.NewRecorder()
+	handler.ServeHTTP(second, httptest.NewRequest(http.MethodPost, "/charge", strings.NewReader(body)))
+
+	if first.Code != http.StatusServiceUnavailable || second.Code != http.StatusOK {
+		t.Fatalf("statuses = %d/%d, want 503/200", first.Code, second.Code)
+	}
+}
+
 func TestStubRailHandlerServesHealthEndpoints(t *testing.T) {
 	handler := NewStubRailHandler(time.Millisecond)
 

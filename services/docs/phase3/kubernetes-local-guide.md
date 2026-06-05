@@ -172,6 +172,18 @@ kubectl rollout restart deployment/wallet -n enjoythings
 kubectl rollout status deployment/wallet -n enjoythings
 ```
 
+With the gateway port-forward from section 7 still running, validate readiness
+gating and uninterrupted requests automatically:
+
+```sh
+cd services
+make wallet-rollout-test
+```
+
+The validator scales Wallet to two replicas before restarting it and
+continuously requests Gateway `/readyz`. It fails if any request is interrupted
+or if fewer than two Wallet replicas are ready after the rollout.
+
 Delete one Wallet Pod and watch the Deployment replace it:
 
 ```sh
