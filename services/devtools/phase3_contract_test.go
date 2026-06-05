@@ -124,3 +124,28 @@ func TestPhase3PaymentProcessorExecutableAndComposeWiring(t *testing.T) {
 		requireContains(t, compose, snippet)
 	}
 }
+
+func TestPhase3NotificationExecutableAndComposeWiring(t *testing.T) {
+	root := repoRoot(t)
+
+	notification := readText(t, filepath.Join(root, "cmd", "notification", "main.go"))
+	for _, snippet := range []string{
+		"LoadNotification",
+		"NewStubEmailAdapter",
+		"NewStubSMSAdapter",
+		"NewKafkaConsumer",
+	} {
+		requireContains(t, notification, snippet)
+	}
+
+	compose := readText(t, filepath.Join(root, "docker-compose.yml"))
+	for _, snippet := range []string{
+		"--topic tx.completed",
+		"--topic tx.failed",
+		"notification:",
+		"SERVICE: notification",
+		"NOTIFICATION_CONSUMER_GROUP: notification-service",
+	} {
+		requireContains(t, compose, snippet)
+	}
+}

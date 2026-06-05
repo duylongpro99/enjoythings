@@ -141,6 +141,23 @@ func TestLoadVerificationFromLookupDefaultsToAutoMode(t *testing.T) {
 	}
 }
 
+func TestLoadNotificationFromLookupUsesKafkaDefaults(t *testing.T) {
+	cfg, err := LoadNotificationFromLookup(mapLookup(nil))
+	if err != nil {
+		t.Fatalf("load notification config: %v", err)
+	}
+
+	if cfg.HTTPAddr != ":8080" {
+		t.Fatalf("HTTPAddr = %q, want :8080", cfg.HTTPAddr)
+	}
+	if cfg.KafkaBrokers != "127.0.0.1:9092" {
+		t.Fatalf("KafkaBrokers = %q, want 127.0.0.1:9092", cfg.KafkaBrokers)
+	}
+	if cfg.NotificationConsumerGroupID != "notification-service" {
+		t.Fatalf("NotificationConsumerGroupID = %q, want notification-service", cfg.NotificationConsumerGroupID)
+	}
+}
+
 func TestLoadGatewayFromLookupRejectsInvalidRateLimit(t *testing.T) {
 	tests := map[string]map[string]string{
 		"missing jwt": {

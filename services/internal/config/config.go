@@ -26,6 +26,7 @@ const (
 	defaultLedgerConsumerGroupID       = "ledger-service"
 	defaultSagaConsumerGroupID         = "saga-orchestrator"
 	defaultPaymentProcessorGroupID     = "payment-processor"
+	defaultNotificationConsumerGroupID = "notification-service"
 	defaultDBMaxConns                  = 10
 	defaultWalletOutboxBatchSize       = 100
 	defaultRateLimitBurst              = 60
@@ -35,30 +36,31 @@ const (
 )
 
 type Config struct {
-	AppEnv                   string
-	HTTPAddr                 string
-	GRPCAddr                 string
-	WalletGRPCAddr           string
-	LedgerGRPCAddr           string
-	VerificationGRPCAddr     string
-	DatabaseURL              string
-	JWTSecret                string
-	KafkaBrokers             string
-	WalletOutboxTopic        string
-	LedgerConsumerTopic      string
-	LedgerConsumerGroupID    string
-	SagaConsumerGroupID      string
-	PaymentProcessorGroupID  string
-	VerificationMode         string
-	PaymentRailURL           string
-	LedgerConsumerEnabled    bool
-	SagaConsumerEnabled      bool
-	DBMaxConns               int32
-	WalletOutboxBatchSize    int
-	WalletOutboxPollInterval time.Duration
-	PaymentRailTimeout       time.Duration
-	RateLimitBurst           int
-	RateLimitRefillEvery     time.Duration
+	AppEnv                      string
+	HTTPAddr                    string
+	GRPCAddr                    string
+	WalletGRPCAddr              string
+	LedgerGRPCAddr              string
+	VerificationGRPCAddr        string
+	DatabaseURL                 string
+	JWTSecret                   string
+	KafkaBrokers                string
+	WalletOutboxTopic           string
+	LedgerConsumerTopic         string
+	LedgerConsumerGroupID       string
+	SagaConsumerGroupID         string
+	PaymentProcessorGroupID     string
+	NotificationConsumerGroupID string
+	VerificationMode            string
+	PaymentRailURL              string
+	LedgerConsumerEnabled       bool
+	SagaConsumerEnabled         bool
+	DBMaxConns                  int32
+	WalletOutboxBatchSize       int
+	WalletOutboxPollInterval    time.Duration
+	PaymentRailTimeout          time.Duration
+	RateLimitBurst              int
+	RateLimitRefillEvery        time.Duration
 }
 
 func Load() (Config, error) {
@@ -79,6 +81,10 @@ func LoadSaga() (Config, error) {
 
 func LoadPaymentProcessor() (Config, error) {
 	return LoadPaymentProcessorFromLookup(os.LookupEnv)
+}
+
+func LoadNotification() (Config, error) {
+	return LoadNotificationFromLookup(os.LookupEnv)
 }
 
 func LoadVerification() (Config, error) {
@@ -223,6 +229,17 @@ func LoadPaymentProcessorFromLookup(lookup func(string) (string, bool)) (Config,
 		}
 		cfg.WalletOutboxBatchSize = value
 	}
+	return cfg, nil
+}
+
+func LoadNotificationFromLookup(lookup func(string) (string, bool)) (Config, error) {
+	cfg := Config{
+		AppEnv:     valueOrDefault(lookup, "APP_ENV", defaultAppEnv),
+		HTTPAddr:   valueOrDefault(lookup, "HTTP_ADDR", defaultHTTPAddr),
+		DBMaxConns: defaultDBMaxConns,
+	}
+	cfg.KafkaBrokers = valueOrDefault(lookup, "KAFKA_BROKERS", defaultKafkaBrokers)
+	cfg.NotificationConsumerGroupID = valueOrDefault(lookup, "NOTIFICATION_CONSUMER_GROUP", defaultNotificationConsumerGroupID)
 	return cfg, nil
 }
 
