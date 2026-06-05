@@ -49,6 +49,7 @@ config:
   kafkaBrokers: kafka:9092
   walletGrpcAddr: wallet:9090
   ledgerGrpcAddr: ledger:9091
+  sagaGrpcAddr: saga-orchestrator:9093
   verificationGrpcAddr: verification:9094
   rateLimitBurst: "600"
   rateLimitRefillEvery: 1s

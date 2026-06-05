@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+const (
+	StubTerminalFailureAmountCents int64 = 40901
+	StubRetryOnceAmountCents       int64 = 50301
+)
+
 type StubRailHandler struct {
 	mu           sync.Mutex
 	callsByID    map[string]int
@@ -44,10 +49,10 @@ func (handler *StubRailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 	handler.mu.Unlock()
 
 	switch {
-	case strings.Contains(req.PaymentID, "terminal"):
+	case strings.Contains(req.PaymentID, "terminal") || req.AmountCents == StubTerminalFailureAmountCents:
 		writeRailFailure(w, http.StatusBadRequest, "terminal_failure", "terminal rail failure")
 		return
-	case strings.Contains(req.PaymentID, "retry") && callCount == 1:
+	case (strings.Contains(req.PaymentID, "retry") || req.AmountCents == StubRetryOnceAmountCents) && callCount == 1:
 		writeRailFailure(w, http.StatusServiceUnavailable, "rail_unavailable", "retryable rail failure")
 		return
 	case strings.Contains(req.PaymentID, "timeout"):

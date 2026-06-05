@@ -16,6 +16,7 @@ const (
 	defaultLedgerGRPCAddr              = "127.0.0.1:9091"
 	defaultLedgerServiceGRPCAddr       = ":9091"
 	defaultSagaGRPCAddr                = ":9093"
+	defaultSagaClientGRPCAddr          = "127.0.0.1:9093"
 	defaultVerificationGRPCAddr        = "127.0.0.1:9094"
 	defaultVerificationServiceGRPCAddr = ":9094"
 	defaultVerificationMode            = "auto"
@@ -41,6 +42,7 @@ type Config struct {
 	GRPCAddr                    string
 	WalletGRPCAddr              string
 	LedgerGRPCAddr              string
+	SagaGRPCAddr                string
 	VerificationGRPCAddr        string
 	DatabaseURL                 string
 	JWTSecret                   string
@@ -279,6 +281,7 @@ func LoadGatewayFromLookup(lookup func(string) (string, bool)) (Config, error) {
 		HTTPAddr:             valueOrDefault(lookup, "HTTP_ADDR", defaultHTTPAddr),
 		WalletGRPCAddr:       valueOrDefault(lookup, "WALLET_GRPC_ADDR", defaultWalletGRPCAddr),
 		LedgerGRPCAddr:       valueOrDefault(lookup, "LEDGER_GRPC_ADDR", defaultLedgerGRPCAddr),
+		SagaGRPCAddr:         valueOrDefault(lookup, "SAGA_GRPC_ADDR", defaultSagaClientGRPCAddr),
 		VerificationGRPCAddr: valueOrDefault(lookup, "VERIFICATION_GRPC_ADDR", defaultVerificationGRPCAddr),
 		RateLimitBurst:       defaultRateLimitBurst,
 		RateLimitRefillEvery: defaultRateLimitRefillEvery,

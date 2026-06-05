@@ -1,6 +1,7 @@
 # EnjoyThings Services
 
-Phase 2 services run as a local gateway, wallet gRPC service, ledger gRPC service, Kafka, and Postgres stack.
+Phase 3 services run as a local gateway, saga orchestrator, wallet, ledger,
+payment processor, verification, notification, Kafka, and Postgres stack.
 
 ## Local Development
 
@@ -79,6 +80,40 @@ go run ./devtools/phase2_smoke \
 ```
 
 The Compose credentials and JWT secret are local development values only. Do not use them as production guidance.
+
+## Phase 3 Resilience Tests
+
+Run the fast acceptance suite, which connects the real Phase 3 components
+through deterministic service and event boundaries:
+
+```sh
+cd services
+make test-phase3-e2e
+```
+
+Run the deployed-stack smoke test after Compose is healthy:
+
+```sh
+cd services
+docker compose up -d --build
+make phase3-smoke
+```
+
+The smoke test proves unverified rejection, auto verification, saga completion,
+terminal payment compensation, payment retry, Wallet balance outcomes, Ledger
+reservation states, and terminal outbox events. The stub rail uses amount
+`40901` for terminal failure and `50301` for one retry followed by success.
+
+To validate a Wallet rolling restart, deploy the Helm chart, start the gateway
+port-forward documented in the Kubernetes guide, then run:
+
+```sh
+cd services
+make wallet-rollout-test
+```
+
+The validator scales Wallet to two ready replicas, continuously requests
+Gateway `/readyz`, restarts Wallet, and fails if any request is interrupted.
 
 ## Phase 2 API
 
