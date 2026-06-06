@@ -14,6 +14,7 @@ import (
 
 	sagav1 "enjoythings/services/gen/saga/v1"
 	"enjoythings/services/internal/auth"
+	"enjoythings/services/internal/event"
 	gatewayhandler "enjoythings/services/internal/gateway/handler"
 	"enjoythings/services/internal/notification"
 	"enjoythings/services/internal/paymentprocessor"
@@ -166,35 +167,44 @@ func (h *harness) deliverNextTopicTwice(t *testing.T, topic string) {
 	h.deliver(t, event)
 }
 
-func (h *harness) deliver(t *testing.T, event recordedEvent) {
+func (h *harness) deliver(t *testing.T, recorded recordedEvent) {
 	t.Helper()
 	var err error
-	switch event.topic {
+	switch recorded.topic {
 	case saga.TopicPaymentExecute:
 		var command saga.PaymentExecute
-		if unmarshalErr := json.Unmarshal(event.payload, &command); unmarshalErr != nil {
+		if unmarshalErr := json.Unmarshal(recorded.payload, &command); unmarshalErr != nil {
 			t.Fatalf("payment.execute boundary: unmarshal: %v", unmarshalErr)
 		}
 		err = h.processor.HandleExecute(h.ctx, command)
 	case saga.TopicPaymentCompleted:
 		var completed saga.PaymentCompleted
-		if unmarshalErr := json.Unmarshal(event.payload, &completed); unmarshalErr != nil {
+		if unmarshalErr := json.Unmarshal(recorded.payload, &completed); unmarshalErr != nil {
 			t.Fatalf("payment.completed boundary: unmarshal: %v", unmarshalErr)
 		}
 		err = h.orchestrator.HandlePaymentCompleted(h.ctx, completed)
 	case saga.TopicPaymentFailed:
 		var failed saga.PaymentFailed
-		if unmarshalErr := json.Unmarshal(event.payload, &failed); unmarshalErr != nil {
+		if unmarshalErr := json.Unmarshal(recorded.payload, &failed); unmarshalErr != nil {
 			t.Fatalf("payment.failed boundary: unmarshal: %v", unmarshalErr)
 		}
 		err = h.orchestrator.HandlePaymentFailed(h.ctx, failed)
+	case event.FraudScoreRequestedTopic:
+		var requested event.FraudScoreRequested
+		if unmarshalErr := json.Unmarshal(recorded.payload, &requested); unmarshalErr != nil {
+			t.Fatalf("fraud.score.requested boundary: unmarshal: %v", unmarshalErr)
+		}
+		if validateErr := requested.Validate(); validateErr != nil {
+			t.Fatalf("fraud.score.requested boundary: validate: %v", validateErr)
+		}
+		return
 	case notification.TopicTxCompleted, notification.TopicTxFailed, notification.TopicUserVerified, notification.TopicUserRejected:
-		err = h.notification.HandleRecord(h.ctx, &kgo.Record{Topic: event.topic, Value: event.payload})
+		err = h.notification.HandleRecord(h.ctx, &kgo.Record{Topic: recorded.topic, Value: recorded.payload})
 	default:
-		t.Fatalf("event bus boundary: unsupported topic %q", event.topic)
+		t.Fatalf("event bus boundary: unsupported topic %q", recorded.topic)
 	}
 	if err != nil {
-		t.Fatalf("%s boundary: deliver: %v", event.topic, err)
+		t.Fatalf("%s boundary: deliver: %v", recorded.topic, err)
 	}
 }
 

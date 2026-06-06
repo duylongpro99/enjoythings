@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 
+	"enjoythings/services/internal/event"
 	"enjoythings/services/internal/saga"
 
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -19,6 +20,7 @@ const (
 type App interface {
 	HandlePaymentCompleted(context.Context, saga.PaymentCompleted) error
 	HandlePaymentFailed(context.Context, saga.PaymentFailed) error
+	HandleFraudFlagged(context.Context, event.FraudFlagged) error
 }
 
 type Committer interface {
@@ -58,6 +60,15 @@ func (consumer *Consumer) HandleRecord(ctx context.Context, record *kgo.Record) 
 		if err := consumer.app.HandlePaymentFailed(ctx, event); err != nil {
 			return err
 		}
+	case event.FraudFlaggedTopic:
+		var flagged event.FraudFlagged
+		if err := json.Unmarshal(record.Value, &flagged); err != nil || flagged.Validate() != nil {
+			consumer.logger.Warn("saga consumer skipped invalid fraud.flagged event", "error", err)
+			return consumer.commit(ctx, record)
+		}
+		if err := consumer.app.HandleFraudFlagged(ctx, flagged); err != nil {
+			return err
+		}
 	default:
 		consumer.logger.Warn("saga consumer skipped unknown topic", "topic", record.Topic)
 	}
@@ -87,7 +98,7 @@ func NewKafkaConsumer(brokers []string, groupID string, app App, logger *slog.Lo
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(brokers...),
 		kgo.ConsumerGroup(groupID),
-		kgo.ConsumeTopics(PaymentCompletedTopic, PaymentFailedTopic),
+		kgo.ConsumeTopics(PaymentCompletedTopic, PaymentFailedTopic, event.FraudFlaggedTopic),
 		kgo.DisableAutoCommit(),
 	)
 	if err != nil {

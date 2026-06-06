@@ -11,6 +11,7 @@ const (
 	StateWalletDebited       = "WALLET_DEBITED"
 	StateLedgerReserved      = "LEDGER_RESERVED"
 	StatePaymentProcessing   = "PAYMENT_PROCESSING"
+	StateFraudReview         = "FRAUD_REVIEW"
 	StateLedgerConfirmed     = "LEDGER_CONFIRMED"
 	StateCompleted           = "COMPLETED"
 	StateCompensatingLedger  = "COMPENSATING_LEDGER"
@@ -49,6 +50,12 @@ type Saga struct {
 	LedgerReservationID string
 	TransferID          string
 	FailureCode         string
+	FraudSessionID      string
+	FraudAction         string
+	FraudRiskScore      float64
+	FraudReason         string
+	FraudFlaggedAt      time.Time
+	DeferredPaymentJSON string
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 }

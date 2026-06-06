@@ -1,0 +1,62 @@
+import os
+from collections.abc import Mapping
+from dataclasses import dataclass
+
+
+class FraudConfigError(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
+class FraudConfig:
+    score_threshold: float = 0.75
+    block_threshold: float = 0.90
+    prompt_max_chars: int = 8000
+    response_max_chars: int = 4000
+    history_limit: int = 20
+    consumer_group: str = "fraud-agent"
+    request_topic: str = "fraud.score.requested"
+    metrics_port: int = 9101
+    sensitive_keys: tuple[str, ...] = (
+        "user_id",
+        "from_wallet_id",
+        "to_wallet_id",
+        "wallet_id",
+    )
+
+    @classmethod
+    def from_env(cls, environ: Mapping[str, str] | None = None) -> "FraudConfig":
+        source = environ if environ is not None else os.environ
+        try:
+            config = cls(
+                score_threshold=float(source.get("FRAUD_SCORE_THRESHOLD", "0.75")),
+                block_threshold=float(source.get("FRAUD_BLOCK_THRESHOLD", "0.90")),
+                prompt_max_chars=int(source.get("FRAUD_PROMPT_MAX_CHARS", "8000")),
+                response_max_chars=int(source.get("FRAUD_RESPONSE_MAX_CHARS", "4000")),
+                history_limit=int(source.get("FRAUD_HISTORY_LIMIT", "20")),
+                consumer_group=source.get("FRAUD_CONSUMER_GROUP", "fraud-agent").strip(),
+                request_topic=source.get(
+                    "FRAUD_REQUEST_TOPIC", "fraud.score.requested"
+                ).strip(),
+                metrics_port=int(source.get("FRAUD_METRICS_PORT", "9101")),
+            )
+        except ValueError as exc:
+            raise FraudConfigError("fraud numeric settings must be valid numbers") from exc
+        config.validate()
+        return config
+
+    def validate(self) -> None:
+        if not 0.0 <= self.score_threshold < 1.0:
+            raise FraudConfigError("FRAUD_SCORE_THRESHOLD must be in [0.0, 1.0)")
+        if not 0.0 < self.block_threshold <= 1.0:
+            raise FraudConfigError("FRAUD_BLOCK_THRESHOLD must be in (0.0, 1.0]")
+        if self.score_threshold >= self.block_threshold:
+            raise FraudConfigError("fraud score threshold must be lower than block threshold")
+        if self.prompt_max_chars <= 0 or self.response_max_chars <= 0:
+            raise FraudConfigError("fraud prompt and response limits must be positive")
+        if not 1 <= self.history_limit <= 100:
+            raise FraudConfigError("FRAUD_HISTORY_LIMIT must be from 1 through 100")
+        if not self.consumer_group or not self.request_topic:
+            raise FraudConfigError("fraud consumer group and request topic must be non-empty")
+        if not 1 <= self.metrics_port <= 65535:
+            raise FraudConfigError("FRAUD_METRICS_PORT must be a valid TCP port")

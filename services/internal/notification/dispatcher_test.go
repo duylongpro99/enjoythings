@@ -41,6 +41,16 @@ func TestDispatcherRendersAndDispatchesAllPhase3Notifications(t *testing.T) {
 			traceID:      "trace-2",
 		},
 		{
+			name:         "payment paused",
+			topic:        TopicTxPaused,
+			payload:      []byte(`{"schema_version":1,"event_id":"tx.paused:payment-3","payment_id":"payment-3","session_id":"session-1","action":"block","risk_score":0.95,"reason":"high velocity","trace_id":"trace-5"}`),
+			messageID:    "tx.paused:payment-3",
+			aggregateID:  "payment-3",
+			subject:      "Payment paused for review",
+			bodyContains: "high velocity",
+			traceID:      "trace-5",
+		},
+		{
 			name:         "verification success",
 			topic:        TopicUserVerified,
 			payload:      []byte(`{"event_id":"evt-1","user_id":"user-1","verification_id":"ver-1","trace_id":"trace-3","verified_at":"2026-06-04T00:00:00Z","occurred_at":"2026-06-04T00:00:00Z"}`),

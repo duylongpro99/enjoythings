@@ -27,12 +27,18 @@ func (store *PostgresStore) Create(ctx context.Context, saga Saga) (Saga, error)
 INSERT INTO sagas (
   payment_id, idempotency_key, user_id, from_wallet_id, to_wallet_id,
   amount_cents, currency, state, last_error, trace_id,
-  wallet_debit_id, ledger_reservation_id, transfer_id, failure_code, created_at, updated_at
+  wallet_debit_id, ledger_reservation_id, transfer_id, failure_code,
+  fraud_session_id, fraud_action, fraud_risk_score, fraud_reason,
+  fraud_flagged_at, deferred_payment_json, created_at, updated_at
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, COALESCE(NULLIF($15::timestamptz, '0001-01-01 00:00:00+00'::timestamptz), now()), COALESCE(NULLIF($16::timestamptz, '0001-01-01 00:00:00+00'::timestamptz), now()))
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+  $15, $16, $17, $18, $19, $20,
+  COALESCE(NULLIF($21::timestamptz, '0001-01-01 00:00:00+00'::timestamptz), now()),
+  COALESCE(NULLIF($22::timestamptz, '0001-01-01 00:00:00+00'::timestamptz), now()))
 RETURNING id::text, payment_id, idempotency_key, user_id, from_wallet_id, to_wallet_id,
   amount_cents, currency, state, last_error, trace_id, wallet_debit_id,
-  ledger_reservation_id, transfer_id, failure_code, created_at, updated_at`,
+  ledger_reservation_id, transfer_id, failure_code, fraud_session_id, fraud_action,
+  fraud_risk_score, fraud_reason, fraud_flagged_at, deferred_payment_json, created_at, updated_at`,
 		saga.PaymentID,
 		saga.IdempotencyKey,
 		saga.UserID,
@@ -47,6 +53,12 @@ RETURNING id::text, payment_id, idempotency_key, user_id, from_wallet_id, to_wal
 		saga.LedgerReservationID,
 		saga.TransferID,
 		saga.FailureCode,
+		saga.FraudSessionID,
+		saga.FraudAction,
+		saga.FraudRiskScore,
+		saga.FraudReason,
+		saga.FraudFlaggedAt,
+		saga.DeferredPaymentJSON,
 		saga.CreatedAt,
 		saga.UpdatedAt,
 	)
@@ -71,7 +83,8 @@ func (store *PostgresStore) GetByPaymentID(ctx context.Context, paymentID string
 	return scanSaga(store.db.QueryRow(ctx, `
 SELECT id::text, payment_id, idempotency_key, user_id, from_wallet_id, to_wallet_id,
   amount_cents, currency, state, last_error, trace_id, wallet_debit_id,
-  ledger_reservation_id, transfer_id, failure_code, created_at, updated_at
+  ledger_reservation_id, transfer_id, failure_code, fraud_session_id, fraud_action,
+  fraud_risk_score, fraud_reason, fraud_flagged_at, deferred_payment_json, created_at, updated_at
 FROM sagas
 WHERE payment_id = $1`, paymentID))
 }
@@ -80,7 +93,8 @@ func (store *PostgresStore) ListNonTerminal(ctx context.Context) ([]Saga, error)
 	rows, err := store.db.Query(ctx, `
 SELECT id::text, payment_id, idempotency_key, user_id, from_wallet_id, to_wallet_id,
   amount_cents, currency, state, last_error, trace_id, wallet_debit_id,
-  ledger_reservation_id, transfer_id, failure_code, created_at, updated_at
+  ledger_reservation_id, transfer_id, failure_code, fraud_session_id, fraud_action,
+  fraud_risk_score, fraud_reason, fraud_flagged_at, deferred_payment_json, created_at, updated_at
 FROM sagas
 WHERE state NOT IN ('COMPLETED', 'FAILED')
 ORDER BY updated_at, id`)
@@ -113,11 +127,18 @@ SET state = $2,
   ledger_reservation_id = $6,
   transfer_id = $7,
   failure_code = $8,
-  updated_at = COALESCE(NULLIF($9::timestamptz, '0001-01-01 00:00:00+00'::timestamptz), now())
+  fraud_session_id = $9,
+  fraud_action = $10,
+  fraud_risk_score = $11,
+  fraud_reason = $12,
+  fraud_flagged_at = $13,
+  deferred_payment_json = $14,
+  updated_at = COALESCE(NULLIF($15::timestamptz, '0001-01-01 00:00:00+00'::timestamptz), now())
 WHERE payment_id = $1
 RETURNING id::text, payment_id, idempotency_key, user_id, from_wallet_id, to_wallet_id,
   amount_cents, currency, state, last_error, trace_id, wallet_debit_id,
-  ledger_reservation_id, transfer_id, failure_code, created_at, updated_at`,
+  ledger_reservation_id, transfer_id, failure_code, fraud_session_id, fraud_action,
+  fraud_risk_score, fraud_reason, fraud_flagged_at, deferred_payment_json, created_at, updated_at`,
 		saga.PaymentID,
 		saga.State,
 		saga.LastError,
@@ -126,6 +147,12 @@ RETURNING id::text, payment_id, idempotency_key, user_id, from_wallet_id, to_wal
 		saga.LedgerReservationID,
 		saga.TransferID,
 		saga.FailureCode,
+		saga.FraudSessionID,
+		saga.FraudAction,
+		saga.FraudRiskScore,
+		saga.FraudReason,
+		saga.FraudFlaggedAt,
+		saga.DeferredPaymentJSON,
 		saga.UpdatedAt,
 	))
 }
@@ -143,7 +170,8 @@ func (store *PostgresStore) findDuplicate(ctx context.Context, saga Saga) (Saga,
 	return scanSaga(store.db.QueryRow(ctx, `
 SELECT id::text, payment_id, idempotency_key, user_id, from_wallet_id, to_wallet_id,
   amount_cents, currency, state, last_error, trace_id, wallet_debit_id,
-  ledger_reservation_id, transfer_id, failure_code, created_at, updated_at
+  ledger_reservation_id, transfer_id, failure_code, fraud_session_id, fraud_action,
+  fraud_risk_score, fraud_reason, fraud_flagged_at, deferred_payment_json, created_at, updated_at
 FROM sagas
 WHERE user_id = $1 AND command_type = 'StartPaymentSaga' AND idempotency_key = $2`,
 		saga.UserID,
@@ -173,6 +201,12 @@ func scanSaga(row sagaRow) (Saga, error) {
 		&saga.LedgerReservationID,
 		&saga.TransferID,
 		&saga.FailureCode,
+		&saga.FraudSessionID,
+		&saga.FraudAction,
+		&saga.FraudRiskScore,
+		&saga.FraudReason,
+		&saga.FraudFlaggedAt,
+		&saga.DeferredPaymentJSON,
 		&saga.CreatedAt,
 		&saga.UpdatedAt,
 	); err != nil {
