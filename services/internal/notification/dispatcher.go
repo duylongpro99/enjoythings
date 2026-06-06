@@ -102,6 +102,25 @@ func render(event Event) (Message, error) {
 			Subject:     "Payment failed",
 			Body:        fmt.Sprintf("Your payment %s for %s failed: %s.", payload.PaymentID, formatMoney(payload.AmountCents, payload.Currency), reason),
 		}, nil
+	case TopicTxPaused:
+		var payload txPausedPayload
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			return Message{}, err
+		}
+		if payload.PaymentID == "" {
+			return Message{}, fmt.Errorf("payment_id is required")
+		}
+		reason := payload.Reason
+		if reason == "" {
+			reason = "additional review is required"
+		}
+		return Message{
+			ID:          TopicTxPaused + ":" + payload.PaymentID,
+			AggregateID: payload.PaymentID,
+			TraceID:     payload.TraceID,
+			Subject:     "Payment paused for review",
+			Body:        fmt.Sprintf("Your payment %s was paused for fraud review with action %s: %s.", payload.PaymentID, payload.Action, reason),
+		}, nil
 	case TopicUserVerified:
 		var payload userVerifiedPayload
 		if err := json.Unmarshal(event.Payload, &payload); err != nil {
@@ -167,6 +186,14 @@ type txFailedPayload struct {
 	Currency       string `json:"currency"`
 	FailureCode    string `json:"failure_code"`
 	FailureMessage string `json:"failure_message"`
+}
+
+type txPausedPayload struct {
+	PaymentID string  `json:"payment_id"`
+	TraceID   string  `json:"trace_id"`
+	Action    string  `json:"action"`
+	RiskScore float64 `json:"risk_score"`
+	Reason    string  `json:"reason"`
 }
 
 type userVerifiedPayload struct {

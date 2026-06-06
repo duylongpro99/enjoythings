@@ -6,6 +6,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"enjoythings/services/internal/event"
 )
 
 func TestStartPaymentSagaPersistsStartedBeforeCheckingVerification(t *testing.T) {
@@ -128,14 +130,14 @@ func TestPaymentCompletedConfirmsLedgerAndPublishesTxCompleted(t *testing.T) {
 	if ledger.confirmedPaymentID != req.PaymentID || ledger.confirmedReservationID != started.LedgerReservationID {
 		t.Fatalf("ledger confirm = %s/%s, want %s/%s", ledger.confirmedPaymentID, ledger.confirmedReservationID, req.PaymentID, started.LedgerReservationID)
 	}
-	if len(outbox.events) != 2 {
-		t.Fatalf("outbox events = %d, want payment.execute and tx.completed", len(outbox.events))
+	if len(outbox.events) != 3 {
+		t.Fatalf("outbox events = %d, want payment.execute, fraud.score.requested, and tx.completed", len(outbox.events))
 	}
-	if outbox.events[1].topic != TopicTxCompleted || outbox.events[1].partitionKey != req.FromWalletID {
-		t.Fatalf("terminal event = %+v, want tx.completed partitioned by source wallet", outbox.events[1])
+	if outbox.events[2].topic != TopicTxCompleted || outbox.events[2].partitionKey != req.FromWalletID {
+		t.Fatalf("terminal event = %+v, want tx.completed partitioned by source wallet", outbox.events[2])
 	}
 	var payload TxCompleted
-	if err := json.Unmarshal(outbox.events[1].payload, &payload); err != nil {
+	if err := json.Unmarshal(outbox.events[2].payload, &payload); err != nil {
 		t.Fatalf("unmarshal tx.completed: %v", err)
 	}
 	if payload.PaymentID != req.PaymentID || payload.TransferID != ledger.transferID {
@@ -182,18 +184,149 @@ func TestPaymentFailedCancelsLedgerCompensatesWalletAndPublishesTxFailed(t *test
 	if wallet.compensatedDebitID != started.WalletDebitID {
 		t.Fatalf("compensated debit = %s, want %s", wallet.compensatedDebitID, started.WalletDebitID)
 	}
-	if len(outbox.events) != 2 {
-		t.Fatalf("outbox events = %d, want payment.execute and tx.failed", len(outbox.events))
+	if len(outbox.events) != 3 {
+		t.Fatalf("outbox events = %d, want payment.execute, fraud.score.requested, and tx.failed", len(outbox.events))
 	}
-	if outbox.events[1].topic != TopicTxFailed {
-		t.Fatalf("terminal topic = %s, want %s", outbox.events[1].topic, TopicTxFailed)
+	if outbox.events[2].topic != TopicTxFailed {
+		t.Fatalf("terminal topic = %s, want %s", outbox.events[2].topic, TopicTxFailed)
 	}
 	var payload TxFailed
-	if err := json.Unmarshal(outbox.events[1].payload, &payload); err != nil {
+	if err := json.Unmarshal(outbox.events[2].payload, &payload); err != nil {
 		t.Fatalf("unmarshal tx.failed: %v", err)
 	}
 	if payload.PaymentID != req.PaymentID || payload.FailureCode != "rail_declined" {
 		t.Fatalf("tx.failed payload = %+v", payload)
+	}
+}
+
+func TestStartPaymentSagaPublishesFraudScoreRequestWithPaymentExecute(t *testing.T) {
+	ctx := context.Background()
+	store := newMemoryStore()
+	outbox := &fakeOutbox{}
+	req := startRequest()
+	orchestrator := NewOrchestrator(store, &fakeVerification{status: VerificationVerified}, &fakeWallet{}, &fakeLedger{}, fixedClock{})
+	orchestrator.SetOutbox(outbox)
+
+	got, err := orchestrator.StartPaymentSaga(ctx, req)
+	if err != nil {
+		t.Fatalf("StartPaymentSaga: %v", err)
+	}
+	if got.State != StatePaymentProcessing {
+		t.Fatalf("state = %s, want %s", got.State, StatePaymentProcessing)
+	}
+	if len(outbox.events) != 2 {
+		t.Fatalf("outbox events = %+v, want payment.execute and fraud.score.requested", outbox.events)
+	}
+	if outbox.events[0].topic != TopicPaymentExecute || outbox.events[1].topic != event.FraudScoreRequestedTopic {
+		t.Fatalf("topics = %s, %s", outbox.events[0].topic, outbox.events[1].topic)
+	}
+	if outbox.events[1].partitionKey != req.PaymentID {
+		t.Fatalf("fraud partition = %s, want payment id", outbox.events[1].partitionKey)
+	}
+	var payload event.FraudScoreRequested
+	if err := json.Unmarshal(outbox.events[1].payload, &payload); err != nil {
+		t.Fatalf("unmarshal fraud.score.requested: %v", err)
+	}
+	if err := payload.Validate(); err != nil {
+		t.Fatalf("fraud.score.requested validate: %v", err)
+	}
+	if payload.EventID != event.FraudScoreRequestedEventID(req.PaymentID) ||
+		payload.PaymentID != req.PaymentID ||
+		payload.UserID != req.UserID ||
+		payload.FromWalletID != req.FromWalletID ||
+		payload.ToWalletID != req.ToWalletID {
+		t.Fatalf("fraud.score.requested payload = %+v", payload)
+	}
+}
+
+func TestFraudFlaggedMovesOnlyPaymentProcessingSagaToReviewAndPublishesPauseOnce(t *testing.T) {
+	ctx := context.Background()
+	store := newMemoryStore()
+	outbox := &fakeOutbox{}
+	req := startRequest()
+	orchestrator := NewOrchestrator(store, &fakeVerification{status: VerificationVerified}, &fakeWallet{}, &fakeLedger{}, fixedClock{})
+	orchestrator.SetOutbox(outbox)
+	if _, err := orchestrator.StartPaymentSaga(ctx, req); err != nil {
+		t.Fatalf("StartPaymentSaga: %v", err)
+	}
+
+	flagged := event.FraudFlagged{
+		SchemaVersion: 1,
+		EventID:       event.FraudFlaggedEventID(event.FraudScoreRequestedEventID(req.PaymentID)),
+		SourceEventID: event.FraudScoreRequestedEventID(req.PaymentID),
+		PaymentID:     req.PaymentID,
+		SessionID:     "fraud-session-1",
+		Action:        event.FraudActionBlock,
+		RiskScore:     0.95,
+		Reason:        "high velocity",
+		OccurredAt:    fixedTime,
+		TraceID:       req.TraceID,
+	}
+	if err := orchestrator.HandleFraudFlagged(ctx, flagged); err != nil {
+		t.Fatalf("HandleFraudFlagged: %v", err)
+	}
+	if err := orchestrator.HandleFraudFlagged(ctx, flagged); err != nil {
+		t.Fatalf("duplicate HandleFraudFlagged: %v", err)
+	}
+
+	got, err := store.GetByPaymentID(ctx, req.PaymentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != StateFraudReview || got.FraudSessionID != "fraud-session-1" || got.FraudAction != event.FraudActionBlock {
+		t.Fatalf("saga = %+v, want fraud review metadata", got)
+	}
+	paused := 0
+	for _, produced := range outbox.events {
+		if produced.topic == event.TxPausedTopic {
+			paused++
+		}
+	}
+	if paused != 1 {
+		t.Fatalf("tx.paused events = %d, want 1", paused)
+	}
+}
+
+func TestFraudFlaggedDoesNotReopenTerminalSaga(t *testing.T) {
+	ctx := context.Background()
+	store := newMemoryStore()
+	req := startRequest()
+	if _, err := store.Create(ctx, Saga{
+		PaymentID:      req.PaymentID,
+		IdempotencyKey: req.IdempotencyKey,
+		UserID:         req.UserID,
+		FromWalletID:   req.FromWalletID,
+		ToWalletID:     req.ToWalletID,
+		AmountCents:    req.AmountCents,
+		Currency:       req.Currency,
+		State:          StateCompleted,
+		CreatedAt:      fixedTime,
+		UpdatedAt:      fixedTime,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	outbox := &fakeOutbox{}
+	orchestrator := NewOrchestrator(store, &fakeVerification{}, &fakeWallet{}, &fakeLedger{}, fixedClock{})
+	orchestrator.SetOutbox(outbox)
+
+	err := orchestrator.HandleFraudFlagged(ctx, event.FraudFlagged{
+		SchemaVersion: 1,
+		EventID:       "fraud.flagged:source",
+		SourceEventID: "source",
+		PaymentID:     req.PaymentID,
+		SessionID:     "fraud-session-1",
+		Action:        event.FraudActionFlag,
+		RiskScore:     0.8,
+	})
+	if err != nil {
+		t.Fatalf("HandleFraudFlagged: %v", err)
+	}
+	got, _ := store.GetByPaymentID(ctx, req.PaymentID)
+	if got.State != StateCompleted {
+		t.Fatalf("state = %s, want terminal unchanged", got.State)
+	}
+	if len(outbox.events) != 0 {
+		t.Fatalf("outbox = %+v, want no pause", outbox.events)
 	}
 }
 
@@ -235,8 +368,8 @@ func TestResumeNonTerminalSagasContinuesFromLastDurableState(t *testing.T) {
 	if ledger.reserveCalls != 1 {
 		t.Fatalf("ledger reserve calls = %d, want 1", ledger.reserveCalls)
 	}
-	if len(outbox.events) != 1 || outbox.events[0].topic != TopicPaymentExecute {
-		t.Fatalf("outbox events = %+v, want one payment.execute", outbox.events)
+	if len(outbox.events) != 2 || outbox.events[0].topic != TopicPaymentExecute || outbox.events[1].topic != event.FraudScoreRequestedTopic {
+		t.Fatalf("outbox events = %+v, want payment.execute and fraud.score.requested", outbox.events)
 	}
 }
 

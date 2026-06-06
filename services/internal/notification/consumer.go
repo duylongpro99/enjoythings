@@ -67,7 +67,7 @@ func NewKafkaConsumer(brokers []string, groupID string, app App, logger *slog.Lo
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(brokers...),
 		kgo.ConsumerGroup(groupID),
-		kgo.ConsumeTopics(TopicTxCompleted, TopicTxFailed, TopicUserVerified, TopicUserRejected),
+		kgo.ConsumeTopics(TopicTxCompleted, TopicTxFailed, TopicTxPaused, TopicUserVerified, TopicUserRejected),
 		kgo.DisableAutoCommit(),
 	)
 	if err != nil {

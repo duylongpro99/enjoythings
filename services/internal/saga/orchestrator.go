@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"enjoythings/services/internal/event"
 )
 
 type Store interface {
@@ -116,6 +118,9 @@ func (orchestrator *Orchestrator) HandlePaymentCompleted(ctx context.Context, ev
 	if current.State == StateCompleted {
 		return nil
 	}
+	if current.State == StateFraudReview {
+		return orchestrator.deferTerminalPaymentResult(ctx, current, event)
+	}
 	confirmed, err := orchestrator.ledger.ConfirmTransfer(ctx, LedgerConfirmRequest{
 		PaymentID:           current.PaymentID,
 		IdempotencyKey:      stepKey(current.PaymentID, "confirm-ledger"),
@@ -150,6 +155,9 @@ func (orchestrator *Orchestrator) HandlePaymentFailed(ctx context.Context, event
 	}
 	if current.State == StateFailed {
 		return nil
+	}
+	if current.State == StateFraudReview {
+		return orchestrator.deferTerminalPaymentResult(ctx, current, event)
 	}
 	now := orchestrator.clock.Now()
 	current.State = StateCompensatingLedger
@@ -263,7 +271,8 @@ func (orchestrator *Orchestrator) advance(ctx context.Context, current Saga) (Sa
 		current = updated
 	}
 	if current.State == StateLedgerReserved {
-		payload, err := json.Marshal(PaymentExecute{
+		now := orchestrator.clock.Now()
+		paymentPayload, err := json.Marshal(PaymentExecute{
 			EventID:             "payment.execute:" + current.PaymentID,
 			PaymentID:           current.PaymentID,
 			IdempotencyKey:      stepKey(current.PaymentID, "execute-payment"),
@@ -274,16 +283,34 @@ func (orchestrator *Orchestrator) advance(ctx context.Context, current Saga) (Sa
 			Currency:            current.Currency,
 			LedgerReservationID: current.LedgerReservationID,
 			WalletDebitID:       current.WalletDebitID,
-			OccurredAt:          orchestrator.clock.Now(),
+			OccurredAt:          now,
 		})
 		if err != nil {
 			return Saga{}, err
 		}
-		if err := orchestrator.outbox.Enqueue(ctx, TopicPaymentExecute, current.PaymentID, payload); err != nil {
+		if err := orchestrator.outbox.Enqueue(ctx, TopicPaymentExecute, current.PaymentID, paymentPayload); err != nil {
+			return Saga{}, err
+		}
+		fraudPayload, err := json.Marshal(event.FraudScoreRequested{
+			SchemaVersion: 1,
+			EventID:       event.FraudScoreRequestedEventID(current.PaymentID),
+			PaymentID:     current.PaymentID,
+			UserID:        current.UserID,
+			FromWalletID:  current.FromWalletID,
+			ToWalletID:    current.ToWalletID,
+			AmountCents:   current.AmountCents,
+			Currency:      current.Currency,
+			OccurredAt:    now,
+			TraceID:       current.TraceID,
+		})
+		if err != nil {
+			return Saga{}, err
+		}
+		if err := orchestrator.outbox.Enqueue(ctx, event.FraudScoreRequestedTopic, current.PaymentID, fraudPayload); err != nil {
 			return Saga{}, err
 		}
 		current.State = StatePaymentProcessing
-		current.UpdatedAt = orchestrator.clock.Now()
+		current.UpdatedAt = now
 		updated, err := orchestrator.store.Update(ctx, current)
 		if err != nil {
 			return Saga{}, err
@@ -291,6 +318,51 @@ func (orchestrator *Orchestrator) advance(ctx context.Context, current Saga) (Sa
 		current = updated
 	}
 	return current, nil
+}
+
+func (orchestrator *Orchestrator) HandleFraudFlagged(ctx context.Context, flagged event.FraudFlagged) error {
+	if err := flagged.Validate(); err != nil {
+		return err
+	}
+	current, err := orchestrator.store.GetByPaymentID(ctx, flagged.PaymentID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil
+		}
+		return err
+	}
+	now := orchestrator.clock.Now()
+	current.FraudSessionID = flagged.SessionID
+	current.FraudAction = flagged.Action
+	current.FraudRiskScore = flagged.RiskScore
+	current.FraudReason = flagged.Reason
+	current.FraudFlaggedAt = nonZeroTime(flagged.OccurredAt, now)
+	if current.State != StatePaymentProcessing {
+		current.UpdatedAt = now
+		_, err := orchestrator.store.Update(ctx, current)
+		return err
+	}
+	current.State = StateFraudReview
+	current.UpdatedAt = now
+	updated, err := orchestrator.store.Update(ctx, current)
+	if err != nil {
+		return err
+	}
+	return orchestrator.publishTxPaused(ctx, updated, traceID(flagged.TraceID, updated.TraceID), now)
+}
+
+func (orchestrator *Orchestrator) deferTerminalPaymentResult(ctx context.Context, current Saga, terminal any) error {
+	if current.DeferredPaymentJSON != "" {
+		return nil
+	}
+	payload, err := json.Marshal(terminal)
+	if err != nil {
+		return err
+	}
+	current.DeferredPaymentJSON = string(payload)
+	current.UpdatedAt = orchestrator.clock.Now()
+	_, err = orchestrator.store.Update(ctx, current)
+	return err
 }
 
 func (orchestrator *Orchestrator) failUnverified(ctx context.Context, current Saga) (Saga, error) {
@@ -403,6 +475,25 @@ func (orchestrator *Orchestrator) publishTxFailed(ctx context.Context, current S
 		return err
 	}
 	return orchestrator.outbox.Enqueue(ctx, TopicTxFailed, current.FromWalletID, payload)
+}
+
+func (orchestrator *Orchestrator) publishTxPaused(ctx context.Context, current Saga, traceID string, pausedAt time.Time) error {
+	payload, err := json.Marshal(event.TxPaused{
+		SchemaVersion: 1,
+		EventID:       event.TxPausedEventID(current.PaymentID),
+		PaymentID:     current.PaymentID,
+		SessionID:     current.FraudSessionID,
+		Action:        current.FraudAction,
+		RiskScore:     current.FraudRiskScore,
+		Reason:        current.FraudReason,
+		PausedAt:      pausedAt,
+		OccurredAt:    orchestrator.clock.Now(),
+		TraceID:       traceID,
+	})
+	if err != nil {
+		return err
+	}
+	return orchestrator.outbox.Enqueue(ctx, event.TxPausedTopic, current.PaymentID, payload)
 }
 
 func stepKey(paymentID, step string) string {
