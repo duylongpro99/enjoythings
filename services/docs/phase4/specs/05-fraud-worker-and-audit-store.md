@@ -47,22 +47,29 @@ The dedicated fraud database stores:
 
 It does not store raw user or wallet IDs. Raw LLM responses are audit-only and never logged.
 
-Fraud migrations live under `app/fraud/repo/migrations/` and are applied by a fraud-specific migration command or worker startup job.
+Fraud migrations live under `app/fraud/repo/migrations/` and are applied by an explicit fraud migration command before worker startup. The worker checks schema availability at readiness but never applies migrations itself.
 
 ## Idempotency
 
 - `source_event_id` is unique.
 - A duplicate completed request does not call enrichment or the model.
-- If verdict publication status is incomplete, a duplicate may republish the same stable output event.
+- If verdict publication status is incomplete, a duplicate republishes the same stable output event.
 - Session state tracks output event type and publication status.
-- Only one worker claims an incomplete session at a time.
+- Only one worker claims an incomplete session at a time using a 60-second database lease with an expiry timestamp; a crashed worker's session becomes claimable after expiry.
 
 ## Failure Handling
 
 - Audit write failure publishes `fraud.error` when possible, leaves the input uncommitted for retry, and never publishes `fraud.flagged`.
 - Verdict publication failure leaves publication incomplete and does not commit the input offset.
 - `fraud.error` publication failure is logged with sanitized metadata; the fail-open outcome is still committed after audit is durable.
-- Graceful shutdown stops polling, finishes the current bounded operation, and closes Kafka, gRPC, and database clients.
+- A claimed session lease is renewed every 20 seconds while scoring is active and released on completion.
+- Graceful shutdown stops polling, allows at most 30 seconds for the active operation, releases its lease when possible, and closes Kafka, gRPC, and database clients.
+
+## Readiness and Health
+
+- Liveness reports whether the worker process and event loop are running.
+- Readiness requires Kafka connectivity, fraud database connectivity, required schema availability, and successful construction of the configured LLM provider.
+- Enrichment service availability is not a readiness requirement because temporary enrichment failure is handled per scoring request.
 
 ## Acceptance Criteria
 
@@ -72,3 +79,4 @@ Fraud migrations live under `app/fraud/repo/migrations/` and are applied by a fr
 - Flagged output is published only after the audit outcome is durable.
 - Audit unavailability does not pause the payment saga and does not lose the scoring request.
 - Worker integration tests run with fake model and enrichment ports.
+- Readiness fails when required audit schema or provider configuration is invalid.

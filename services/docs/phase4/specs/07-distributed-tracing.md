@@ -51,11 +51,13 @@ Allowed attributes include service name, topic, operation, provider ID, model ID
 
 Never attach raw user IDs, wallet IDs, prompts, model responses, fraud reasons, SQL, Kafka payloads, or credentials.
 
+`payment_id` and `fraud.session_id` are allowed high-cardinality span attributes for trace investigation, but they are forbidden metric labels.
+
 ## Error and Sampling Policy
 
 - Record bounded error type and status without raw exception content.
 - Local development samples all traces.
-- Sampling is configurable for non-local environments.
+- Non-local sampling uses `OTEL_TRACES_SAMPLER=parentbased_traceidratio` and `OTEL_TRACES_SAMPLER_ARG`; the default ratio is `0.1`.
 - Trace export failure never changes business behavior.
 
 ## Testing

@@ -30,10 +30,13 @@ Prove the complete Phase 4 fraud and observability behavior across retries, malf
 | Duplicate scoring request | One logical session and no second model call |
 | Duplicate flagged event | At most one review transition and one `tx.paused` |
 | Payment result races with fraud review | Deferred result is stored and saga remains `FRAUD_REVIEW` |
-| Provider switch | Configuration change selects another provider without fraud code changes |
+| Provider switch | Configuration change selects another fake OpenAI-compatible provider without fraud code changes |
 | Audit query | Session includes sanitized enrichment, response, verdict, events, and outcome |
 | Distributed trace | One Jaeger trace crosses saga, Kafka, Python graph, gRPC, model, and verdict consumer |
 | Metrics and dashboards | Prometheus targets are healthy and fraud dashboard panels return data |
+| Audit database unavailable | Saga payment continues, no flagged event publishes, and scoring request remains retryable |
+| Unknown payment in flagged event | Consumer records an orphan invariant violation and commits without mutating a saga |
+| Conflicting model action | Canonical score-derived action controls publication and mismatch is audited |
 
 ## Privacy Assertions
 
@@ -44,10 +47,10 @@ Prove the complete Phase 4 fraud and observability behavior across retries, malf
 
 ## Test Isolation
 
-- Tests use deterministic IDs, model responses, and clocks where possible.
+- Tests use deterministic IDs, model responses, and clocks.
 - Tests create unique Kafka event IDs and clean their dedicated fraud database state.
 - External cloud model providers are never required.
-- Observability checks use bounded waits and identify the failed boundary.
+- Observability checks use waits capped at 30 seconds and identify the failed boundary.
 
 ## Acceptance Criteria
 

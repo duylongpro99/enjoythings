@@ -42,13 +42,15 @@ The graph returns a domain outcome. Kafka publication remains outside the graph 
 - `call_llm` records provider/model metadata and latency, but raw model text is audit-only.
 - `validate_verdict` rejects malformed or sensitive output and retries exactly once.
 - `complete_session` persists the final outcome before returning it.
-- Guard and validator rejections record bounded `before` or `after` callback events for later metrics.
+- Guard and validator rejections record the exact contract-defined `before` or `after` rejection code for later metrics.
+- A corrective retry contains the validation reason and original sanitized facts, but never embeds the rejected raw model response.
 
 ## Verdict Semantics
 
 - `allow` never publishes a fraud verdict event.
 - `flag` and `block` return a flagged outcome for worker publication.
-- The configured threshold is an additional floor: an action of `flag` or `block` below the threshold is normalized to `allow` and recorded as a validator event.
+- Canonical action is derived only from the validated score and configured flag/block thresholds.
+- A mismatch between model-provided and canonical action is recorded as `action_normalized`; it does not trigger a retry.
 - Model and validator failures return a fail-open error outcome.
 
 ## Error Handling
@@ -57,7 +59,7 @@ The graph returns a domain outcome. Kafka publication remains outside the graph 
 - Enrichment failure returns fail-open; partial enrichment is not sent to the model.
 - A second validation failure returns fail-open.
 - Session-completion persistence failure becomes an audit failure and prevents flagged publication.
-- Exceptions are converted into bounded reason codes before leaving the service.
+- Exceptions are converted into one of the contract-defined `fraud.error` reason codes before leaving the service.
 
 ## Testing
 
@@ -65,6 +67,7 @@ The graph returns a domain outcome. Kafka publication remains outside the graph 
 - Test complete graph paths for allow, flag, block, guard rejection, enrichment failure, malformed response then success, and two malformed responses.
 - Assert no prompt contains IDs from the source request.
 - Assert the model is called at most twice.
+- Assert canonical action, not model action, determines the returned outcome.
 
 ## Acceptance Criteria
 

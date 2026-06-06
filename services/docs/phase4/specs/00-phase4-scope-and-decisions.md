@@ -19,6 +19,7 @@ The Phase 4 source documents describe consuming `tx.initiated`, but Phase 3 deli
 The Saga Orchestrator publishes `fraud.score.requested` through its existing outbox when it enters `PAYMENT_PROCESSING`. The fraud worker consumes that event.
 
 - The saga also publishes `payment.execute`; fraud scoring does not block payment execution.
+- Both outbox records must be inserted before the saga state update commits, so restart recovery cannot enter `PAYMENT_PROCESSING` without a scoring request.
 - Legacy `tx.initiated` remains a Phase 2 compatibility event and is not consumed by the Phase 4 production fraud worker.
 - Both events use `payment_id` as the partition key and correlation identifier.
 
@@ -45,6 +46,15 @@ The Saga Orchestrator publishes `fraud.score.requested` through its existing out
 - Payment completion or failure received while in `FRAUD_REVIEW` is recorded and acknowledged without automatic state transition.
 - Manual resume/reject and replay of deferred payment results are explicitly out of scope for Phase 4.
 
+### Verdict Authority
+
+- The model supplies `risk_score`, `action`, and `reason`, but application code derives the canonical action from the validated score.
+- Scores below `FRAUD_SCORE_THRESHOLD` are `allow`.
+- Scores from `FRAUD_SCORE_THRESHOLD` up to but excluding `FRAUD_BLOCK_THRESHOLD` are `flag`.
+- Scores at or above `FRAUD_BLOCK_THRESHOLD` are `block`.
+- Defaults are `FRAUD_SCORE_THRESHOLD=0.75` and `FRAUD_BLOCK_THRESHOLD=0.90`; startup fails if either is outside `[0.0, 1.0]` or the flag threshold is not lower than the block threshold.
+- A model-provided action that differs from the canonical action is retained in audit metadata but never controls publication or saga state.
+
 ### Failure and Audit Behavior
 
 - Model, validation, enrichment, and audit failures are fail-open and publish `fraud.error` when publication is available.
@@ -52,6 +62,7 @@ The Saga Orchestrator publishes `fraud.score.requested` through its existing out
 - If audit persistence fails, the worker publishes `fraud.error` when possible, logs sanitized metadata, leaves the scoring request uncommitted for retry, and does not publish `fraud.flagged`.
 - Leaving a scoring request uncommitted does not block the payment saga because `payment.execute` was already published independently.
 - Duplicate scoring requests resolve to one session and one logical verdict by `event_id`.
+- Fraud failures never mutate saga state. Only a valid `fraud.flagged` event can move a saga into review.
 
 ### Data Ownership
 
@@ -72,4 +83,5 @@ The Saga Orchestrator publishes `fraud.score.requested` through its existing out
 - Every Phase 4 spec uses `fraud.score.requested` for the production path.
 - Privacy rules distinguish private transport state from LLM-facing and telemetry data.
 - Enrichment, audit, and saga-state ownership are explicit.
+- Canonical verdict action and threshold validation are explicit.
 - Failure behavior is defined for audit, model, enrichment, and publication failures without sacrificing durable audit.

@@ -32,8 +32,22 @@ The strategy is contract-first vertical slicing: resolve the Phase 3 integration
 
 - The Phase 4 production path consumes saga-owned `fraud.score.requested`, not legacy Phase 2 `tx.initiated`.
 - Fraud scoring is asynchronous and fail-open. It never delays publishing `payment.execute`.
-- Raw identifiers may exist in private worker state and gRPC requests but never enter LLM prompts, model responses, metrics, or logs.
+- Raw identifiers may exist in private worker state and gRPC requests but never enter LLM prompts, accepted verdicts, published fraud events, metrics, or logs.
 - Ledger owns transaction-history and velocity enrichment; Verification owns KYC status.
 - The existing `app.llm` registry remains the only provider abstraction.
 - `flag` and `block` both move an active `PAYMENT_PROCESSING` saga to `FRAUD_REVIEW` in Phase 4.
 - Fraud audit data lives in a dedicated TimescaleDB database owned by the Python fraud worker.
+- A canonical verdict action is derived from the validated risk score and configured thresholds; model-provided action is advisory and audited when inconsistent.
+
+## Python Dependency Ownership
+
+| Spec | Dependencies introduced |
+|---|---|
+| P1 | `grpcio-tools`, `grpcio`, `protobuf` for committed, import-tested Python clients |
+| P2 | `langgraph`, explicit `pydantic` dependency for validated domain types |
+| P3 | No new transport package; implements the thin enrichment client using P1's generated clients |
+| P5 | `aiokafka`, `asyncpg` for worker transport and fraud audit persistence |
+| P7 | OpenTelemetry SDK, OTLP exporter, and HTTP/gRPC instrumentation packages |
+| P8 | `prometheus-client` for the worker metrics server |
+
+All Python dependencies are added and locked with `uv`. Fraud code does not import provider-specific model SDKs.
