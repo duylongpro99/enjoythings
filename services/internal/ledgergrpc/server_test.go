@@ -134,6 +134,81 @@ func TestGetEntriesMapsErrorsAndEmptyResult(t *testing.T) {
 	}
 }
 
+func TestGetFraudTransactionHistoryReturnsSanitizedSummaries(t *testing.T) {
+	walletID := uuid.New()
+	createdAt := time.Date(2026, 6, 6, 8, 0, 0, 0, time.UTC)
+	app := &fakeLedgerApp{
+		fraudHistory: []domain.FraudTransactionSummary{{
+			Direction:   "debit",
+			AmountCents: 1250,
+			Currency:    "USD",
+			OccurredAt:  createdAt,
+		}},
+	}
+	server := NewServer(app)
+
+	resp, err := server.GetFraudTransactionHistory(context.Background(), &ledgerv1.GetFraudTransactionHistoryRequest{
+		WalletId: walletID.String(),
+		Limit:    20,
+		TraceId:  "trace-1",
+	})
+	if err != nil {
+		t.Fatalf("GetFraudTransactionHistory: %v", err)
+	}
+
+	if app.fraudWalletID != walletID || app.fraudLimit != 20 || app.fraudTraceID != "trace-1" {
+		t.Fatalf("fraud history request = wallet:%s limit:%d trace:%s", app.fraudWalletID, app.fraudLimit, app.fraudTraceID)
+	}
+	if len(resp.GetEntries()) != 1 {
+		t.Fatalf("entries len = %d, want 1", len(resp.GetEntries()))
+	}
+	entry := resp.GetEntries()[0]
+	if entry.GetDirection() != "debit" || entry.GetAmountCents() != 1250 || entry.GetCurrency() != "USD" || !entry.GetOccurredAt().AsTime().Equal(createdAt) {
+		t.Fatalf("sanitized entry = %+v", entry)
+	}
+}
+
+func TestGetFraudVelocityMetricsReturnsAggregates(t *testing.T) {
+	walletID := uuid.New()
+	app := &fakeLedgerApp{
+		fraudVelocity: domain.FraudVelocityMetrics{
+			TransactionsLastHour:  3,
+			AmountLastHourCents:   4000,
+			AverageAmount30dCents: 900,
+			DistinctRecipients30d: 2,
+		},
+	}
+	server := NewServer(app)
+
+	resp, err := server.GetFraudVelocityMetrics(context.Background(), &ledgerv1.GetFraudVelocityMetricsRequest{
+		WalletId: walletID.String(),
+		TraceId:  "trace-2",
+	})
+	if err != nil {
+		t.Fatalf("GetFraudVelocityMetrics: %v", err)
+	}
+
+	if app.fraudWalletID != walletID || app.fraudTraceID != "trace-2" {
+		t.Fatalf("fraud velocity request = wallet:%s trace:%s", app.fraudWalletID, app.fraudTraceID)
+	}
+	if resp.GetTransactionsLastHour() != 3 || resp.GetAmountLastHourCents() != 4000 || resp.GetAverageAmount_30DCents() != 900 || resp.GetDistinctRecipients_30D() != 2 {
+		t.Fatalf("velocity response = %+v", resp)
+	}
+}
+
+func TestFraudEnrichmentRequestsValidateInput(t *testing.T) {
+	server := NewServer(&fakeLedgerApp{})
+
+	_, err := server.GetFraudTransactionHistory(context.Background(), &ledgerv1.GetFraudTransactionHistoryRequest{WalletId: uuid.NewString(), Limit: 101})
+	assertCode(t, err, codes.InvalidArgument)
+
+	_, err = server.GetFraudTransactionHistory(context.Background(), &ledgerv1.GetFraudTransactionHistoryRequest{WalletId: "not-a-uuid", Limit: 20})
+	assertCode(t, err, codes.InvalidArgument)
+
+	_, err = server.GetFraudVelocityMetrics(context.Background(), &ledgerv1.GetFraudVelocityMetricsRequest{WalletId: "not-a-uuid"})
+	assertCode(t, err, codes.InvalidArgument)
+}
+
 func TestReserveTransferMapsValidCommand(t *testing.T) {
 	paymentID := uuid.New()
 	fromWalletID := uuid.New()
@@ -364,19 +439,24 @@ func TestLedgerSagaCommandsMapDomainErrors(t *testing.T) {
 }
 
 type fakeLedgerApp struct {
-	entries      []domain.LedgerEntry
-	next         repo.LedgerCursor
-	err          error
-	userID       uuid.UUID
-	walletID     uuid.UUID
-	cursor       repo.LedgerCursor
-	limit        int
-	reserveCmd   domain.LedgerReserveCommand
-	confirmCmd   domain.LedgerConfirmCommand
-	cancelCmd    domain.LedgerCancelCommand
-	reservation  domain.LedgerReservation
-	confirmation domain.LedgerConfirmation
-	cancellation domain.LedgerReservation
+	entries       []domain.LedgerEntry
+	next          repo.LedgerCursor
+	err           error
+	userID        uuid.UUID
+	walletID      uuid.UUID
+	cursor        repo.LedgerCursor
+	limit         int
+	reserveCmd    domain.LedgerReserveCommand
+	confirmCmd    domain.LedgerConfirmCommand
+	cancelCmd     domain.LedgerCancelCommand
+	reservation   domain.LedgerReservation
+	confirmation  domain.LedgerConfirmation
+	cancellation  domain.LedgerReservation
+	fraudHistory  []domain.FraudTransactionSummary
+	fraudVelocity domain.FraudVelocityMetrics
+	fraudWalletID uuid.UUID
+	fraudLimit    int
+	fraudTraceID  string
 }
 
 func (app *fakeLedgerApp) ListLedger(_ context.Context, userID, walletID uuid.UUID, cursor repo.LedgerCursor, limit int) ([]domain.LedgerEntry, repo.LedgerCursor, error) {
@@ -388,6 +468,25 @@ func (app *fakeLedgerApp) ListLedger(_ context.Context, userID, walletID uuid.UU
 		return nil, repo.LedgerCursor{}, app.err
 	}
 	return app.entries, app.next, nil
+}
+
+func (app *fakeLedgerApp) GetFraudTransactionHistory(_ context.Context, walletID uuid.UUID, limit int, traceID string) ([]domain.FraudTransactionSummary, error) {
+	app.fraudWalletID = walletID
+	app.fraudLimit = limit
+	app.fraudTraceID = traceID
+	if app.err != nil {
+		return nil, app.err
+	}
+	return app.fraudHistory, nil
+}
+
+func (app *fakeLedgerApp) GetFraudVelocityMetrics(_ context.Context, walletID uuid.UUID, traceID string) (domain.FraudVelocityMetrics, error) {
+	app.fraudWalletID = walletID
+	app.fraudTraceID = traceID
+	if app.err != nil {
+		return domain.FraudVelocityMetrics{}, app.err
+	}
+	return app.fraudVelocity, nil
 }
 
 func (app *fakeLedgerApp) ReserveTransfer(_ context.Context, cmd domain.LedgerReserveCommand) (domain.LedgerReservation, error) {

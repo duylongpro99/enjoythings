@@ -73,6 +73,20 @@ type LedgerEntry struct {
 	CreatedAt    time.Time
 }
 
+type FraudTransactionSummary struct {
+	Direction   string
+	AmountCents int64
+	Currency    string
+	OccurredAt  time.Time
+}
+
+type FraudVelocityMetrics struct {
+	TransactionsLastHour  int32
+	AmountLastHourCents   int64
+	AverageAmount30dCents int64
+	DistinctRecipients30d int32
+}
+
 const (
 	LedgerReservationReserved  = "RESERVED"
 	LedgerReservationConfirmed = "CONFIRMED"
