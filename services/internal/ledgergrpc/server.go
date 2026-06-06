@@ -22,6 +22,8 @@ const userIDMetadataKey = "x-user-id"
 
 type App interface {
 	ListLedger(context.Context, uuid.UUID, uuid.UUID, repo.LedgerCursor, int) ([]domain.LedgerEntry, repo.LedgerCursor, error)
+	GetFraudTransactionHistory(context.Context, uuid.UUID, int, string) ([]domain.FraudTransactionSummary, error)
+	GetFraudVelocityMetrics(context.Context, uuid.UUID, string) (domain.FraudVelocityMetrics, error)
 	ReserveTransfer(context.Context, domain.LedgerReserveCommand) (domain.LedgerReservation, error)
 	ConfirmTransfer(context.Context, domain.LedgerConfirmCommand) (domain.LedgerConfirmation, error)
 	CancelReservation(context.Context, domain.LedgerCancelCommand) (domain.LedgerReservation, error)
@@ -64,6 +66,44 @@ func (server *Server) GetEntries(ctx context.Context, req *ledgerv1.GetEntriesRe
 		WalletId:   walletID.String(),
 		Entries:    entryMessages(entries),
 		NextCursor: EncodeCursor(next),
+	}, nil
+}
+
+func (server *Server) GetFraudTransactionHistory(ctx context.Context, req *ledgerv1.GetFraudTransactionHistoryRequest) (*ledgerv1.GetFraudTransactionHistoryResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	walletID, err := parseUUID(req.GetWalletId(), "wallet_id")
+	if err != nil {
+		return nil, err
+	}
+	if req.GetLimit() < 1 || req.GetLimit() > 100 {
+		return nil, status.Error(codes.InvalidArgument, "limit is invalid")
+	}
+	entries, err := server.app.GetFraudTransactionHistory(ctx, walletID, int(req.GetLimit()), req.GetTraceId())
+	if err != nil {
+		return nil, statusFromDomain(err)
+	}
+	return &ledgerv1.GetFraudTransactionHistoryResponse{Entries: fraudHistoryMessages(entries)}, nil
+}
+
+func (server *Server) GetFraudVelocityMetrics(ctx context.Context, req *ledgerv1.GetFraudVelocityMetricsRequest) (*ledgerv1.GetFraudVelocityMetricsResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	walletID, err := parseUUID(req.GetWalletId(), "wallet_id")
+	if err != nil {
+		return nil, err
+	}
+	metrics, err := server.app.GetFraudVelocityMetrics(ctx, walletID, req.GetTraceId())
+	if err != nil {
+		return nil, statusFromDomain(err)
+	}
+	return &ledgerv1.GetFraudVelocityMetricsResponse{
+		TransactionsLastHour:   metrics.TransactionsLastHour,
+		AmountLastHourCents:    metrics.AmountLastHourCents,
+		AverageAmount_30DCents: metrics.AverageAmount30dCents,
+		DistinctRecipients_30D: metrics.DistinctRecipients30d,
 	}, nil
 }
 
@@ -237,6 +277,19 @@ func entryMessages(entries []domain.LedgerEntry) []*ledgerv1.LedgerEntry {
 			AmountCents:       entry.Amount,
 			BalanceAfterCents: entry.BalanceAfter,
 			CreatedAt:         timestamppb.New(entry.CreatedAt),
+		})
+	}
+	return messages
+}
+
+func fraudHistoryMessages(entries []domain.FraudTransactionSummary) []*ledgerv1.FraudTransactionHistoryEntry {
+	messages := make([]*ledgerv1.FraudTransactionHistoryEntry, 0, len(entries))
+	for _, entry := range entries {
+		messages = append(messages, &ledgerv1.FraudTransactionHistoryEntry{
+			Direction:   entry.Direction,
+			AmountCents: entry.AmountCents,
+			Currency:    entry.Currency,
+			OccurredAt:  timestamppb.New(entry.OccurredAt),
 		})
 	}
 	return messages

@@ -346,6 +346,73 @@ func (db *Database) ListLedgerEntries(ctx context.Context, walletID uuid.UUID, c
 	return entries, next, nil
 }
 
+func (db *Database) GetFraudTransactionHistory(ctx context.Context, walletID uuid.UUID, limit int, _ string) ([]domain.FraudTransactionSummary, error) {
+	if limit < 1 || limit > 100 {
+		return nil, domain.ErrInvalidAmount
+	}
+	wallet, err := db.GetWallet(ctx, walletID)
+	if err != nil {
+		return nil, err
+	}
+	entries, _, err := db.ListLedgerEntries(ctx, walletID, LedgerCursor{}, limit)
+	if err != nil {
+		return nil, err
+	}
+	summaries := make([]domain.FraudTransactionSummary, 0, len(entries))
+	for _, entry := range entries {
+		summaries = append(summaries, domain.FraudTransactionSummary{
+			Direction:   entry.Direction,
+			AmountCents: entry.Amount,
+			Currency:    wallet.Currency,
+			OccurredAt:  entry.CreatedAt,
+		})
+	}
+	return summaries, nil
+}
+
+func (db *Database) GetFraudVelocityMetrics(ctx context.Context, walletID uuid.UUID, _ string) (domain.FraudVelocityMetrics, error) {
+	if _, err := db.GetWallet(ctx, walletID); err != nil {
+		return domain.FraudVelocityMetrics{}, err
+	}
+	asOf := time.Now().UTC()
+	var metrics domain.FraudVelocityMetrics
+	err := db.pool.QueryRow(ctx, `
+WITH recent AS (
+  SELECT amount
+  FROM ledger_entries
+  WHERE wallet_id = $1
+    AND created_at >= $2::timestamptz - interval '1 hour'
+    AND created_at <= $2::timestamptz
+),
+thirty_day AS (
+  SELECT le.amount,
+    CASE
+      WHEN le.wallet_id = t.from_wallet_id THEN t.to_wallet_id
+      ELSE t.from_wallet_id
+    END AS counterparty_wallet_id
+  FROM ledger_entries le
+  JOIN transfers t ON t.id = le.transfer_id
+  WHERE le.wallet_id = $1
+    AND le.created_at >= $2::timestamptz - interval '30 days'
+    AND le.created_at <= $2::timestamptz
+)
+SELECT
+  COALESCE((SELECT count(*) FROM recent), 0)::int,
+  COALESCE((SELECT sum(amount) FROM recent), 0)::bigint,
+  COALESCE((SELECT avg(amount)::bigint FROM thirty_day), 0)::bigint,
+  COALESCE((SELECT count(DISTINCT counterparty_wallet_id) FROM thirty_day), 0)::int
+`, pgUUID(walletID), asOf).Scan(
+		&metrics.TransactionsLastHour,
+		&metrics.AmountLastHourCents,
+		&metrics.AverageAmount30dCents,
+		&metrics.DistinctRecipients30d,
+	)
+	if err != nil {
+		return domain.FraudVelocityMetrics{}, err
+	}
+	return metrics, nil
+}
+
 func (db *Database) TransferProcessed(ctx context.Context, transferID uuid.UUID) (bool, error) {
 	var exists bool
 	err := db.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM ledger_entries WHERE transfer_id = $1)`, pgUUID(transferID)).Scan(&exists)
