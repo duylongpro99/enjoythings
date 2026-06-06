@@ -63,3 +63,13 @@ class FraudOutcome:
     action: FraudAction | None
     verdict: FraudVerdict | None = None
     reason_code: str | None = None
+
+
+@dataclass(frozen=True)
+class FraudSession:
+    session_id: str
+    source_event_id: str
+    payment_id: str
+    completed: bool = False
+    outcome: FraudOutcome | None = None
+    output_published: bool = False

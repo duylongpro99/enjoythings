@@ -19,10 +19,12 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	LedgerService_GetEntries_FullMethodName        = "/ledger.v1.LedgerService/GetEntries"
-	LedgerService_ReserveTransfer_FullMethodName   = "/ledger.v1.LedgerService/ReserveTransfer"
-	LedgerService_ConfirmTransfer_FullMethodName   = "/ledger.v1.LedgerService/ConfirmTransfer"
-	LedgerService_CancelReservation_FullMethodName = "/ledger.v1.LedgerService/CancelReservation"
+	LedgerService_GetEntries_FullMethodName                 = "/ledger.v1.LedgerService/GetEntries"
+	LedgerService_GetFraudTransactionHistory_FullMethodName = "/ledger.v1.LedgerService/GetFraudTransactionHistory"
+	LedgerService_GetFraudVelocityMetrics_FullMethodName    = "/ledger.v1.LedgerService/GetFraudVelocityMetrics"
+	LedgerService_ReserveTransfer_FullMethodName            = "/ledger.v1.LedgerService/ReserveTransfer"
+	LedgerService_ConfirmTransfer_FullMethodName            = "/ledger.v1.LedgerService/ConfirmTransfer"
+	LedgerService_CancelReservation_FullMethodName          = "/ledger.v1.LedgerService/CancelReservation"
 )
 
 // LedgerServiceClient is the client API for LedgerService service.
@@ -37,6 +39,8 @@ const (
 // - INTERNAL for unexpected persistence or infrastructure errors.
 type LedgerServiceClient interface {
 	GetEntries(ctx context.Context, in *GetEntriesRequest, opts ...grpc.CallOption) (*GetEntriesResponse, error)
+	GetFraudTransactionHistory(ctx context.Context, in *GetFraudTransactionHistoryRequest, opts ...grpc.CallOption) (*GetFraudTransactionHistoryResponse, error)
+	GetFraudVelocityMetrics(ctx context.Context, in *GetFraudVelocityMetricsRequest, opts ...grpc.CallOption) (*GetFraudVelocityMetricsResponse, error)
 	ReserveTransfer(ctx context.Context, in *ReserveTransferRequest, opts ...grpc.CallOption) (*ReserveTransferResponse, error)
 	ConfirmTransfer(ctx context.Context, in *ConfirmTransferRequest, opts ...grpc.CallOption) (*ConfirmTransferResponse, error)
 	CancelReservation(ctx context.Context, in *CancelReservationRequest, opts ...grpc.CallOption) (*CancelReservationResponse, error)
@@ -54,6 +58,26 @@ func (c *ledgerServiceClient) GetEntries(ctx context.Context, in *GetEntriesRequ
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetEntriesResponse)
 	err := c.cc.Invoke(ctx, LedgerService_GetEntries_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *ledgerServiceClient) GetFraudTransactionHistory(ctx context.Context, in *GetFraudTransactionHistoryRequest, opts ...grpc.CallOption) (*GetFraudTransactionHistoryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetFraudTransactionHistoryResponse)
+	err := c.cc.Invoke(ctx, LedgerService_GetFraudTransactionHistory_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *ledgerServiceClient) GetFraudVelocityMetrics(ctx context.Context, in *GetFraudVelocityMetricsRequest, opts ...grpc.CallOption) (*GetFraudVelocityMetricsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetFraudVelocityMetricsResponse)
+	err := c.cc.Invoke(ctx, LedgerService_GetFraudVelocityMetrics_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -102,6 +126,8 @@ func (c *ledgerServiceClient) CancelReservation(ctx context.Context, in *CancelR
 // - INTERNAL for unexpected persistence or infrastructure errors.
 type LedgerServiceServer interface {
 	GetEntries(context.Context, *GetEntriesRequest) (*GetEntriesResponse, error)
+	GetFraudTransactionHistory(context.Context, *GetFraudTransactionHistoryRequest) (*GetFraudTransactionHistoryResponse, error)
+	GetFraudVelocityMetrics(context.Context, *GetFraudVelocityMetricsRequest) (*GetFraudVelocityMetricsResponse, error)
 	ReserveTransfer(context.Context, *ReserveTransferRequest) (*ReserveTransferResponse, error)
 	ConfirmTransfer(context.Context, *ConfirmTransferRequest) (*ConfirmTransferResponse, error)
 	CancelReservation(context.Context, *CancelReservationRequest) (*CancelReservationResponse, error)
@@ -117,6 +143,12 @@ type UnimplementedLedgerServiceServer struct{}
 
 func (UnimplementedLedgerServiceServer) GetEntries(context.Context, *GetEntriesRequest) (*GetEntriesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetEntries not implemented")
+}
+func (UnimplementedLedgerServiceServer) GetFraudTransactionHistory(context.Context, *GetFraudTransactionHistoryRequest) (*GetFraudTransactionHistoryResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetFraudTransactionHistory not implemented")
+}
+func (UnimplementedLedgerServiceServer) GetFraudVelocityMetrics(context.Context, *GetFraudVelocityMetricsRequest) (*GetFraudVelocityMetricsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetFraudVelocityMetrics not implemented")
 }
 func (UnimplementedLedgerServiceServer) ReserveTransfer(context.Context, *ReserveTransferRequest) (*ReserveTransferResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReserveTransfer not implemented")
@@ -162,6 +194,42 @@ func _LedgerService_GetEntries_Handler(srv interface{}, ctx context.Context, dec
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(LedgerServiceServer).GetEntries(ctx, req.(*GetEntriesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LedgerService_GetFraudTransactionHistory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetFraudTransactionHistoryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LedgerServiceServer).GetFraudTransactionHistory(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LedgerService_GetFraudTransactionHistory_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LedgerServiceServer).GetFraudTransactionHistory(ctx, req.(*GetFraudTransactionHistoryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LedgerService_GetFraudVelocityMetrics_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetFraudVelocityMetricsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LedgerServiceServer).GetFraudVelocityMetrics(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LedgerService_GetFraudVelocityMetrics_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LedgerServiceServer).GetFraudVelocityMetrics(ctx, req.(*GetFraudVelocityMetricsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -230,6 +298,14 @@ var LedgerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetEntries",
 			Handler:    _LedgerService_GetEntries_Handler,
+		},
+		{
+			MethodName: "GetFraudTransactionHistory",
+			Handler:    _LedgerService_GetFraudTransactionHistory_Handler,
+		},
+		{
+			MethodName: "GetFraudVelocityMetrics",
+			Handler:    _LedgerService_GetFraudVelocityMetrics_Handler,
 		},
 		{
 			MethodName: "ReserveTransfer",

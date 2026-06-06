@@ -3,8 +3,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
+from uuid import uuid4
 
-from app.fraud.dto import FraudOutcome, FraudScoreRequest
+from app.fraud.dto import FraudOutcome, FraudScoreRequest, FraudSession
+from app.fraud.ports import FraudSessionStore
 
 
 class TransportClassification(StrEnum):
@@ -23,24 +25,98 @@ class TransportResult:
     request: FraudScoreRequest | None = None
 
 
+class SessionClaimError(RuntimeError):
+    pass
+
+
 class FraudWorker:
-    def __init__(self, service, publisher) -> None:
+    def __init__(
+        self,
+        service,
+        publisher,
+        store: FraudSessionStore | None = None,
+    ) -> None:
         self._service = service
         self._publisher = publisher
+        self._store = store or InMemoryFraudSessionStore()
 
     async def handle_payload(self, payload: bytes) -> ConsumerDecision:
         parsed = classify_transport_payload(payload)
         if parsed.classification != TransportClassification.VALID or parsed.request is None:
             return ConsumerDecision.COMMIT
+        request = parsed.request
         try:
-            outcome: FraudOutcome = await self._service.score(parsed.request)
+            session = await self._store.claim_session(request)
+            outcome = session.outcome
+            if not session.completed or outcome is None:
+                outcome = await self._service.score(request)
+                try:
+                    session = await self._store.complete_session(session, outcome)
+                except Exception:
+                    await self._publisher.publish_error(request, "audit_failed")
+                    return ConsumerDecision.RETRY
+            if session.output_published:
+                return ConsumerDecision.COMMIT
             if outcome.action in ("flag", "block"):
-                await self._publisher.publish_flagged(parsed.request, outcome)
+                try:
+                    await self._publisher.publish_flagged(request, outcome)
+                except Exception:
+                    try:
+                        await self._publisher.publish_error(request, "publish_failed")
+                    finally:
+                        return ConsumerDecision.RETRY
+                await self._store.mark_published(session)
             elif outcome.reason_code is not None:
-                await self._publisher.publish_error(parsed.request, outcome.reason_code)
+                try:
+                    await self._publisher.publish_error(request, outcome.reason_code)
+                finally:
+                    await self._store.mark_published(session)
         except Exception:
             return ConsumerDecision.RETRY
         return ConsumerDecision.COMMIT
+
+
+class InMemoryFraudSessionStore:
+    def __init__(self) -> None:
+        self._sessions: dict[str, FraudSession] = {}
+
+    async def claim_session(self, request: FraudScoreRequest) -> FraudSession:
+        existing = self._sessions.get(request.event_id)
+        if existing is not None:
+            return existing
+        session = FraudSession(
+            session_id=str(uuid4()),
+            source_event_id=request.event_id,
+            payment_id=request.payment_id,
+        )
+        self._sessions[request.event_id] = session
+        return session
+
+    async def complete_session(
+        self, session: FraudSession, outcome: FraudOutcome
+    ) -> FraudSession:
+        completed = FraudSession(
+            session_id=session.session_id,
+            source_event_id=session.source_event_id,
+            payment_id=session.payment_id,
+            completed=True,
+            outcome=outcome,
+            output_published=session.output_published,
+        )
+        self._sessions[session.source_event_id] = completed
+        return completed
+
+    async def mark_published(self, session: FraudSession) -> FraudSession:
+        published = FraudSession(
+            session_id=session.session_id,
+            source_event_id=session.source_event_id,
+            payment_id=session.payment_id,
+            completed=session.completed,
+            outcome=session.outcome,
+            output_published=True,
+        )
+        self._sessions[session.source_event_id] = published
+        return published
 
 
 def classify_transport_payload(payload: bytes) -> TransportResult:
