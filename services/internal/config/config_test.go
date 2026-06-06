@@ -91,6 +91,7 @@ func TestLoadGatewayFromLookupUsesGatewaySettings(t *testing.T) {
 		"JWT_SECRET":              "dev-secret",
 		"WALLET_GRPC_ADDR":        "127.0.0.1:19090",
 		"LEDGER_GRPC_ADDR":        "127.0.0.1:19091",
+		"SAGA_GRPC_ADDR":          "127.0.0.1:19093",
 		"VERIFICATION_GRPC_ADDR":  "127.0.0.1:19094",
 		"RATE_LIMIT_BURST":        "25",
 		"RATE_LIMIT_REFILL_EVERY": "2s",
@@ -113,6 +114,9 @@ func TestLoadGatewayFromLookupUsesGatewaySettings(t *testing.T) {
 	}
 	if cfg.LedgerGRPCAddr != "127.0.0.1:19091" {
 		t.Fatalf("LedgerGRPCAddr = %q, want 127.0.0.1:19091", cfg.LedgerGRPCAddr)
+	}
+	if cfg.SagaGRPCAddr != "127.0.0.1:19093" {
+		t.Fatalf("SagaGRPCAddr = %q, want 127.0.0.1:19093", cfg.SagaGRPCAddr)
 	}
 	if cfg.VerificationGRPCAddr != "127.0.0.1:19094" {
 		t.Fatalf("VerificationGRPCAddr = %q, want 127.0.0.1:19094", cfg.VerificationGRPCAddr)

@@ -125,6 +125,93 @@ func TestPhase3PaymentProcessorExecutableAndComposeWiring(t *testing.T) {
 	}
 }
 
+func TestPhase3SagaGatewayAndComposeWiring(t *testing.T) {
+	root := repoRoot(t)
+
+	gateway := readText(t, filepath.Join(root, "cmd", "gateway", "main.go"))
+	for _, snippet := range []string{
+		"NewSagaClient",
+		"NewPayments(sagaClient)",
+		`routes.Handle("/v1/payments/"`,
+		"cfg.SagaGRPCAddr",
+	} {
+		requireContains(t, gateway, snippet)
+	}
+
+	compose := readText(t, filepath.Join(root, "docker-compose.yml"))
+	for _, snippet := range []string{
+		"saga-orchestrator:",
+		"SAGA_GRPC_ADDR: saga-orchestrator:9093",
+		"SAGA_CONSUMER_GROUP_ID: saga-orchestrator",
+	} {
+		requireContains(t, compose, snippet)
+	}
+}
+
+func TestPhase3SmokeCommandCoversDeployedSagaBoundaries(t *testing.T) {
+	root := repoRoot(t)
+
+	smoke := readText(t, filepath.Join(root, "devtools", "phase3_smoke", "main.go"))
+	for _, snippet := range []string{
+		"/v1/verification/submit",
+		"/v1/transfers",
+		"/v1/payments/",
+		"saga.TopicTxCompleted",
+		"saga.TopicTxFailed",
+		`"CONFIRMED"`,
+		`"CANCELED"`,
+		"attempt_count",
+	} {
+		requireContains(t, smoke, snippet)
+	}
+}
+
+func TestPhase3WalletRolloutValidatorAndLocalCommands(t *testing.T) {
+	root := repoRoot(t)
+
+	script := readText(t, filepath.Join(root, "devtools", "k8s_wallet_rollout.sh"))
+	for _, snippet := range []string{
+		"kubectl scale deployment/wallet --replicas=2",
+		"kubectl rollout restart deployment/wallet",
+		"kubectl rollout status deployment/wallet",
+		"curl -fsS",
+		"probe_failures",
+	} {
+		requireContains(t, script, snippet)
+	}
+
+	makefile := readText(t, filepath.Join(root, "Makefile"))
+	for _, snippet := range []string{
+		"test-phase3-e2e:",
+		"go test ./internal/phase3e2e -v",
+		"phase3-smoke:",
+		"go run ./devtools/phase3_smoke",
+		"wallet-rollout-test:",
+		"./devtools/k8s_wallet_rollout.sh",
+	} {
+		requireContains(t, makefile, snippet)
+	}
+
+	readme := readText(t, filepath.Join(root, "README.md"))
+	requireContains(t, readme, "make test-phase3-e2e")
+	requireContains(t, readme, "make phase3-smoke")
+	requireContains(t, readme, "make wallet-rollout-test")
+
+	guide := readText(t, filepath.Join(root, "docs", "phase3", "kubernetes-local-guide.md"))
+	requireContains(t, guide, "make wallet-rollout-test")
+
+	deployments := readText(t, filepath.Join(root, "charts", "enjoythings", "templates", "applications.yaml"))
+	for _, snippet := range []string{
+		"maxUnavailable: 0",
+		"maxSurge: 1",
+		"preStop:",
+		"sleep 5",
+		"terminationGracePeriodSeconds: 15",
+	} {
+		requireContains(t, deployments, snippet)
+	}
+}
+
 func TestPhase3NotificationExecutableAndComposeWiring(t *testing.T) {
 	root := repoRoot(t)
 

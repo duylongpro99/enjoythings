@@ -1,0 +1,7 @@
+# Phase 3 E2E Resilience Tests
+
+Problem: Phase 3 behavior spans HTTP, gRPC-style service boundaries, durable saga state, Kafka-style events, payment retries, notification delivery, and Kubernetes readiness. Existing package tests prove individual components, but they do not prove that the complete workflow contracts compose correctly. The local stack also cannot currently exercise the saga through the gateway because transfers still call Wallet directly and Compose does not start the orchestrator.
+
+Structure: A focused `internal/phase3e2e` acceptance suite connects the real Saga Orchestrator, Payment Processor, Verification Service, Notification consumer, and gateway handlers through deterministic in-memory boundary adapters. This makes duplicate, retry, terminal failure, and restart scenarios fast and diagnostic while retaining real component behavior. A Compose smoke command validates the deployed local process path, and a separate shell validator continuously probes Wallet through the gateway while Kubernetes performs a rolling restart.
+
+Tradeoffs: The acceptance suite does not embed Kafka or Kubernetes because those make the default test command slow and fragile; Kafka-facing consumers and persistence stores remain covered by their existing boundary and integration tests. Compose smoke and the rollout validator cover the actual local infrastructure paths explicitly. Gateway saga wiring and deterministic stub-rail scenarios are included because without them the specified end-to-end failure and unverified-user scenarios cannot be exercised.

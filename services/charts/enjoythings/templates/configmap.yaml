@@ -10,6 +10,7 @@ data:
   KAFKA_BROKERS: {{ .Values.config.kafkaBrokers | quote }}
   WALLET_GRPC_ADDR: {{ .Values.config.walletGrpcAddr | quote }}
   LEDGER_GRPC_ADDR: {{ .Values.config.ledgerGrpcAddr | quote }}
+  SAGA_GRPC_ADDR: {{ .Values.config.sagaGrpcAddr | quote }}
   VERIFICATION_GRPC_ADDR: {{ .Values.config.verificationGrpcAddr | quote }}
   RATE_LIMIT_BURST: {{ .Values.config.rateLimitBurst | quote }}
   RATE_LIMIT_REFILL_EVERY: {{ .Values.config.rateLimitRefillEvery | quote }}
