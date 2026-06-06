@@ -3,6 +3,8 @@ from typing import Protocol
 
 from app.fraud.dto import (
     FraudScoreRequest,
+    FraudOutcome,
+    FraudSession,
     KYCStatus,
     TransactionHistoryEntry,
     VelocityMetrics,
@@ -30,3 +32,13 @@ class FraudPublisher(Protocol):
     async def publish_flagged(self, request: FraudScoreRequest, outcome: object) -> None: ...
 
     async def publish_error(self, request: FraudScoreRequest, reason_code: str) -> None: ...
+
+
+class FraudSessionStore(Protocol):
+    async def claim_session(self, request: FraudScoreRequest) -> FraudSession: ...
+
+    async def complete_session(
+        self, session: FraudSession, outcome: FraudOutcome
+    ) -> FraudSession: ...
+
+    async def mark_published(self, session: FraudSession) -> FraudSession: ...

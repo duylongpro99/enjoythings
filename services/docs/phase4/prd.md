@@ -51,7 +51,7 @@ The Python agent harness defined in this phase fixes all three while preserving 
 
 ### 4.1 Fraud detection agent
 
-The fraud agent is a Python workflow in `app/fraud`. It runs as a Kafka worker that consumes `tx.initiated`, enriches the event, scores it with an LLM through the existing adapter layer, validates the verdict, persists an audit record, and publishes fraud events.
+The fraud agent is a Python workflow in `app/fraud`. It runs as a Kafka worker that consumes `fraud.score.requested` from the Saga Orchestrator, enriches the event, scores it with an LLM through the existing adapter layer, validates the verdict, persists an audit record, and publishes fraud events. Legacy `tx.initiated` remains a Phase 2 Ledger compatibility event and is not consumed by the production fraud worker.
 
 The agent is composed of:
 
@@ -84,8 +84,8 @@ The concrete implementation is a thin gRPC client layer that calls Go services a
 - If retry also fails, publish `fraud.error` and fail open.
 
 **Session state** - every scoring run carries:
-- transfer ID and trace context
-- opaque wallet/user references that are safe for prompts and resolvable only by the enrichment boundary
+- payment ID and trace context
+- private wallet/user identifiers resolvable only by the enrichment boundary and never serialized into prompts
 - sanitised transaction facts
 - enrichment results
 - model provider metadata
@@ -172,7 +172,7 @@ This keeps the polyglot boundary small, testable, and easy to migrate if the fra
 
 | Scenario | Expected result |
 |---|---|
-| High-risk transaction | Python worker consumes `tx.initiated`, enriches via `FraudDataPort`, guard validates prompt, LLM scores through `app.llm`, validator accepts verdict, `fraud.flagged` is published |
+| High-risk transaction | Saga Orchestrator publishes `fraud.score.requested`; Python worker consumes it, enriches via `FraudDataPort`, guard validates prompt, LLM scores through `app.llm`, validator accepts verdict, durable audit is written, and `fraud.flagged` is published |
 | LLM returns malformed JSON | Validator rejects, retries once; if retry also fails, `fraud.error` is published and saga continues fail-open |
 | Switch model provider | Change `LLM_DEFAULT_PROVIDER` or provider JSON, restart Python service; zero fraud-agent code changes |
 | Raw wallet UUID appears in LLM prompt | Input guard rejects the prompt, records callback event, increments `fraud_callback_rejections_total`, and blocks provider call |

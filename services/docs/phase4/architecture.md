@@ -9,13 +9,13 @@
 ## 1. System diagram
 
 ```text
-Kafka: tx.initiated
+Kafka: fraud.score.requested
         |
         v
   Python Fraud Worker (app/fraud)
   +--------------------------------------------------+
   | Kafka Consumer                                   |
-  |    | deserialize TransactionInitiated            |
+  |    | deserialize FraudScoreRequest               |
   |    v                                             |
   | FraudAgent Graph (LangGraph)                     |
   | +----------------------------------------------+ |
@@ -66,7 +66,7 @@ Kafka outputs:
 | Go integration | Domain service interface plus thin gRPC client |
 | Protobuf imports | Only in `app/fraud/integrations/grpc_client.py` |
 | Audit persistence | Python repository writes `fraud_sessions` |
-| Kafka integration | Python worker consumes `tx.initiated`, publishes `fraud.flagged` / `fraud.error` |
+| Kafka integration | Python worker consumes `fraud.score.requested`, publishes `fraud.flagged` / `fraud.error` |
 | Observability | OpenTelemetry in both Python and Go, Prometheus metrics, Grafana dashboards |
 
 ---
@@ -122,7 +122,7 @@ from app.fraud.dto import (
     FraudVerdict,
     KYCStatus,
     TransactionHistoryEntry,
-    TransactionInitiated,
+    FraudScoreRequest,
     VelocityMetrics,
 )
 
@@ -143,7 +143,7 @@ class FraudDataPort(Protocol):
 
 
 class FraudSessionStore(Protocol):
-    async def create(self, event: TransactionInitiated) -> FraudSession:
+    async def create(self, event: FraudScoreRequest) -> FraudSession:
         ...
 
     async def append_event(self, session_id: str, event: dict) -> None:
@@ -162,7 +162,7 @@ class FraudSessionStore(Protocol):
 class FraudPublisher(Protocol):
     async def publish_flagged(
         self,
-        event: TransactionInitiated,
+        event: FraudScoreRequest,
         verdict: FraudVerdict,
         session_id: str,
     ) -> None:
@@ -170,7 +170,7 @@ class FraudPublisher(Protocol):
 
     async def publish_error(
         self,
-        event: TransactionInitiated,
+        event: FraudScoreRequest,
         reason: str,
         session_id: str,
     ) -> None:
@@ -381,7 +381,7 @@ Validation behavior:
 Consumer flow:
 
 ```python
-async def handle_tx_initiated(event: TransactionInitiated) -> None:
+async def handle_fraud_score_requested(event: FraudScoreRequest) -> None:
     session = await session_store.create(event)
     try:
         verdict = await fraud_service.score(event, session_id=session.id)
@@ -397,7 +397,8 @@ Topics:
 
 | Topic | Producer | Consumer |
 |---|---|---|
-| `tx.initiated` | Wallet outbox | Ledger consumer, Python fraud worker |
+| `fraud.score.requested` | Saga Orchestrator | Python fraud worker |
+| `tx.initiated` | Wallet outbox | Ledger consumer only; Phase 2 compatibility |
 | `fraud.flagged` | Python fraud worker | Saga Orchestrator, Notification |
 | `fraud.error` | Python fraud worker | Observability/admin handling |
 | `tx.paused` | Saga Orchestrator | Notification |

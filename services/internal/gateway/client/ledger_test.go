@@ -81,6 +81,14 @@ func (client *fakeLedgerServiceClient) GetEntries(ctx context.Context, req *ledg
 	return client.response, client.err
 }
 
+func (client *fakeLedgerServiceClient) GetFraudTransactionHistory(context.Context, *ledgerv1.GetFraudTransactionHistoryRequest, ...grpc.CallOption) (*ledgerv1.GetFraudTransactionHistoryResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "GetFraudTransactionHistory is not used by these tests")
+}
+
+func (client *fakeLedgerServiceClient) GetFraudVelocityMetrics(context.Context, *ledgerv1.GetFraudVelocityMetricsRequest, ...grpc.CallOption) (*ledgerv1.GetFraudVelocityMetricsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "GetFraudVelocityMetrics is not used by these tests")
+}
+
 func (client *fakeLedgerServiceClient) ReserveTransfer(context.Context, *ledgerv1.ReserveTransferRequest, ...grpc.CallOption) (*ledgerv1.ReserveTransferResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "ReserveTransfer is not used by these tests")
 }
