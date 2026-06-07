@@ -171,6 +171,25 @@ def test_graph_completion_persistence_failure_returns_contract_audit_reason() ->
     assert outcome == FraudOutcome(action=None, reason_code="audit_failed")
 
 
+def test_graph_final_audit_event_failure_does_not_mark_flagged_outcome_complete() -> None:
+    store = FailingFinalEventStore()
+
+    outcome = asyncio.run(
+        FraudScoringGraph(
+            data=FakeData(),
+            completion=FakeCompletion(
+                ['{"risk_score":0.95,"action":"block","reason":"critical velocity"}']
+            ),
+            store=store,
+            config=FraudConfig(),
+            clock=FixedClock(),
+        ).score(request())
+    )
+
+    assert outcome == FraudOutcome(action=None, reason_code="audit_failed")
+    assert store.completed_outcomes == []
+
+
 class FakeData:
     def __init__(self, *, fail: bool = False, kyc_status: str = "verified") -> None:
         self.fail = fail
@@ -270,6 +289,13 @@ class FailingCompleteStore(FakeStore):
         self, session: FraudSession, outcome: FraudOutcome
     ) -> FraudSession:
         raise RuntimeError("audit database unavailable")
+
+
+class FailingFinalEventStore(FakeStore):
+    async def append_event(self, session_id: str, event: dict[str, object]) -> None:
+        if event["node"] == "complete_session":
+            raise RuntimeError("audit database unavailable")
+        await super().append_event(session_id, event)
 
 
 class FixedClock:

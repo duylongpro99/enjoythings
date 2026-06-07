@@ -4,7 +4,9 @@ from typing import Any
 
 from app.fraud.dto import KYCStatus, TransactionHistoryEntry, VelocityMetrics
 from app.fraud.integrations.gen.ledger.v1 import ledger_pb2
+from app.fraud.integrations.gen.ledger.v1 import ledger_pb2_grpc
 from app.fraud.integrations.gen.verification.v1 import verification_pb2
+from app.fraud.integrations.gen.verification.v1 import verification_pb2_grpc
 from app.fraud.ports import FraudDataPort
 
 RPC_TIMEOUT_SECONDS = 2.0
@@ -137,3 +139,19 @@ def _enrichment_error(exc: Exception) -> EnrichmentError:
     if code in {"UNAVAILABLE", "DEADLINE_EXCEEDED", "INTERNAL", "UNKNOWN"}:
         return EnrichmentError("retryable_enrichment_failed", retryable=True)
     return EnrichmentError("retryable_enrichment_failed", retryable=True)
+
+
+def build_grpc_fraud_data_client(
+    ledger_addr: str, verification_addr: str
+) -> tuple[GrpcFraudDataClient, tuple[Any, Any]]:
+    import grpc
+
+    ledger_channel = grpc.insecure_channel(ledger_addr)
+    verification_channel = grpc.insecure_channel(verification_addr)
+    client = GrpcFraudDataClient(
+        ledger_stub=ledger_pb2_grpc.LedgerServiceStub(ledger_channel),
+        verification_stub=verification_pb2_grpc.VerificationServiceStub(
+            verification_channel
+        ),
+    )
+    return client, (ledger_channel, verification_channel)

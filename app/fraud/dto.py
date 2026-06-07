@@ -72,4 +72,5 @@ class FraudSession:
     payment_id: str
     completed: bool = False
     outcome: FraudOutcome | None = None
+    output_event_type: str = ""
     output_published: bool = False

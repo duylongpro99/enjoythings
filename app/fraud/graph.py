@@ -1,5 +1,5 @@
 import asyncio
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from time import monotonic
 from typing import Protocol
@@ -224,6 +224,12 @@ class FraudScoringGraph:
             node="enrich_transaction",
             outcome="completed",
             history_count=len(ordered_history),
+            sanitized_facts=_json_safe(asdict(state.facts)),
+            enrichment={
+                "history_count": len(ordered_history),
+                "kyc_available": bool(kyc.status),
+                "velocity_available": True,
+            },
         )
 
     async def _build_prompt(self, state: GraphState) -> None:
@@ -338,9 +344,6 @@ class FraudScoringGraph:
             return FraudOutcome(action=None, reason_code="audit_failed")
         if outcome is None:
             outcome = FraudOutcome(action=None, reason_code="audit_failed")
-        completed = await self._store.complete_session(state.session, outcome)
-        state.session = completed
-        state.outcome = outcome
         await self._audit(
             state,
             node="complete_session",
@@ -348,6 +351,9 @@ class FraudScoringGraph:
             action=outcome.action or "fail_open",
             reason_code=outcome.reason_code or "",
         )
+        completed = await self._store.complete_session(state.session, outcome)
+        state.session = completed
+        state.outcome = outcome
         return outcome
 
     async def _audit(self, state: GraphState, *, node: str, **event: object) -> None:
@@ -392,6 +398,7 @@ class InMemoryFraudGraphSessionStore:
             payment_id=session.payment_id,
             completed=True,
             outcome=outcome,
+            output_event_type=_output_event_type(outcome),
             output_published=session.output_published,
         )
         self._sessions[session.source_event_id] = completed
@@ -404,10 +411,17 @@ class InMemoryFraudGraphSessionStore:
             payment_id=session.payment_id,
             completed=session.completed,
             outcome=session.outcome,
+            output_event_type=session.output_event_type,
             output_published=True,
         )
         self._sessions[session.source_event_id] = published
         return published
+
+    async def renew_lease(self, session: FraudSession) -> None:
+        return None
+
+    async def release_lease(self, session: FraudSession) -> None:
+        return None
 
 
 def messages(
@@ -437,6 +451,24 @@ def facts_sentence(facts: SanitizedTransactionFacts) -> str:
         f"distinct recipients 30d {facts.velocity.distinct_recipients_30d}, "
         f"recent history {history}"
     )
+
+
+def _output_event_type(outcome: FraudOutcome) -> str:
+    if outcome.action in ("flag", "block"):
+        return "fraud.flagged"
+    if outcome.reason_code:
+        return "fraud.error"
+    return ""
+
+
+def _json_safe(value):
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
 
 
 def _history_sentence(entry: TransactionHistoryEntry) -> str:

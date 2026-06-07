@@ -16,6 +16,7 @@ class FraudConfig:
     history_limit: int = 20
     consumer_group: str = "fraud-agent"
     request_topic: str = "fraud.score.requested"
+    kafka_bootstrap_servers: str = "127.0.0.1:9092"
     metrics_port: int = 9101
     database_url: str = ""
     ledger_grpc_addr: str = "127.0.0.1:9091"
@@ -40,6 +41,9 @@ class FraudConfig:
                 consumer_group=source.get("FRAUD_CONSUMER_GROUP", "fraud-agent").strip(),
                 request_topic=source.get(
                     "FRAUD_REQUEST_TOPIC", "fraud.score.requested"
+                ).strip(),
+                kafka_bootstrap_servers=source.get(
+                    "KAFKA_BOOTSTRAP_SERVERS", "127.0.0.1:9092"
                 ).strip(),
                 metrics_port=int(source.get("FRAUD_METRICS_PORT", "9101")),
                 database_url=source.get("FRAUD_DATABASE_URL", "").strip(),
@@ -66,8 +70,8 @@ class FraudConfig:
             raise FraudConfigError("fraud prompt and response limits must be positive")
         if not 1 <= self.history_limit <= 100:
             raise FraudConfigError("FRAUD_HISTORY_LIMIT must be from 1 through 100")
-        if not self.consumer_group or not self.request_topic:
-            raise FraudConfigError("fraud consumer group and request topic must be non-empty")
+        if not self.consumer_group or not self.request_topic or not self.kafka_bootstrap_servers:
+            raise FraudConfigError("fraud Kafka settings must be non-empty")
         if not 1 <= self.metrics_port <= 65535:
             raise FraudConfigError("FRAUD_METRICS_PORT must be a valid TCP port")
         if not self.database_url:
