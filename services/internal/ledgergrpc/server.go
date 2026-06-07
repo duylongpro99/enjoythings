@@ -23,7 +23,7 @@ const userIDMetadataKey = "x-user-id"
 type App interface {
 	ListLedger(context.Context, uuid.UUID, uuid.UUID, repo.LedgerCursor, int) ([]domain.LedgerEntry, repo.LedgerCursor, error)
 	GetFraudTransactionHistory(context.Context, uuid.UUID, int, string) ([]domain.FraudTransactionSummary, error)
-	GetFraudVelocityMetrics(context.Context, uuid.UUID, string) (domain.FraudVelocityMetrics, error)
+	GetFraudVelocityMetrics(context.Context, uuid.UUID, time.Time, string) (domain.FraudVelocityMetrics, error)
 	ReserveTransfer(context.Context, domain.LedgerReserveCommand) (domain.LedgerReservation, error)
 	ConfirmTransfer(context.Context, domain.LedgerConfirmCommand) (domain.LedgerConfirmation, error)
 	CancelReservation(context.Context, domain.LedgerCancelCommand) (domain.LedgerReservation, error)
@@ -95,7 +95,8 @@ func (server *Server) GetFraudVelocityMetrics(ctx context.Context, req *ledgerv1
 	if err != nil {
 		return nil, err
 	}
-	metrics, err := server.app.GetFraudVelocityMetrics(ctx, walletID, req.GetTraceId())
+	asOf := time.Now().UTC()
+	metrics, err := server.app.GetFraudVelocityMetrics(ctx, walletID, asOf, req.GetTraceId())
 	if err != nil {
 		return nil, statusFromDomain(err)
 	}

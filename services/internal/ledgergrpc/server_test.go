@@ -172,6 +172,7 @@ func TestGetFraudTransactionHistoryReturnsSanitizedSummaries(t *testing.T) {
 
 func TestGetFraudVelocityMetricsReturnsAggregates(t *testing.T) {
 	walletID := uuid.New()
+	before := time.Now().UTC()
 	app := &fakeLedgerApp{
 		fraudVelocity: domain.FraudVelocityMetrics{
 			TransactionsLastHour:  3,
@@ -192,6 +193,10 @@ func TestGetFraudVelocityMetricsReturnsAggregates(t *testing.T) {
 
 	if app.fraudWalletID != walletID || app.fraudTraceID != "trace-2" {
 		t.Fatalf("fraud velocity request = wallet:%s trace:%s", app.fraudWalletID, app.fraudTraceID)
+	}
+	after := time.Now().UTC()
+	if app.fraudAsOf.Before(before) || app.fraudAsOf.After(after) || app.fraudAsOf.Location() != time.UTC {
+		t.Fatalf("fraud as_of = %v, want one UTC timestamp captured by handler between %v and %v", app.fraudAsOf, before, after)
 	}
 	if resp.GetTransactionsLastHour() != 3 || resp.GetAmountLastHourCents() != 4000 || resp.GetAverageAmount_30DCents() != 900 || resp.GetDistinctRecipients_30D() != 2 {
 		t.Fatalf("velocity response = %+v", resp)
@@ -499,6 +504,7 @@ type fakeLedgerApp struct {
 	fraudWalletID uuid.UUID
 	fraudLimit    int
 	fraudTraceID  string
+	fraudAsOf     time.Time
 }
 
 func (app *fakeLedgerApp) ListLedger(_ context.Context, userID, walletID uuid.UUID, cursor repo.LedgerCursor, limit int) ([]domain.LedgerEntry, repo.LedgerCursor, error) {
@@ -522,9 +528,10 @@ func (app *fakeLedgerApp) GetFraudTransactionHistory(_ context.Context, walletID
 	return app.fraudHistory, nil
 }
 
-func (app *fakeLedgerApp) GetFraudVelocityMetrics(_ context.Context, walletID uuid.UUID, traceID string) (domain.FraudVelocityMetrics, error) {
+func (app *fakeLedgerApp) GetFraudVelocityMetrics(_ context.Context, walletID uuid.UUID, asOf time.Time, traceID string) (domain.FraudVelocityMetrics, error) {
 	app.fraudWalletID = walletID
 	app.fraudTraceID = traceID
+	app.fraudAsOf = asOf
 	if app.err != nil {
 		return domain.FraudVelocityMetrics{}, app.err
 	}

@@ -79,20 +79,19 @@ class GrpcFraudDataClient(FraudDataPort):
     def get_kyc_status_sync(self, user_id: str, trace_id: str) -> KYCStatus:
         if not user_id:
             raise EnrichmentError("invalid_identifier", retryable=False)
-        try:
-            response = self._verification.GetStatus(
-                verification_pb2.GetStatusRequest(user_id=user_id, trace_id=trace_id),
-                timeout=RPC_TIMEOUT_SECONDS,
-                metadata=_trace_metadata(trace_id),
-            )
-        except Exception as exc:
-            code = _rpc_code_name(exc)
-            if code == "NOT_FOUND":
-                return KYCStatus(status="unverified")
-            raise _enrichment_error(exc) from exc
+        response = self._call_with_retry(
+            self._verification.GetStatus,
+            verification_pb2.GetStatusRequest(user_id=user_id, trace_id=trace_id),
+            trace_id,
+            not_found_is_none=True,
+        )
+        if response is None:
+            return KYCStatus(status="unverified")
         return KYCStatus(status=str(response.status or "unverified"))
 
-    def _call_with_retry(self, method, request, trace_id: str):
+    def _call_with_retry(
+        self, method, request, trace_id: str, *, not_found_is_none: bool = False
+    ):
         try:
             return method(
                 request,
@@ -100,6 +99,8 @@ class GrpcFraudDataClient(FraudDataPort):
                 metadata=_trace_metadata(trace_id),
             )
         except Exception as exc:
+            if not_found_is_none and _rpc_code_name(exc) == "NOT_FOUND":
+                return None
             if _rpc_code_name(exc) != "UNAVAILABLE":
                 raise _enrichment_error(exc) from exc
             time.sleep(UNAVAILABLE_RETRY_DELAY_SECONDS)
@@ -110,6 +111,8 @@ class GrpcFraudDataClient(FraudDataPort):
                 metadata=_trace_metadata(trace_id),
             )
         except Exception as exc:
+            if not_found_is_none and _rpc_code_name(exc) == "NOT_FOUND":
+                return None
             raise _enrichment_error(exc) from exc
 
 
