@@ -32,16 +32,13 @@ class FraudScoringService:
             return FraudOutcome(action=None, reason_code="enrichment_failed")
 
         prompt = _build_prompt(facts)
-        rejection = guard_prompt(
-            prompt,
-            max_chars=self._config.prompt_max_chars,
-            sensitive_keys=self._config.sensitive_keys,
-        )
+        messages = _messages(prompt)
+        rejection = self._guard_messages(messages)
         if rejection is not None:
             return FraudOutcome(action=None, reason_code="prompt_rejected")
 
         try:
-            first = await self._complete_and_validate(prompt)
+            first = await self._complete_and_validate(messages)
         except Exception:
             return FraudOutcome(action=None, reason_code="model_failed")
         if first.verdict is not None:
@@ -51,15 +48,12 @@ class FraudScoringService:
             f"{first.corrective_prompt}\n"
             f"Sanitized facts: {_facts_sentence(facts)}"
         )
-        rejection = guard_prompt(
-            retry_prompt,
-            max_chars=self._config.prompt_max_chars,
-            sensitive_keys=self._config.sensitive_keys,
-        )
+        retry_messages = _messages(retry_prompt)
+        rejection = self._guard_messages(retry_messages)
         if rejection is not None:
             return FraudOutcome(action=None, reason_code="prompt_rejected")
         try:
-            second = await self._complete_and_validate(retry_prompt)
+            second = await self._complete_and_validate(retry_messages)
         except Exception:
             return FraudOutcome(action=None, reason_code="model_failed")
         if second.verdict is not None:
@@ -85,13 +79,15 @@ class FraudScoringService:
             velocity=velocity,
         )
 
-    async def _complete_and_validate(self, prompt: str):
-        response = await self._completion.complete(
-            [
-                ChatMessage(role="system", content=SYSTEM_INSTRUCTION),
-                ChatMessage(role="user", content=prompt),
-            ]
+    def _guard_messages(self, messages: list[ChatMessage]) -> str | None:
+        return guard_prompt(
+            "\n".join(message.content for message in messages),
+            max_chars=self._config.prompt_max_chars,
+            sensitive_keys=self._config.sensitive_keys,
         )
+
+    async def _complete_and_validate(self, messages: list[ChatMessage]):
+        response = await self._completion.complete(messages)
         return validate_verdict(
             response,
             score_threshold=self._config.score_threshold,
@@ -99,6 +95,13 @@ class FraudScoringService:
             max_chars=self._config.response_max_chars,
             sensitive_keys=self._config.sensitive_keys,
         )
+
+
+def _messages(prompt: str) -> list[ChatMessage]:
+    return [
+        ChatMessage(role="system", content=SYSTEM_INSTRUCTION),
+        ChatMessage(role="user", content=prompt),
+    ]
 
 
 def _build_prompt(facts: SanitizedTransactionFacts) -> str:

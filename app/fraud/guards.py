@@ -2,15 +2,15 @@ import re
 from collections.abc import Sequence
 
 UUID_PATTERN = re.compile(
-    r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
-    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"
+    r"(?<![0-9a-fA-F])[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?![0-9a-fA-F])"
 )
 
 
 def guard_prompt(
     prompt: str, *, max_chars: int, sensitive_keys: Sequence[str]
 ) -> str | None:
-    if not prompt:
+    if not prompt.strip():
         return "prompt_empty"
     if UUID_PATTERN.search(prompt):
         return "uuid_detected"

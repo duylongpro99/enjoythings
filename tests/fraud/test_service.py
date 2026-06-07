@@ -1,6 +1,8 @@
 import asyncio
 from datetime import UTC, datetime
 
+import pytest
+
 from app.fraud.config import FraudConfig
 from app.fraud.dto import FraudScoreRequest, KYCStatus, TransactionHistoryEntry, VelocityMetrics
 from app.fraud.service import FraudScoringService
@@ -67,6 +69,43 @@ def test_service_fails_open_after_guard_rejection_without_model_call() -> None:
     assert completion.calls == 0
 
 
+def test_service_rejects_uuid_in_final_prompt_without_model_call() -> None:
+    completion = FakeCompletion(['{"risk_score":0.9,"action":"block","reason":"x"}'])
+    data = FakeData(kyc_status="11111111-1111-1111-1111-111111111111")
+
+    outcome = asyncio.run(FraudScoringService(data, completion, FraudConfig()).score(request()))
+
+    assert outcome.reason_code == "prompt_rejected"
+    assert completion.calls == 0
+
+
+def test_service_rejects_sensitive_key_in_final_prompt_without_model_call() -> None:
+    completion = FakeCompletion(['{"risk_score":0.9,"action":"block","reason":"x"}'])
+    data = FakeData(kyc_status="contains user_id")
+
+    outcome = asyncio.run(FraudScoringService(data, completion, FraudConfig()).score(request()))
+
+    assert outcome.reason_code == "prompt_rejected"
+    assert completion.calls == 0
+
+
+def test_service_guards_system_instruction_before_model_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completion = FakeCompletion(['{"risk_score":0.9,"action":"block","reason":"x"}'])
+    monkeypatch.setattr(
+        "app.fraud.service.SYSTEM_INSTRUCTION",
+        "unsafe system identifier 11111111-1111-1111-1111-111111111111",
+    )
+
+    outcome = asyncio.run(
+        FraudScoringService(FakeData(), completion, FraudConfig()).score(request())
+    )
+
+    assert outcome.reason_code == "prompt_rejected"
+    assert completion.calls == 0
+
+
 def test_service_fails_open_when_enrichment_fails() -> None:
     data = FakeData(fail=True)
     outcome = asyncio.run(
@@ -102,8 +141,9 @@ def test_service_fails_open_with_bounded_model_reason_on_provider_error() -> Non
 
 
 class FakeData:
-    def __init__(self, fail: bool = False) -> None:
+    def __init__(self, fail: bool = False, kyc_status: str = "verified") -> None:
         self.fail = fail
+        self.kyc_status = kyc_status
 
     async def get_transaction_history(self, wallet_id: str, limit: int, trace_id: str):
         if self.fail:
@@ -125,7 +165,7 @@ class FakeData:
     async def get_kyc_status(self, user_id: str, trace_id: str) -> KYCStatus:
         if self.fail:
             raise RuntimeError("verification unavailable")
-        return KYCStatus(status="verified")
+        return KYCStatus(status=self.kyc_status)
 
 
 class FakeCompletion:

@@ -17,6 +17,9 @@ class FraudConfig:
     consumer_group: str = "fraud-agent"
     request_topic: str = "fraud.score.requested"
     metrics_port: int = 9101
+    database_url: str = ""
+    ledger_grpc_addr: str = "127.0.0.1:9091"
+    verification_grpc_addr: str = "127.0.0.1:9094"
     sensitive_keys: tuple[str, ...] = (
         "user_id",
         "from_wallet_id",
@@ -39,6 +42,13 @@ class FraudConfig:
                     "FRAUD_REQUEST_TOPIC", "fraud.score.requested"
                 ).strip(),
                 metrics_port=int(source.get("FRAUD_METRICS_PORT", "9101")),
+                database_url=source.get("FRAUD_DATABASE_URL", "").strip(),
+                ledger_grpc_addr=source.get(
+                    "LEDGER_GRPC_ADDR", "127.0.0.1:9091"
+                ).strip(),
+                verification_grpc_addr=source.get(
+                    "VERIFICATION_GRPC_ADDR", "127.0.0.1:9094"
+                ).strip(),
             )
         except ValueError as exc:
             raise FraudConfigError("fraud numeric settings must be valid numbers") from exc
@@ -60,3 +70,9 @@ class FraudConfig:
             raise FraudConfigError("fraud consumer group and request topic must be non-empty")
         if not 1 <= self.metrics_port <= 65535:
             raise FraudConfigError("FRAUD_METRICS_PORT must be a valid TCP port")
+        if not self.database_url:
+            raise FraudConfigError("FRAUD_DATABASE_URL is required")
+        if not self.ledger_grpc_addr:
+            raise FraudConfigError("LEDGER_GRPC_ADDR must be non-empty")
+        if not self.verification_grpc_addr:
+            raise FraudConfigError("VERIFICATION_GRPC_ADDR must be non-empty")

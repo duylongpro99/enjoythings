@@ -1,32 +1,76 @@
 import asyncio
+import ast
 import json
+from pathlib import Path
 
 import pytest
 
 from app.fraud.completion import CompletionService
 from app.fraud.config import FraudConfig, FraudConfigError
+from app.fraud.ports import FraudSessionStore
 from app.fraud.guards import guard_prompt
 from app.fraud.validator import validate_verdict
 from app.llm.types import ChatDelta, ChatMessage
 
 
 def test_config_validates_threshold_order_and_bounds() -> None:
-    assert FraudConfig.from_env({}).score_threshold == 0.75
+    environ = {"FRAUD_DATABASE_URL": "postgres://fraud-db"}
+    config = FraudConfig.from_env(environ)
+
+    assert config.score_threshold == 0.75
+    assert config.ledger_grpc_addr == "127.0.0.1:9091"
+    assert config.verification_grpc_addr == "127.0.0.1:9094"
 
     with pytest.raises(FraudConfigError, match="lower than"):
         FraudConfig.from_env(
-            {"FRAUD_SCORE_THRESHOLD": "0.9", "FRAUD_BLOCK_THRESHOLD": "0.9"}
+            {
+                **environ,
+                "FRAUD_SCORE_THRESHOLD": "0.9",
+                "FRAUD_BLOCK_THRESHOLD": "0.9",
+            }
         )
 
     with pytest.raises(FraudConfigError, match="FRAUD_METRICS_PORT"):
-        FraudConfig.from_env({"FRAUD_METRICS_PORT": "70000"})
+        FraudConfig.from_env({**environ, "FRAUD_METRICS_PORT": "70000"})
+
+
+@pytest.mark.parametrize(
+    ("environ", "message"),
+    [
+        ({}, "FRAUD_DATABASE_URL"),
+        (
+            {"FRAUD_DATABASE_URL": "postgres://fraud-db", "LEDGER_GRPC_ADDR": ""},
+            "LEDGER_GRPC_ADDR",
+        ),
+        (
+            {
+                "FRAUD_DATABASE_URL": "postgres://fraud-db",
+                "VERIFICATION_GRPC_ADDR": " ",
+            },
+            "VERIFICATION_GRPC_ADDR",
+        ),
+    ],
+)
+def test_config_requires_environment_only_database_and_non_empty_grpc_addresses(
+    environ: dict[str, str], message: str
+) -> None:
+    with pytest.raises(FraudConfigError, match=message):
+        FraudConfig.from_env(environ)
+
+
+def test_session_store_port_includes_idempotent_event_append_and_completion() -> None:
+    assert hasattr(FraudSessionStore, "claim_session")
+    assert hasattr(FraudSessionStore, "append_event")
+    assert hasattr(FraudSessionStore, "complete_session")
 
 
 @pytest.mark.parametrize(
     ("prompt", "expected"),
     [
         ("", "prompt_empty"),
+        (" \n\t", "prompt_empty"),
         ("payment 11111111-1111-1111-1111-111111111111", "uuid_detected"),
+        ("payment_11111111-1111-1111-1111-111111111111_value", "uuid_detected"),
         ("facts include user_id", "sensitive_key_detected"),
         ("x" * 11, "prompt_too_large"),
     ],
@@ -95,6 +139,50 @@ def test_validator_clamps_score_within_tolerance() -> None:
     assert result.verdict.risk_score == 1.0
 
 
+@pytest.mark.parametrize(
+    ("response", "reason"),
+    [
+        ("x" * 11, "response_too_large"),
+        (json.dumps([]), "invalid_schema"),
+        (
+            json.dumps({"risk_score": 0.2, "action": "allow", "reason": " "}),
+            "invalid_schema",
+        ),
+        (
+            json.dumps({"risk_score": True, "action": "allow", "reason": "normal"}),
+            "invalid_score",
+        ),
+        (
+            json.dumps({"risk_score": float("nan"), "action": "allow", "reason": "normal"}),
+            "invalid_score",
+        ),
+        (
+            json.dumps(
+                {"risk_score": -0.011, "action": "allow", "reason": "normal"}
+            ),
+            "invalid_score",
+        ),
+        (
+            json.dumps(
+                {"risk_score": 0.2, "action": "allow", "reason": "contains user_id"}
+            ),
+            "sensitive_output",
+        ),
+    ],
+)
+def test_validator_covers_all_rejection_categories(response: str, reason: str) -> None:
+    result = validate_verdict(
+        response,
+        score_threshold=0.75,
+        block_threshold=0.9,
+        max_chars=10 if reason == "response_too_large" else 4000,
+        sensitive_keys=("user_id",),
+    )
+
+    assert result.rejection_reason == reason
+    assert result.corrective_prompt.endswith(f"{reason}.")
+
+
 def test_completion_service_joins_deltas_in_one_provider_call() -> None:
     class FakeLLM:
         calls = 0
@@ -115,3 +203,61 @@ def test_completion_service_joins_deltas_in_one_provider_call() -> None:
     response, calls = asyncio.run(run())
     assert response == '{"risk_score": 0.1}'
     assert calls == 1
+
+
+def test_completion_service_accepts_any_llm_port_without_provider_registry_changes() -> None:
+    class FakeProvider:
+        def __init__(self, content: str) -> None:
+            self.content = content
+
+        async def stream_chat(self, request):
+            yield ChatDelta(content=self.content)
+
+    async def run() -> tuple[str, str]:
+        messages = [ChatMessage(role="user", content="prompt")]
+        first = await CompletionService(FakeProvider("first")).complete(messages)
+        second = await CompletionService(FakeProvider("second")).complete(messages)
+        return first, second
+
+    assert asyncio.run(run()) == ("first", "second")
+
+
+def test_core_fraud_domain_has_no_infrastructure_or_provider_imports() -> None:
+    forbidden_roots = {
+        "aiokafka",
+        "anthropic",
+        "asyncpg",
+        "cohere",
+        "google",
+        "grpc",
+        "kafka",
+        "opentelemetry",
+        "openai",
+        "psycopg",
+    }
+    core_modules = (
+        "completion.py",
+        "config.py",
+        "dto.py",
+        "guards.py",
+        "instruction.py",
+        "ports.py",
+        "service.py",
+        "validator.py",
+        "worker.py",
+    )
+
+    for module_name in core_modules:
+        path = Path("app/fraud") / module_name
+        tree = ast.parse(path.read_text())
+        imported_roots = {
+            alias.name.split(".", 1)[0]
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+        } | {
+            node.module.split(".", 1)[0]
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and node.module
+        }
+        assert imported_roots.isdisjoint(forbidden_roots), path
