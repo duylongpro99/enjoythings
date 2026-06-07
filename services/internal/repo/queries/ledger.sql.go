@@ -46,6 +46,103 @@ func (q *Queries) CreateLedgerEntry(ctx context.Context, arg CreateLedgerEntryPa
 	return i, err
 }
 
+const getFraudVelocityMetrics = `-- name: GetFraudVelocityMetrics :one
+WITH recent AS (
+  SELECT amount
+  FROM ledger_entries
+  WHERE ledger_entries.wallet_id = $1
+    AND ledger_entries.created_at >= $2::timestamptz - interval '1 hour'
+    AND ledger_entries.created_at <= $2::timestamptz
+),
+thirty_day AS (
+  SELECT le.amount,
+    CASE
+      WHEN le.wallet_id = t.from_wallet_id THEN t.to_wallet_id
+      ELSE t.from_wallet_id
+    END AS counterparty_wallet_id
+  FROM ledger_entries le
+  JOIN transfers t ON t.id = le.transfer_id
+  WHERE le.wallet_id = $1
+    AND le.created_at >= $2::timestamptz - interval '30 days'
+    AND le.created_at <= $2::timestamptz
+)
+SELECT
+  COALESCE((SELECT count(*) FROM recent), 0)::int AS transactions_last_hour,
+  COALESCE((SELECT sum(amount) FROM recent), 0)::bigint AS amount_last_hour_cents,
+  COALESCE((SELECT avg(amount)::bigint FROM thirty_day), 0)::bigint AS average_amount_30d_cents,
+  COALESCE((SELECT count(DISTINCT counterparty_wallet_id) FROM thirty_day), 0)::int AS distinct_recipients_30d
+`
+
+type GetFraudVelocityMetricsParams struct {
+	FraudWalletID pgtype.UUID
+	AsOf          pgtype.Timestamptz
+}
+
+type GetFraudVelocityMetricsRow struct {
+	TransactionsLastHour  int32
+	AmountLastHourCents   int64
+	AverageAmount30dCents int64
+	DistinctRecipients30d int32
+}
+
+func (q *Queries) GetFraudVelocityMetrics(ctx context.Context, arg GetFraudVelocityMetricsParams) (GetFraudVelocityMetricsRow, error) {
+	row := q.db.QueryRow(ctx, getFraudVelocityMetrics, arg.FraudWalletID, arg.AsOf)
+	var i GetFraudVelocityMetricsRow
+	err := row.Scan(
+		&i.TransactionsLastHour,
+		&i.AmountLastHourCents,
+		&i.AverageAmount30dCents,
+		&i.DistinctRecipients30d,
+	)
+	return i, err
+}
+
+const listFraudTransactionHistory = `-- name: ListFraudTransactionHistory :many
+SELECT le.direction, le.amount, w.currency, le.created_at
+FROM ledger_entries le
+JOIN wallets w ON w.id = le.wallet_id
+WHERE le.wallet_id = $1
+ORDER BY le.created_at DESC, le.id DESC
+LIMIT $2
+`
+
+type ListFraudTransactionHistoryParams struct {
+	WalletID pgtype.UUID
+	Limit    int32
+}
+
+type ListFraudTransactionHistoryRow struct {
+	Direction string
+	Amount    int64
+	Currency  string
+	CreatedAt pgtype.Timestamptz
+}
+
+func (q *Queries) ListFraudTransactionHistory(ctx context.Context, arg ListFraudTransactionHistoryParams) ([]ListFraudTransactionHistoryRow, error) {
+	rows, err := q.db.Query(ctx, listFraudTransactionHistory, arg.WalletID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListFraudTransactionHistoryRow
+	for rows.Next() {
+		var i ListFraudTransactionHistoryRow
+		if err := rows.Scan(
+			&i.Direction,
+			&i.Amount,
+			&i.Currency,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLedgerEntries = `-- name: ListLedgerEntries :many
 SELECT id, wallet_id, transfer_id, direction, amount, balance_after, created_at
 FROM ledger_entries

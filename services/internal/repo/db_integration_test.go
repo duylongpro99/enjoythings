@@ -763,6 +763,54 @@ func TestRepositoryLedgerFiltersByWalletID(t *testing.T) {
 	}
 }
 
+func TestRepositoryFraudEnrichmentUsesInjectedAsOfBoundaries(t *testing.T) {
+	ctx := context.Background()
+	db := newIntegrationDB(t, ctx)
+	asOf := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
+	from := createWalletFixture(t, ctx, db, uuid.New(), 10_000)
+	to1 := createWalletFixture(t, ctx, db, uuid.New(), 0)
+	to2 := createWalletFixture(t, ctx, db, uuid.New(), 0)
+
+	insertFraudEntryFixture(t, ctx, db, from.ID, to1.ID, 100, asOf.Add(-time.Hour))
+	insertFraudEntryFixture(t, ctx, db, from.ID, to1.ID, 200, asOf.Add(-time.Hour-time.Millisecond))
+	insertFraudEntryFixture(t, ctx, db, from.ID, to2.ID, 300, asOf.Add(-30*24*time.Hour))
+	insertFraudEntryFixture(t, ctx, db, from.ID, to2.ID, 400, asOf.Add(-30*24*time.Hour-time.Millisecond))
+	insertFraudEntryFixture(t, ctx, db, from.ID, to2.ID, 500, asOf.Add(time.Millisecond))
+
+	history, err := db.GetFraudTransactionHistory(ctx, from.ID, 3, "trace-1")
+	if err != nil {
+		t.Fatalf("GetFraudTransactionHistory: %v", err)
+	}
+	if len(history) != 3 || history[0].AmountCents != 500 || history[1].AmountCents != 100 || history[2].AmountCents != 200 {
+		t.Fatalf("newest-first history = %+v", history)
+	}
+
+	metrics, err := db.GetFraudVelocityMetrics(ctx, from.ID, asOf, "trace-1")
+	if err != nil {
+		t.Fatalf("GetFraudVelocityMetrics: %v", err)
+	}
+	if metrics.TransactionsLastHour != 1 || metrics.AmountLastHourCents != 100 {
+		t.Fatalf("one-hour metrics = %+v, want boundary-inclusive count=1 amount=100", metrics)
+	}
+	if metrics.AverageAmount30dCents != 200 || metrics.DistinctRecipients30d != 2 {
+		t.Fatalf("30-day metrics = %+v, want average=200 distinct=2", metrics)
+	}
+}
+
+func TestRepositoryFraudVelocityReturnsZerosWithoutHistory(t *testing.T) {
+	ctx := context.Background()
+	db := newIntegrationDB(t, ctx)
+	wallet := createWalletFixture(t, ctx, db, uuid.New(), 0)
+
+	metrics, err := db.GetFraudVelocityMetrics(ctx, wallet.ID, time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC), "trace-1")
+	if err != nil {
+		t.Fatalf("GetFraudVelocityMetrics: %v", err)
+	}
+	if metrics != (domain.FraudVelocityMetrics{}) {
+		t.Fatalf("metrics = %+v, want zero values", metrics)
+	}
+}
+
 func TestRepositoryConcurrentTransfersNeverMakeSourceNegative(t *testing.T) {
 	ctx := context.Background()
 	db := newIntegrationDB(t, ctx)
@@ -802,6 +850,23 @@ func TestRepositoryConcurrentTransfersNeverMakeSourceNegative(t *testing.T) {
 	}
 	if fromAfter.Balance != 40 {
 		t.Fatalf("source balance = %d, want 40", fromAfter.Balance)
+	}
+}
+
+func insertFraudEntryFixture(t *testing.T, ctx context.Context, db *Database, fromWalletID, toWalletID uuid.UUID, amount int64, createdAt time.Time) {
+	t.Helper()
+	transferID := uuid.New()
+	if _, err := db.pool.Exec(ctx, `
+INSERT INTO transfers (id, from_wallet_id, to_wallet_id, amount, status, created_at)
+VALUES ($1, $2, $3, $4, 'COMPLETED', $5)
+`, transferID, fromWalletID, toWalletID, amount, createdAt); err != nil {
+		t.Fatalf("insert fraud transfer fixture: %v", err)
+	}
+	if _, err := db.pool.Exec(ctx, `
+INSERT INTO ledger_entries (wallet_id, transfer_id, direction, amount, balance_after, created_at)
+VALUES ($1, $2, 'debit', $3, 0, $4)
+`, fromWalletID, transferID, amount, createdAt); err != nil {
+		t.Fatalf("insert fraud ledger fixture: %v", err)
 	}
 }
 

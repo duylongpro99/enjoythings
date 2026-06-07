@@ -125,8 +125,8 @@ func (app *ledgerApp) GetFraudTransactionHistory(ctx context.Context, walletID u
 	return app.store.GetFraudTransactionHistory(ctx, walletID, limit, traceID)
 }
 
-func (app *ledgerApp) GetFraudVelocityMetrics(ctx context.Context, walletID uuid.UUID, traceID string) (domain.FraudVelocityMetrics, error) {
-	return app.store.GetFraudVelocityMetrics(ctx, walletID, traceID)
+func (app *ledgerApp) GetFraudVelocityMetrics(ctx context.Context, walletID uuid.UUID, asOf time.Time, traceID string) (domain.FraudVelocityMetrics, error) {
+	return app.store.GetFraudVelocityMetrics(ctx, walletID, asOf, traceID)
 }
 
 func (app *ledgerApp) ReserveTransfer(ctx context.Context, cmd domain.LedgerReserveCommand) (domain.LedgerReservation, error) {
