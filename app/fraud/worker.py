@@ -80,6 +80,7 @@ class FraudWorker:
 class InMemoryFraudSessionStore:
     def __init__(self) -> None:
         self._sessions: dict[str, FraudSession] = {}
+        self._events: dict[str, list[dict[str, object]]] = {}
 
     async def claim_session(self, request: FraudScoreRequest) -> FraudSession:
         existing = self._sessions.get(request.event_id)
@@ -92,6 +93,9 @@ class InMemoryFraudSessionStore:
         )
         self._sessions[request.event_id] = session
         return session
+
+    async def append_event(self, session_id: str, event: dict[str, object]) -> None:
+        self._events.setdefault(session_id, []).append(dict(event))
 
     async def complete_session(
         self, session: FraudSession, outcome: FraudOutcome
