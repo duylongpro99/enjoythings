@@ -69,8 +69,9 @@ class FraudWorker:
             elif outcome.reason_code is not None:
                 try:
                     await self._publisher.publish_error(request, outcome.reason_code)
-                finally:
-                    await self._store.mark_published(session)
+                except Exception:
+                    pass
+                await self._store.mark_published(session)
         except Exception:
             return ConsumerDecision.RETRY
         return ConsumerDecision.COMMIT

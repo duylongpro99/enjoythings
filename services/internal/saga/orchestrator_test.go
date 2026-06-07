@@ -239,6 +239,29 @@ func TestStartPaymentSagaPublishesFraudScoreRequestWithPaymentExecute(t *testing
 	}
 }
 
+func TestStartPaymentSagaAtomicallyPersistsProcessingStateAndOutboxWhenSupported(t *testing.T) {
+	ctx := context.Background()
+	store := &atomicMemoryStore{memoryStore: newMemoryStore()}
+	outbox := &fakeOutbox{}
+	req := startRequest()
+	orchestrator := NewOrchestrator(store, &fakeVerification{status: VerificationVerified}, &fakeWallet{}, &fakeLedger{}, fixedClock{})
+	orchestrator.SetOutbox(outbox)
+
+	got, err := orchestrator.StartPaymentSaga(ctx, req)
+	if err != nil {
+		t.Fatalf("StartPaymentSaga: %v", err)
+	}
+	if got.State != StatePaymentProcessing {
+		t.Fatalf("state = %s, want %s", got.State, StatePaymentProcessing)
+	}
+	if len(store.events) != 2 || store.events[0].Topic != TopicPaymentExecute || store.events[1].Topic != event.FraudScoreRequestedTopic {
+		t.Fatalf("atomic outbox events = %+v, want payment.execute and fraud.score.requested", store.events)
+	}
+	if len(outbox.events) != 0 {
+		t.Fatalf("fallback outbox events = %+v, want none", outbox.events)
+	}
+}
+
 func TestFraudFlaggedMovesOnlyPaymentProcessingSagaToReviewAndPublishesPauseOnce(t *testing.T) {
 	ctx := context.Background()
 	store := newMemoryStore()

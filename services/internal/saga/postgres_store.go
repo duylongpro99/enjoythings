@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type pgDB interface {
@@ -15,15 +16,15 @@ type pgDB interface {
 }
 
 type PostgresStore struct {
-	db pgDB
+	pool *pgxpool.Pool
 }
 
-func NewPostgresStore(db pgDB) *PostgresStore {
-	return &PostgresStore{db: db}
+func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
+	return &PostgresStore{pool: pool}
 }
 
 func (store *PostgresStore) Create(ctx context.Context, saga Saga) (Saga, error) {
-	row := store.db.QueryRow(ctx, `
+	row := store.pool.QueryRow(ctx, `
 INSERT INTO sagas (
   payment_id, idempotency_key, user_id, from_wallet_id, to_wallet_id,
   amount_cents, currency, state, last_error, trace_id,
@@ -80,7 +81,7 @@ RETURNING id::text, payment_id, idempotency_key, user_id, from_wallet_id, to_wal
 }
 
 func (store *PostgresStore) GetByPaymentID(ctx context.Context, paymentID string) (Saga, error) {
-	return scanSaga(store.db.QueryRow(ctx, `
+	return scanSaga(store.pool.QueryRow(ctx, `
 SELECT id::text, payment_id, idempotency_key, user_id, from_wallet_id, to_wallet_id,
   amount_cents, currency, state, last_error, trace_id, wallet_debit_id,
   ledger_reservation_id, transfer_id, failure_code, fraud_session_id, fraud_action,
@@ -90,7 +91,7 @@ WHERE payment_id = $1`, paymentID))
 }
 
 func (store *PostgresStore) ListNonTerminal(ctx context.Context) ([]Saga, error) {
-	rows, err := store.db.Query(ctx, `
+	rows, err := store.pool.Query(ctx, `
 SELECT id::text, payment_id, idempotency_key, user_id, from_wallet_id, to_wallet_id,
   amount_cents, currency, state, last_error, trace_id, wallet_debit_id,
   ledger_reservation_id, transfer_id, failure_code, fraud_session_id, fraud_action,
@@ -118,7 +119,35 @@ ORDER BY updated_at, id`)
 }
 
 func (store *PostgresStore) Update(ctx context.Context, saga Saga) (Saga, error) {
-	return scanSaga(store.db.QueryRow(ctx, `
+	return updateSaga(ctx, store.pool, saga)
+}
+
+func (store *PostgresStore) UpdateWithOutbox(ctx context.Context, saga Saga, events []OutboxRecord) (Saga, error) {
+	tx, err := store.pool.Begin(ctx)
+	if err != nil {
+		return Saga{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	for _, record := range events {
+		if _, err := tx.Exec(ctx, `
+INSERT INTO outbox_events (topic, partition_key, payload)
+VALUES ($1, $2, $3)`, record.Topic, record.PartitionKey, record.Payload); err != nil {
+			return Saga{}, err
+		}
+	}
+	updated, err := updateSaga(ctx, tx, saga)
+	if err != nil {
+		return Saga{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Saga{}, err
+	}
+	return updated, nil
+}
+
+func updateSaga(ctx context.Context, db pgDB, saga Saga) (Saga, error) {
+	return scanSaga(db.QueryRow(ctx, `
 UPDATE sagas
 SET state = $2,
   last_error = $3,
@@ -167,7 +196,7 @@ func (store *PostgresStore) findDuplicate(ctx context.Context, saga Saga) (Saga,
 			return Saga{}, err
 		}
 	}
-	return scanSaga(store.db.QueryRow(ctx, `
+	return scanSaga(store.pool.QueryRow(ctx, `
 SELECT id::text, payment_id, idempotency_key, user_id, from_wallet_id, to_wallet_id,
   amount_cents, currency, state, last_error, trace_id, wallet_debit_id,
   ledger_reservation_id, transfer_id, failure_code, fraud_session_id, fraud_action,

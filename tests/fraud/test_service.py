@@ -63,7 +63,7 @@ def test_service_fails_open_after_guard_rejection_without_model_call() -> None:
     outcome = asyncio.run(FraudScoringService(FakeData(), completion, config).score(request()))
 
     assert outcome.action is None
-    assert outcome.reason_code == "prompt_too_large"
+    assert outcome.reason_code == "prompt_rejected"
     assert completion.calls == 0
 
 
@@ -75,6 +75,30 @@ def test_service_fails_open_when_enrichment_fails() -> None:
 
     assert outcome.action is None
     assert outcome.reason_code == "enrichment_failed"
+
+
+def test_service_fails_open_with_bounded_validation_reason_after_second_rejection() -> None:
+    completion = FakeCompletion(["{", "{"])
+
+    outcome = asyncio.run(
+        FraudScoringService(FakeData(), completion, FraudConfig()).score(request())
+    )
+
+    assert outcome.action is None
+    assert outcome.reason_code == "validation_failed"
+    assert completion.calls == 2
+
+
+def test_service_fails_open_with_bounded_model_reason_on_provider_error() -> None:
+    completion = FakeCompletion([], error=RuntimeError("provider secret failure"))
+
+    outcome = asyncio.run(
+        FraudScoringService(FakeData(), completion, FraudConfig()).score(request())
+    )
+
+    assert outcome.action is None
+    assert outcome.reason_code == "model_failed"
+    assert completion.calls == 1
 
 
 class FakeData:
@@ -105,12 +129,15 @@ class FakeData:
 
 
 class FakeCompletion:
-    def __init__(self, responses: list[str]) -> None:
+    def __init__(self, responses: list[str], error: Exception | None = None) -> None:
         self.responses = responses
+        self.error = error
         self.calls = 0
         self.prompts: list[str] = []
 
     async def complete(self, messages) -> str:
         self.calls += 1
         self.prompts.append("\n".join(message.content for message in messages))
+        if self.error is not None:
+            raise self.error
         return self.responses.pop(0)
