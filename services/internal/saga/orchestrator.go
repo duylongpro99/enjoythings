@@ -36,6 +36,16 @@ type Outbox interface {
 	Enqueue(context.Context, string, string, []byte) error
 }
 
+type OutboxRecord struct {
+	Topic        string
+	PartitionKey string
+	Payload      []byte
+}
+
+type atomicOutboxStore interface {
+	UpdateWithOutbox(context.Context, Saga, []OutboxRecord) (Saga, error)
+}
+
 type Clock interface {
 	Now() time.Time
 }
@@ -288,9 +298,6 @@ func (orchestrator *Orchestrator) advance(ctx context.Context, current Saga) (Sa
 		if err != nil {
 			return Saga{}, err
 		}
-		if err := orchestrator.outbox.Enqueue(ctx, TopicPaymentExecute, current.PaymentID, paymentPayload); err != nil {
-			return Saga{}, err
-		}
 		fraudPayload, err := json.Marshal(event.FraudScoreRequested{
 			SchemaVersion: 1,
 			EventID:       event.FraudScoreRequestedEventID(current.PaymentID),
@@ -306,18 +313,30 @@ func (orchestrator *Orchestrator) advance(ctx context.Context, current Saga) (Sa
 		if err != nil {
 			return Saga{}, err
 		}
-		if err := orchestrator.outbox.Enqueue(ctx, event.FraudScoreRequestedTopic, current.PaymentID, fraudPayload); err != nil {
-			return Saga{}, err
-		}
 		current.State = StatePaymentProcessing
 		current.UpdatedAt = now
-		updated, err := orchestrator.store.Update(ctx, current)
+		updated, err := orchestrator.updateWithOutbox(ctx, current, []OutboxRecord{
+			{Topic: TopicPaymentExecute, PartitionKey: current.PaymentID, Payload: paymentPayload},
+			{Topic: event.FraudScoreRequestedTopic, PartitionKey: current.PaymentID, Payload: fraudPayload},
+		})
 		if err != nil {
 			return Saga{}, err
 		}
 		current = updated
 	}
 	return current, nil
+}
+
+func (orchestrator *Orchestrator) updateWithOutbox(ctx context.Context, current Saga, events []OutboxRecord) (Saga, error) {
+	if store, ok := orchestrator.store.(atomicOutboxStore); ok {
+		return store.UpdateWithOutbox(ctx, current, events)
+	}
+	for _, record := range events {
+		if err := orchestrator.outbox.Enqueue(ctx, record.Topic, record.PartitionKey, record.Payload); err != nil {
+			return Saga{}, err
+		}
+	}
+	return orchestrator.store.Update(ctx, current)
 }
 
 func (orchestrator *Orchestrator) HandleFraudFlagged(ctx context.Context, flagged event.FraudFlagged) error {

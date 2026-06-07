@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"enjoythings/services/internal/outbox"
 	"enjoythings/services/internal/saga"
 
 	"github.com/google/uuid"
@@ -48,6 +49,58 @@ func TestSagaStoreCreatesReadsAndUpdatesSaga(t *testing.T) {
 	}
 	if got.State != saga.StatePaymentProcessing || got.WalletDebitID != "wallet-debit-1" || got.LedgerReservationID != "ledger-reservation-1" {
 		t.Fatalf("got saga = %+v, want updated %+v", got, updated)
+	}
+}
+
+func TestSagaStoreAtomicallyUpdatesStateAndCreatesOutboxEvents(t *testing.T) {
+	ctx := context.Background()
+	db := newIntegrationDB(t, ctx)
+	store := db.SagaStore()
+	created, err := store.Create(ctx, sagaFixture(saga.StateLedgerReserved))
+	if err != nil {
+		t.Fatalf("Create saga: %v", err)
+	}
+	created.State = saga.StatePaymentProcessing
+
+	updated, err := store.UpdateWithOutbox(ctx, created, []saga.OutboxRecord{
+		{Topic: saga.TopicPaymentExecute, PartitionKey: created.PaymentID, Payload: []byte(`{"kind":"payment"}`)},
+		{Topic: "fraud.score.requested", PartitionKey: created.PaymentID, Payload: []byte(`{"kind":"fraud"}`)},
+	})
+	if err != nil {
+		t.Fatalf("UpdateWithOutbox: %v", err)
+	}
+	if updated.State != saga.StatePaymentProcessing {
+		t.Fatalf("state = %s, want %s", updated.State, saga.StatePaymentProcessing)
+	}
+	events, err := outbox.NewRepository(db.pool).ClaimUnpublished(ctx, 10)
+	if err != nil {
+		t.Fatalf("ClaimUnpublished: %v", err)
+	}
+	if len(events) != 2 || events[0].Topic != saga.TopicPaymentExecute || events[1].Topic != "fraud.score.requested" {
+		t.Fatalf("events = %+v, want payment and fraud events", events)
+	}
+}
+
+func TestSagaStoreRollsBackOutboxWhenAtomicStateUpdateFails(t *testing.T) {
+	ctx := context.Background()
+	db := newIntegrationDB(t, ctx)
+	store := db.SagaStore()
+
+	_, err := store.UpdateWithOutbox(ctx, saga.Saga{
+		PaymentID: uuid.NewString(),
+		State:     saga.StatePaymentProcessing,
+	}, []saga.OutboxRecord{
+		{Topic: saga.TopicPaymentExecute, PartitionKey: "missing-payment", Payload: []byte(`{}`)},
+	})
+	if !errors.Is(err, saga.ErrNotFound) {
+		t.Fatalf("UpdateWithOutbox error = %v, want %v", err, saga.ErrNotFound)
+	}
+	events, err := outbox.NewRepository(db.pool).ClaimUnpublished(ctx, 10)
+	if err != nil {
+		t.Fatalf("ClaimUnpublished: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("events = %+v, want transaction rollback", events)
 	}
 }
 

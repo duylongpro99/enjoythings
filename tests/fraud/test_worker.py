@@ -200,6 +200,23 @@ def test_flagged_publication_failure_attempts_publish_failed_error_and_retries()
     assert session.output_published is False
 
 
+def test_fail_open_error_publication_failure_commits_after_durable_audit() -> None:
+    store = InMemoryFraudSessionStore()
+    publisher = FakePublisher(fail_error=True)
+    worker = FraudWorker(
+        service=FakeService(FraudOutcome(action=None, reason_code="model_failed")),
+        publisher=publisher,
+        store=store,
+    )
+
+    decision = asyncio.run(worker.handle_payload(valid_payload()))
+
+    assert decision == ConsumerDecision.COMMIT
+    session = asyncio.run(store.claim_session(classify_transport_payload(valid_payload()).request))
+    assert session.completed is True
+    assert session.output_published is True
+
+
 class FakeService:
     def __init__(self, outcome: FraudOutcome) -> None:
         self.outcome = outcome
@@ -211,10 +228,11 @@ class FakeService:
 
 
 class FakePublisher:
-    def __init__(self, fail_flagged: bool = False) -> None:
+    def __init__(self, fail_flagged: bool = False, fail_error: bool = False) -> None:
         self.flagged: list[str] = []
         self.errors: list[tuple[str, str]] = []
         self.fail_flagged = fail_flagged
+        self.fail_error = fail_error
 
     async def publish_flagged(self, request, outcome) -> None:
         if self.fail_flagged:
@@ -222,6 +240,8 @@ class FakePublisher:
         self.flagged.append(request.payment_id)
 
     async def publish_error(self, request, reason_code: str) -> None:
+        if self.fail_error:
+            raise RuntimeError("kafka unavailable")
         self.errors.append((request.payment_id, reason_code))
 
 

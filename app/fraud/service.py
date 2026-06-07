@@ -38,9 +38,12 @@ class FraudScoringService:
             sensitive_keys=self._config.sensitive_keys,
         )
         if rejection is not None:
-            return FraudOutcome(action=None, reason_code=rejection)
+            return FraudOutcome(action=None, reason_code="prompt_rejected")
 
-        first = await self._complete_and_validate(prompt)
+        try:
+            first = await self._complete_and_validate(prompt)
+        except Exception:
+            return FraudOutcome(action=None, reason_code="model_failed")
         if first.verdict is not None:
             return FraudOutcome(action=first.verdict.action, verdict=first.verdict)
 
@@ -54,11 +57,14 @@ class FraudScoringService:
             sensitive_keys=self._config.sensitive_keys,
         )
         if rejection is not None:
-            return FraudOutcome(action=None, reason_code=rejection)
-        second = await self._complete_and_validate(retry_prompt)
+            return FraudOutcome(action=None, reason_code="prompt_rejected")
+        try:
+            second = await self._complete_and_validate(retry_prompt)
+        except Exception:
+            return FraudOutcome(action=None, reason_code="model_failed")
         if second.verdict is not None:
             return FraudOutcome(action=second.verdict.action, verdict=second.verdict)
-        return FraudOutcome(action=None, reason_code=second.rejection_reason)
+        return FraudOutcome(action=None, reason_code="validation_failed")
 
     async def _enrich(self, request: FraudScoreRequest) -> SanitizedTransactionFacts:
         history, velocity, kyc = await asyncio.gather(

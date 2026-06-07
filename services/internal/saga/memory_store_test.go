@@ -12,6 +12,11 @@ type memoryStore struct {
 	createCalls int
 }
 
+type atomicMemoryStore struct {
+	*memoryStore
+	events []OutboxRecord
+}
+
 func newMemoryStore() *memoryStore {
 	return &memoryStore{
 		byPaymentID: make(map[string]Saga),
@@ -67,4 +72,13 @@ func (store *memoryStore) Update(_ context.Context, saga Saga) (Saga, error) {
 	}
 	store.byPaymentID[saga.PaymentID] = saga
 	return saga, nil
+}
+
+func (store *atomicMemoryStore) UpdateWithOutbox(ctx context.Context, saga Saga, events []OutboxRecord) (Saga, error) {
+	updated, err := store.Update(ctx, saga)
+	if err != nil {
+		return Saga{}, err
+	}
+	store.events = append(store.events, events...)
+	return updated, nil
 }
