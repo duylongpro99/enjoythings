@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"enjoythings/services/internal/event"
 	"enjoythings/services/internal/saga"
@@ -23,6 +24,11 @@ func TestConsumerHandlesFraudFlagged(t *testing.T) {
 		SessionID:     "session-1",
 		Action:        event.FraudActionFlag,
 		RiskScore:     0.8,
+		Reason:        "velocity",
+		ProviderID:    "provider-1",
+		ModelID:       "model-1",
+		OccurredAt:    time.Now().UTC(),
+		TraceID:       "trace-1",
 	})
 
 	err := consumer.HandleRecord(context.Background(), &kgo.Record{

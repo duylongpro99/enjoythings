@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any
 from uuid import uuid4
@@ -127,24 +127,34 @@ def classify_transport_payload(payload: bytes) -> TransportResult:
         return TransportResult(TransportClassification.NON_RETRYABLE)
     if not isinstance(raw, dict) or raw.get("schema_version") != 1:
         return TransportResult(TransportClassification.NON_RETRYABLE)
-    required = (
+    required_strings = (
         "event_id",
         "payment_id",
         "user_id",
         "from_wallet_id",
         "to_wallet_id",
-        "amount_cents",
         "currency",
         "occurred_at",
+        "trace_id",
     )
-    if any(not raw.get(field) for field in required):
+    if any(
+        not isinstance(raw.get(field), str) or not raw[field]
+        for field in required_strings
+    ):
+        return TransportResult(TransportClassification.NON_RETRYABLE)
+    if (
+        not isinstance(raw.get("amount_cents"), int)
+        or isinstance(raw["amount_cents"], bool)
+        or raw["amount_cents"] <= 0
+    ):
         return TransportResult(TransportClassification.NON_RETRYABLE)
     try:
-        amount = int(raw["amount_cents"])
         occurred_at = _parse_time(raw["occurred_at"])
     except (TypeError, ValueError):
         return TransportResult(TransportClassification.NON_RETRYABLE)
-    if amount <= 0:
+    if raw["event_id"] != f"fraud.score.requested:{raw['payment_id']}":
+        return TransportResult(TransportClassification.NON_RETRYABLE)
+    if occurred_at.utcoffset() != timedelta(0):
         return TransportResult(TransportClassification.NON_RETRYABLE)
     return TransportResult(
         classification=TransportClassification.VALID,
@@ -155,10 +165,10 @@ def classify_transport_payload(payload: bytes) -> TransportResult:
             user_id=str(raw["user_id"]),
             from_wallet_id=str(raw["from_wallet_id"]),
             to_wallet_id=str(raw["to_wallet_id"]),
-            amount_cents=amount,
+            amount_cents=raw["amount_cents"],
             currency=str(raw["currency"]),
             occurred_at=occurred_at,
-            trace_id=str(raw.get("trace_id", "")),
+            trace_id=str(raw["trace_id"]),
         ),
     )
 

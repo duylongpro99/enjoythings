@@ -3,6 +3,7 @@ package ledgergrpc
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 func TestGetEntriesMapsValidQuery(t *testing.T) {
@@ -193,6 +195,46 @@ func TestGetFraudVelocityMetricsReturnsAggregates(t *testing.T) {
 	}
 	if resp.GetTransactionsLastHour() != 3 || resp.GetAmountLastHourCents() != 4000 || resp.GetAverageAmount_30DCents() != 900 || resp.GetDistinctRecipients_30D() != 2 {
 		t.Fatalf("velocity response = %+v", resp)
+	}
+}
+
+func TestFraudEnrichmentResponseSchemasContainOnlySanitizedFields(t *testing.T) {
+	tests := []struct {
+		name   string
+		fields protoreflect.FieldDescriptors
+		want   []string
+	}{
+		{
+			name:   "history response",
+			fields: (&ledgerv1.GetFraudTransactionHistoryResponse{}).ProtoReflect().Descriptor().Fields(),
+			want:   []string{"entries"},
+		},
+		{
+			name:   "history entry",
+			fields: (&ledgerv1.FraudTransactionHistoryEntry{}).ProtoReflect().Descriptor().Fields(),
+			want:   []string{"direction", "amount_cents", "currency", "occurred_at"},
+		},
+		{
+			name:   "velocity response",
+			fields: (&ledgerv1.GetFraudVelocityMetricsResponse{}).ProtoReflect().Descriptor().Fields(),
+			want: []string{
+				"transactions_last_hour",
+				"amount_last_hour_cents",
+				"average_amount_30d_cents",
+				"distinct_recipients_30d",
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := make([]string, 0, test.fields.Len())
+			for index := 0; index < test.fields.Len(); index++ {
+				got = append(got, string(test.fields.Get(index).Name()))
+			}
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("fields = %v, want %v", got, test.want)
+			}
+		})
 	}
 }
 
