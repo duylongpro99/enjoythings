@@ -6,6 +6,7 @@ from app.fraud.dto import FraudOutcome, FraudVerdict
 from app.fraud.worker import (
     ConsumerDecision,
     FraudWorker,
+    FraudWorkerTelemetry,
     InMemoryFraudSessionStore,
     SessionClaimError,
     TransportClassification,
@@ -38,6 +39,18 @@ def test_transport_classification_rejects_malformed_records_as_non_retryable() -
         ).classification
         == TransportClassification.NON_RETRYABLE
     )
+
+
+def test_malformed_record_is_committed_with_sanitized_telemetry() -> None:
+    telemetry = FraudWorkerTelemetry()
+    worker = FraudWorker(
+        service=FakeService(FraudOutcome(action="allow")),
+        publisher=FakePublisher(),
+        telemetry=telemetry,
+    )
+
+    assert asyncio.run(worker.handle_payload(b"private raw malformed payload")) == ConsumerDecision.COMMIT
+    assert telemetry.malformed_records == 1
 
 
 def test_transport_classification_rejects_missing_fields_unstable_ids_and_non_utc_time() -> None:
@@ -211,6 +224,22 @@ def test_audit_failure_publishes_error_and_leaves_request_retryable() -> None:
     assert publisher.flagged == []
 
 
+def test_graph_reported_audit_failure_is_not_completed_or_committed() -> None:
+    store = TrackingStore()
+    publisher = FakePublisher()
+    worker = FraudWorker(
+        service=FakeService(FraudOutcome(action=None, reason_code="audit_failed")),
+        publisher=publisher,
+        store=store,
+    )
+
+    decision = asyncio.run(worker.handle_payload(valid_payload()))
+
+    assert decision == ConsumerDecision.RETRY
+    assert publisher.errors == [("payment-1", "audit_failed")]
+    assert store.completions == 0
+
+
 def test_flagged_publication_failure_attempts_publish_failed_error_and_retries() -> None:
     store = InMemoryFraudSessionStore()
     publisher = FakePublisher(fail_flagged=True)
@@ -238,6 +267,23 @@ def test_flagged_publication_failure_attempts_publish_failed_error_and_retries()
     session = asyncio.run(store.claim_session(classify_transport_payload(valid_payload()).request))
     assert session.completed is True
     assert session.output_published is False
+
+
+def test_publish_failed_error_failure_is_recorded_with_sanitized_telemetry() -> None:
+    telemetry = FraudWorkerTelemetry()
+    worker = FraudWorker(
+        service=FakeService(
+            FraudOutcome(
+                action="block",
+                verdict=FraudVerdict(0.95, "block", "velocity", "block", False),
+            )
+        ),
+        publisher=FakePublisher(fail_flagged=True, fail_error=True),
+        telemetry=telemetry,
+    )
+
+    assert asyncio.run(worker.handle_payload(valid_payload())) == ConsumerDecision.RETRY
+    assert telemetry.error_publish_failures == 1
 
 
 def test_fail_open_error_publication_failure_commits_after_durable_audit() -> None:
@@ -274,12 +320,12 @@ class FakePublisher:
         self.fail_flagged = fail_flagged
         self.fail_error = fail_error
 
-    async def publish_flagged(self, request, outcome) -> None:
+    async def publish_flagged(self, request, outcome, session_id="") -> None:
         if self.fail_flagged:
             raise RuntimeError("kafka unavailable")
         self.flagged.append(request.payment_id)
 
-    async def publish_error(self, request, reason_code: str) -> None:
+    async def publish_error(self, request, reason_code: str, session_id="") -> None:
         if self.fail_error:
             raise RuntimeError("kafka unavailable")
         self.errors.append((request.payment_id, reason_code))
@@ -288,3 +334,13 @@ class FakePublisher:
 class FailingCompleteStore(InMemoryFraudSessionStore):
     async def complete_session(self, session, outcome):
         raise SessionClaimError("audit unavailable")
+
+
+class TrackingStore(InMemoryFraudSessionStore):
+    def __init__(self) -> None:
+        super().__init__()
+        self.completions = 0
+
+    async def complete_session(self, session, outcome):
+        self.completions += 1
+        return await super().complete_session(session, outcome)

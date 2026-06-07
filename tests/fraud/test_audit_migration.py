@@ -11,5 +11,15 @@ def test_fraud_audit_migration_uses_dedicated_schema_without_raw_user_or_wallet_
     assert "user_id" not in sql
     assert "wallet_id" not in sql
     assert "raw_llm_response" in sql
+    assert "provider_id" in sql
+    assert "model_id" in sql
+    assert "sanitized_facts_json" in sql
+    assert "enrichment_json" in sql
+    assert "parsed_verdict_json" in sql
+    assert "events_json" in sql
+    assert "failure_reason" in sql
+    assert "started_at" in sql
+    assert "completed_at" in sql
     assert "lease_expires_at" in sql
+    assert "output_event_type" in sql
     assert "output_published" in sql

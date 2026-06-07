@@ -1,4 +1,6 @@
+import asyncio
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -29,52 +31,115 @@ class SessionClaimError(RuntimeError):
     pass
 
 
+class FraudWorkerTelemetry:
+    def __init__(self) -> None:
+        self.malformed_records = 0
+        self.error_publish_failures = 0
+        self._logger = logging.getLogger("app.fraud.worker")
+
+    def malformed_record(self) -> None:
+        self.malformed_records += 1
+        self._logger.warning("fraud worker committed malformed transport event")
+
+    def error_publish_failed(self, request: FraudScoreRequest, reason_code: str) -> None:
+        self.error_publish_failures += 1
+        self._logger.warning(
+            "fraud error publication failed",
+            extra={"source_event_id": request.event_id, "reason_code": reason_code},
+        )
+
+
 class FraudWorker:
     def __init__(
         self,
         service,
         publisher,
         store: FraudSessionStore | None = None,
+        lease_renew_interval_seconds: float = 20.0,
+        telemetry: FraudWorkerTelemetry | None = None,
     ) -> None:
         self._service = service
         self._publisher = publisher
         self._store = store or InMemoryFraudSessionStore()
+        self._lease_renew_interval_seconds = lease_renew_interval_seconds
+        self._telemetry = telemetry or FraudWorkerTelemetry()
 
     async def handle_payload(self, payload: bytes) -> ConsumerDecision:
         parsed = classify_transport_payload(payload)
         if parsed.classification != TransportClassification.VALID or parsed.request is None:
+            self._telemetry.malformed_record()
             return ConsumerDecision.COMMIT
         request = parsed.request
+        session: FraudSession | None = None
+        heartbeat: asyncio.Task[None] | None = None
         try:
             session = await self._store.claim_session(request)
             outcome = session.outcome
             if not session.completed or outcome is None:
+                heartbeat = asyncio.create_task(self._renew_lease(session))
                 outcome = await self._service.score(request)
+                await _cancel(heartbeat)
+                heartbeat = None
+                if outcome.reason_code == "audit_failed":
+                    try:
+                        await self._publisher.publish_error(
+                            request, "audit_failed", session.session_id
+                        )
+                    except Exception:
+                        self._telemetry.error_publish_failed(request, "audit_failed")
+                        pass
+                    return ConsumerDecision.RETRY
                 try:
                     session = await self._store.complete_session(session, outcome)
                 except Exception:
-                    await self._publisher.publish_error(request, "audit_failed")
+                    try:
+                        await self._publisher.publish_error(
+                            request, "audit_failed", session.session_id
+                        )
+                    except Exception:
+                        self._telemetry.error_publish_failed(request, "audit_failed")
                     return ConsumerDecision.RETRY
             if session.output_published:
                 return ConsumerDecision.COMMIT
             if outcome.action in ("flag", "block"):
                 try:
-                    await self._publisher.publish_flagged(request, outcome)
+                    await self._publisher.publish_flagged(
+                        request, outcome, session.session_id
+                    )
                 except Exception:
                     try:
-                        await self._publisher.publish_error(request, "publish_failed")
+                        await self._publisher.publish_error(
+                            request, "publish_failed", session.session_id
+                        )
+                    except Exception:
+                        self._telemetry.error_publish_failed(request, "publish_failed")
                     finally:
                         return ConsumerDecision.RETRY
                 await self._store.mark_published(session)
             elif outcome.reason_code is not None:
                 try:
-                    await self._publisher.publish_error(request, outcome.reason_code)
+                    await self._publisher.publish_error(
+                        request, outcome.reason_code, session.session_id
+                    )
                 except Exception:
+                    self._telemetry.error_publish_failed(request, outcome.reason_code)
                     pass
                 await self._store.mark_published(session)
         except Exception:
             return ConsumerDecision.RETRY
+        finally:
+            await _cancel(heartbeat)
+            if session is not None:
+                try:
+                    await self._store.release_lease(session)
+                except Exception:
+                    pass
         return ConsumerDecision.COMMIT
+
+    async def _renew_lease(self, session: FraudSession) -> None:
+        while True:
+            await asyncio.sleep(self._lease_renew_interval_seconds)
+            await self._store.renew_lease(session)
 
 
 class InMemoryFraudSessionStore:
@@ -106,6 +171,7 @@ class InMemoryFraudSessionStore:
             payment_id=session.payment_id,
             completed=True,
             outcome=outcome,
+            output_event_type=_output_event_type(outcome),
             output_published=session.output_published,
         )
         self._sessions[session.source_event_id] = completed
@@ -118,10 +184,17 @@ class InMemoryFraudSessionStore:
             payment_id=session.payment_id,
             completed=session.completed,
             outcome=session.outcome,
+            output_event_type=session.output_event_type,
             output_published=True,
         )
         self._sessions[session.source_event_id] = published
         return published
+
+    async def renew_lease(self, session: FraudSession) -> None:
+        return None
+
+    async def release_lease(self, session: FraudSession) -> None:
+        return None
 
 
 def classify_transport_payload(payload: bytes) -> TransportResult:
@@ -181,3 +254,21 @@ def _parse_time(value: Any) -> datetime:
     if not isinstance(value, str):
         raise ValueError("timestamp must be a string")
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+async def _cancel(task: asyncio.Task[None] | None) -> None:
+    if task is None:
+        return
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
+def _output_event_type(outcome: FraudOutcome) -> str:
+    if outcome.action in ("flag", "block"):
+        return "fraud.flagged"
+    if outcome.reason_code:
+        return "fraud.error"
+    return ""
