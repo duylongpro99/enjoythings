@@ -40,6 +40,46 @@ def test_transport_classification_rejects_malformed_records_as_non_retryable() -
     )
 
 
+def test_transport_classification_rejects_missing_fields_unstable_ids_and_non_utc_time() -> None:
+    missing_trace = json.loads(valid_payload())
+    del missing_trace["trace_id"]
+    assert (
+        classify_transport_payload(json.dumps(missing_trace).encode()).classification
+        == TransportClassification.NON_RETRYABLE
+    )
+
+    unstable_id = json.loads(valid_payload())
+    unstable_id["event_id"] = "wrong"
+    assert (
+        classify_transport_payload(json.dumps(unstable_id).encode()).classification
+        == TransportClassification.NON_RETRYABLE
+    )
+
+    non_utc = json.loads(valid_payload())
+    non_utc["occurred_at"] = "2026-06-06T01:00:00+01:00"
+    assert (
+        classify_transport_payload(json.dumps(non_utc).encode()).classification
+        == TransportClassification.NON_RETRYABLE
+    )
+
+
+def test_transport_classification_rejects_wrong_required_field_types() -> None:
+    wrong_amount = json.loads(valid_payload())
+    wrong_amount["amount_cents"] = "100"
+    assert (
+        classify_transport_payload(json.dumps(wrong_amount).encode()).classification
+        == TransportClassification.NON_RETRYABLE
+    )
+
+    wrong_identifier = json.loads(valid_payload())
+    wrong_identifier["payment_id"] = 1
+    wrong_identifier["event_id"] = "fraud.score.requested:1"
+    assert (
+        classify_transport_payload(json.dumps(wrong_identifier).encode()).classification
+        == TransportClassification.NON_RETRYABLE
+    )
+
+
 def test_worker_publishes_flagged_for_flag_outcome() -> None:
     publisher = FakePublisher()
     worker = FraudWorker(

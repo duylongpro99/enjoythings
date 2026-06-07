@@ -6,7 +6,7 @@ JWT_SECRET ?= local-dev-jwt-secret-change-me
 DB_MAX_CONNS ?= 10
 DEV_CMD=go run ./cmd/$(SERVICE)
 
-.PHONY: dev dev-db test test-phase3-e2e phase3-smoke wallet-rollout-test vet lint sqlc
+.PHONY: dev dev-db test test-phase3-e2e phase3-smoke wallet-rollout-test vet lint sqlc generate-python-grpc
 
 dev: dev-db
 	@command -v air >/dev/null || (echo "air is required. Install it with: go install github.com/air-verse/air@latest" && exit 1)
@@ -41,3 +41,12 @@ lint:
 
 sqlc:
 	sqlc generate
+
+generate-python-grpc:
+	cd .. && uv run python -m grpc_tools.protoc \
+		-I services/proto \
+		--python_out=app/fraud/integrations/gen \
+		--grpc_python_out=app/fraud/integrations/gen \
+		services/proto/ledger/v1/ledger.proto \
+		services/proto/verification/v1/verification.proto
+	cd .. && uv run python services/devtools/rewrite_python_grpc_imports.py

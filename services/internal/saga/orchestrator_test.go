@@ -282,6 +282,8 @@ func TestFraudFlaggedMovesOnlyPaymentProcessingSagaToReviewAndPublishesPauseOnce
 		Action:        event.FraudActionBlock,
 		RiskScore:     0.95,
 		Reason:        "high velocity",
+		ProviderID:    "provider-1",
+		ModelID:       "model-1",
 		OccurredAt:    fixedTime,
 		TraceID:       req.TraceID,
 	}
@@ -340,6 +342,11 @@ func TestFraudFlaggedDoesNotReopenTerminalSaga(t *testing.T) {
 		SessionID:     "fraud-session-1",
 		Action:        event.FraudActionFlag,
 		RiskScore:     0.8,
+		Reason:        "velocity",
+		ProviderID:    "provider-1",
+		ModelID:       "model-1",
+		OccurredAt:    fixedTime,
+		TraceID:       req.TraceID,
 	})
 	if err != nil {
 		t.Fatalf("HandleFraudFlagged: %v", err)

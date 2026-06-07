@@ -1,15 +1,11 @@
 import asyncio
 import time
-from dataclasses import dataclass
 from typing import Any
 
 from app.fraud.dto import KYCStatus, TransactionHistoryEntry, VelocityMetrics
+from app.fraud.integrations.gen.ledger.v1 import ledger_pb2
+from app.fraud.integrations.gen.verification.v1 import verification_pb2
 from app.fraud.ports import FraudDataPort
-
-try:
-    from app.fraud.integrations import gen as _gen  # noqa: F401
-except ImportError:  # pragma: no cover - generated modules are optional in unit tests
-    _gen = None
 
 RPC_TIMEOUT_SECONDS = 2.0
 UNAVAILABLE_RETRY_DELAY_SECONDS = 0.1
@@ -19,25 +15,6 @@ class EnrichmentError(RuntimeError):
     def __init__(self, reason: str, *, retryable: bool) -> None:
         super().__init__(reason)
         self.retryable = retryable
-
-
-@dataclass(frozen=True)
-class _HistoryRequest:
-    wallet_id: str
-    limit: int
-    trace_id: str
-
-
-@dataclass(frozen=True)
-class _VelocityRequest:
-    wallet_id: str
-    trace_id: str
-
-
-@dataclass(frozen=True)
-class _KYCRequest:
-    user_id: str
-    trace_id: str
 
 
 class GrpcFraudDataClient(FraudDataPort):
@@ -67,7 +44,9 @@ class GrpcFraudDataClient(FraudDataPort):
             raise EnrichmentError("invalid_identifier", retryable=False)
         response = self._call_with_retry(
             self._ledger.GetFraudTransactionHistory,
-            _HistoryRequest(wallet_id=wallet_id, limit=limit, trace_id=trace_id),
+            ledger_pb2.GetFraudTransactionHistoryRequest(
+                wallet_id=wallet_id, limit=limit, trace_id=trace_id
+            ),
             trace_id,
         )
         return [
@@ -85,7 +64,9 @@ class GrpcFraudDataClient(FraudDataPort):
             raise EnrichmentError("invalid_identifier", retryable=False)
         response = self._call_with_retry(
             self._ledger.GetFraudVelocityMetrics,
-            _VelocityRequest(wallet_id=wallet_id, trace_id=trace_id),
+            ledger_pb2.GetFraudVelocityMetricsRequest(
+                wallet_id=wallet_id, trace_id=trace_id
+            ),
             trace_id,
         )
         return VelocityMetrics(
@@ -100,7 +81,7 @@ class GrpcFraudDataClient(FraudDataPort):
             raise EnrichmentError("invalid_identifier", retryable=False)
         try:
             response = self._verification.GetStatus(
-                _KYCRequest(user_id=user_id, trace_id=trace_id),
+                verification_pb2.GetStatusRequest(user_id=user_id, trace_id=trace_id),
                 timeout=RPC_TIMEOUT_SECONDS,
                 metadata=_trace_metadata(trace_id),
             )

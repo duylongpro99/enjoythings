@@ -1,4 +1,5 @@
 import ast
+import importlib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -93,7 +94,10 @@ def test_grpc_client_retries_unavailable_once_then_succeeds() -> None:
 def test_generated_protobuf_imports_stay_in_grpc_client_module() -> None:
     offenders: list[str] = []
     for path in Path("app/fraud").rglob("*.py"):
-        if path.as_posix() == "app/fraud/integrations/grpc_client.py":
+        if (
+            path.as_posix() == "app/fraud/integrations/grpc_client.py"
+            or "app/fraud/integrations/gen/" in path.as_posix()
+        ):
             continue
         tree = ast.parse(path.read_text())
         for node in ast.walk(tree):
@@ -103,9 +107,25 @@ def test_generated_protobuf_imports_stay_in_grpc_client_module() -> None:
                 names = [node.module or ""]
             else:
                 continue
-            if any("app.fraud.integrations.gen" in name for name in names):
+            if any(
+                "app.fraud.integrations.gen" in name
+                or name == "grpc"
+                or name.endswith(("_pb2", "_pb2_grpc"))
+                for name in names
+            ):
                 offenders.append(path.as_posix())
     assert offenders == []
+
+
+def test_committed_generated_grpc_clients_are_importable() -> None:
+    modules = (
+        "app.fraud.integrations.gen.ledger.v1.ledger_pb2",
+        "app.fraud.integrations.gen.ledger.v1.ledger_pb2_grpc",
+        "app.fraud.integrations.gen.verification.v1.verification_pb2",
+        "app.fraud.integrations.gen.verification.v1.verification_pb2_grpc",
+    )
+    for module in modules:
+        assert importlib.import_module(module)
 
 
 class FakeTimestamp:

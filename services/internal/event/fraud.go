@@ -3,6 +3,7 @@ package event
 import (
 	"errors"
 	"fmt"
+	"math"
 	"time"
 )
 
@@ -11,6 +12,20 @@ const (
 	FraudFlaggedTopic        = "fraud.flagged"
 	FraudErrorTopic          = "fraud.error"
 	TxPausedTopic            = "tx.paused"
+
+	TraceparentHeader = "traceparent"
+	TracestateHeader  = "tracestate"
+
+	SagaOrchestratorProducer      = "saga-orchestrator"
+	FraudWorkerProducer           = "fraud-worker"
+	FraudAgentConsumerGroup       = "fraud-agent"
+	SagaOrchestratorConsumerGroup = "saga-orchestrator"
+	NotificationConsumerGroup     = "notification-service"
+	ObservabilityConsumer         = "observability-admin"
+	PaymentIDPartitionKey         = "payment_id"
+
+	DuplicateDeduplicateByEventID = "deduplicate_by_event_id"
+	DuplicateStableRepublish      = "stable_event_id_republishable"
 
 	FraudActionFlag  = "flag"
 	FraudActionBlock = "block"
@@ -24,6 +39,50 @@ const (
 )
 
 var ErrInvalidFraudEvent = errors.New("invalid fraud event")
+
+type FraudTopicContract struct {
+	Producer          string
+	Consumers         []string
+	PartitionKey      string
+	DuplicateBehavior string
+	RequiredHeaders   []string
+	OptionalHeaders   []string
+}
+
+var FraudTopicContracts = map[string]FraudTopicContract{
+	FraudScoreRequestedTopic: {
+		Producer:          SagaOrchestratorProducer,
+		Consumers:         []string{FraudAgentConsumerGroup},
+		PartitionKey:      PaymentIDPartitionKey,
+		DuplicateBehavior: DuplicateDeduplicateByEventID,
+		RequiredHeaders:   []string{TraceparentHeader},
+		OptionalHeaders:   []string{TracestateHeader},
+	},
+	FraudFlaggedTopic: {
+		Producer:          FraudWorkerProducer,
+		Consumers:         []string{SagaOrchestratorConsumerGroup, NotificationConsumerGroup},
+		PartitionKey:      PaymentIDPartitionKey,
+		DuplicateBehavior: DuplicateStableRepublish,
+		RequiredHeaders:   []string{TraceparentHeader},
+		OptionalHeaders:   []string{TracestateHeader},
+	},
+	FraudErrorTopic: {
+		Producer:          FraudWorkerProducer,
+		Consumers:         []string{ObservabilityConsumer},
+		PartitionKey:      PaymentIDPartitionKey,
+		DuplicateBehavior: DuplicateStableRepublish,
+		RequiredHeaders:   []string{TraceparentHeader},
+		OptionalHeaders:   []string{TracestateHeader},
+	},
+	TxPausedTopic: {
+		Producer:          SagaOrchestratorProducer,
+		Consumers:         []string{NotificationConsumerGroup},
+		PartitionKey:      PaymentIDPartitionKey,
+		DuplicateBehavior: DuplicateStableRepublish,
+		RequiredHeaders:   []string{TraceparentHeader},
+		OptionalHeaders:   []string{TracestateHeader},
+	},
+}
 
 type FraudScoreRequested struct {
 	SchemaVersion int       `json:"schema_version"`
@@ -39,9 +98,10 @@ type FraudScoreRequested struct {
 }
 
 func (event FraudScoreRequested) Validate() error {
-	if event.SchemaVersion != 1 || event.EventID == "" || event.PaymentID == "" ||
+	if event.SchemaVersion != 1 || event.EventID != FraudScoreRequestedEventID(event.PaymentID) || event.PaymentID == "" ||
 		event.UserID == "" || event.FromWalletID == "" || event.ToWalletID == "" ||
-		event.AmountCents <= 0 || event.Currency == "" {
+		event.AmountCents <= 0 || event.Currency == "" || !validUTCTime(event.OccurredAt) ||
+		event.TraceID == "" {
 		return ErrInvalidFraudEvent
 	}
 	return nil
@@ -63,10 +123,12 @@ type FraudFlagged struct {
 }
 
 func (event FraudFlagged) Validate() error {
-	if event.SchemaVersion != 1 || event.EventID == "" || event.SourceEventID == "" ||
+	if event.SchemaVersion != 1 || event.EventID != FraudFlaggedEventID(event.SourceEventID) || event.SourceEventID == "" ||
 		event.PaymentID == "" || event.SessionID == "" ||
 		(event.Action != FraudActionFlag && event.Action != FraudActionBlock) ||
-		event.RiskScore < 0 || event.RiskScore > 1 {
+		math.IsNaN(event.RiskScore) || event.RiskScore < 0 || event.RiskScore > 1 ||
+		event.Reason == "" || event.ProviderID == "" || event.ModelID == "" ||
+		!validUTCTime(event.OccurredAt) || event.TraceID == "" {
 		return ErrInvalidFraudEvent
 	}
 	return nil
@@ -84,8 +146,11 @@ type FraudError struct {
 }
 
 func (event FraudError) Validate() error {
-	if event.SchemaVersion != 1 || event.EventID == "" || event.SourceEventID == "" ||
-		event.PaymentID == "" || !validFraudReason(event.ReasonCode) {
+	if event.SchemaVersion != 1 ||
+		event.EventID != FraudErrorEventID(event.SourceEventID, event.ReasonCode) ||
+		event.SourceEventID == "" || event.PaymentID == "" ||
+		!validFraudReason(event.ReasonCode) || !validUTCTime(event.OccurredAt) ||
+		event.TraceID == "" {
 		return ErrInvalidFraudEvent
 	}
 	return nil
@@ -102,6 +167,18 @@ type TxPaused struct {
 	PausedAt      time.Time `json:"paused_at"`
 	OccurredAt    time.Time `json:"occurred_at"`
 	TraceID       string    `json:"trace_id"`
+}
+
+func (event TxPaused) Validate() error {
+	if event.SchemaVersion != 1 || event.EventID != TxPausedEventID(event.PaymentID) ||
+		event.PaymentID == "" || event.SessionID == "" ||
+		(event.Action != FraudActionFlag && event.Action != FraudActionBlock) ||
+		math.IsNaN(event.RiskScore) || event.RiskScore < 0 || event.RiskScore > 1 ||
+		event.Reason == "" || !validUTCTime(event.PausedAt) ||
+		!validUTCTime(event.OccurredAt) || event.TraceID == "" {
+		return ErrInvalidFraudEvent
+	}
+	return nil
 }
 
 func FraudScoreRequestedEventID(paymentID string) string {
@@ -128,4 +205,12 @@ func validFraudReason(reason string) bool {
 	default:
 		return false
 	}
+}
+
+func validUTCTime(value time.Time) bool {
+	if value.IsZero() {
+		return false
+	}
+	_, offset := value.Zone()
+	return offset == 0
 }
