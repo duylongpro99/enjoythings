@@ -18,3 +18,5 @@ applications:
     image: enjoythings/notification:local
   stub-payment-rail:
     image: enjoythings/stub-payment-rail:local
+  fraud-worker:
+    image: enjoythings/fraud-worker:local

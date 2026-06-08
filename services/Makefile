@@ -6,7 +6,7 @@ JWT_SECRET ?= local-dev-jwt-secret-change-me
 DB_MAX_CONNS ?= 10
 DEV_CMD=go run ./cmd/$(SERVICE)
 
-.PHONY: dev dev-db test test-phase3-e2e phase3-smoke wallet-rollout-test vet lint sqlc generate-python-grpc
+.PHONY: dev dev-db test test-phase3-e2e phase3-smoke phase4-observability wallet-rollout-test vet lint sqlc generate-python-grpc
 
 dev: dev-db
 	@command -v air >/dev/null || (echo "air is required. Install it with: go install github.com/air-verse/air@latest" && exit 1)
@@ -28,6 +28,10 @@ test-phase3-e2e:
 	go test ./internal/phase3e2e -v
 
 phase3-smoke:
+	go run ./devtools/phase3_smoke
+
+phase4-observability:
+	docker compose up -d --build
 	go run ./devtools/phase3_smoke
 
 wallet-rollout-test:

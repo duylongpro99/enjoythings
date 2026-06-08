@@ -110,7 +110,7 @@ func run() error {
 	handler.Handle("/", protected)
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           otelhttp.NewHandler(handler, "gateway.http"),
+		Handler:           otelhttp.NewHandler(telemetry.InstrumentHTTP("gateway", handler), "gateway.http"),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

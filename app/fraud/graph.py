@@ -17,6 +17,7 @@ from app.fraud.dto import (
 )
 from app.fraud.guards import guard_prompt
 from app.fraud.instruction import SYSTEM_INSTRUCTION
+from app.fraud.metrics import DEFAULT_METRICS, FraudMetrics
 from app.fraud.ports import CompletionPort, FraudDataPort, FraudSessionStore
 from app.fraud.tracing import start_span
 from app.fraud.validator import ValidationResult, validate_verdict
@@ -61,6 +62,7 @@ class FraudScoringGraph:
         config: FraudConfig,
         clock: Clock | None = None,
         system_instruction: str = SYSTEM_INSTRUCTION,
+        metrics: FraudMetrics = DEFAULT_METRICS,
     ) -> None:
         self._data = data
         self._completion = completion
@@ -68,6 +70,7 @@ class FraudScoringGraph:
         self._config = config
         self._clock = clock or SystemClock()
         self._system_instruction = system_instruction
+        self._metrics = metrics
         self._graph = self._build_graph()
 
     async def score(self, request: FraudScoreRequest) -> FraudOutcome:
@@ -138,8 +141,12 @@ class FraudScoringGraph:
         with start_span("fraud.graph.enrich_transaction", payment_id=state.request.payment_id, fraud_session_id=_session_id(state)):
             try:
                 await self._enrich_transaction(state)
+                for method in ("history", "velocity", "kyc"):
+                    self._metrics.enrichment_call(method, "success")
                 state.next_step = "build_prompt"
             except Exception:
+                for method in ("history", "velocity", "kyc"):
+                    self._metrics.enrichment_call(method, "failure")
                 state.outcome = FraudOutcome(action=None, reason_code="enrichment_failed")
                 state.next_step = "complete_session"
         return state
@@ -156,6 +163,7 @@ class FraudScoringGraph:
             if rejection is None:
                 state.next_step = "call_llm"
             else:
+                self._metrics.callback_rejection("input_guard", rejection)
                 state.outcome = FraudOutcome(action=None, reason_code="prompt_rejected")
                 state.next_step = "complete_session"
         return state
@@ -278,6 +286,12 @@ class FraudScoringGraph:
         try:
             state.raw_response = await self._completion.complete(state.messages)
         except Exception:
+            elapsed = self._clock.monotonic() - started
+            self._metrics.model_latency(
+                _metadata(self._completion, "provider_id") or "unknown",
+                _metadata(self._completion, "model_id") or "unknown",
+                elapsed,
+            )
             await self._audit(
                 state,
                 node="call_llm",
@@ -285,9 +299,15 @@ class FraudScoringGraph:
                 attempt=attempt,
                 provider_id=_metadata(self._completion, "provider_id"),
                 model_id=_metadata(self._completion, "model_id"),
-                latency_ms=_latency_ms(started, self._clock.monotonic()),
+                latency_ms=round(elapsed * 1000),
             )
             return False
+        elapsed = self._clock.monotonic() - started
+        self._metrics.model_latency(
+            _metadata(self._completion, "provider_id") or "unknown",
+            _metadata(self._completion, "model_id") or "unknown",
+            elapsed,
+        )
         await self._audit(
             state,
             node="call_llm",
@@ -295,7 +315,7 @@ class FraudScoringGraph:
             attempt=attempt,
             provider_id=_metadata(self._completion, "provider_id"),
             model_id=_metadata(self._completion, "model_id"),
-            latency_ms=_latency_ms(started, self._clock.monotonic()),
+            latency_ms=round(elapsed * 1000),
             raw_response=state.raw_response,
         )
         return True
@@ -309,6 +329,10 @@ class FraudScoringGraph:
             sensitive_keys=self._config.sensitive_keys,
         )
         if state.validation.verdict is None:
+            self._metrics.callback_rejection(
+                "output_validator",
+                state.validation.rejection_reason or "invalid_schema",
+            )
             await self._audit(
                 state,
                 node="validate_verdict",
@@ -319,6 +343,7 @@ class FraudScoringGraph:
             )
             return False
         verdict = state.validation.verdict
+        self._metrics.risk_score(verdict.risk_score)
         state.outcome = FraudOutcome(action=verdict.action, verdict=verdict)
         await self._audit(
             state,

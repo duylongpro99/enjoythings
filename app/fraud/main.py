@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import asyncpg
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+from prometheus_client import start_http_server
 
 from app.fraud.completion import CompletionService
 from app.fraud.config import FraudConfig
@@ -54,6 +55,7 @@ async def build_runtime(environ=None) -> WorkerRuntime:
         producer, provider_id=provider.id, model_id=provider.model
     )
     service = FraudScoringService(data, completion, config, store=store)
+    service.provider_id = provider.id
     worker = FraudWorker(service, publisher, store)
     consumer_adapter = AIOKafkaConsumerAdapter(consumer)
     runner = KafkaWorkerRunner(consumer_adapter, worker)
@@ -71,6 +73,7 @@ async def build_runtime(environ=None) -> WorkerRuntime:
         provider_check=lambda: provider_configuration_ready(source),
         live_check=runtime.is_live,
     )
+    start_http_server(config.metrics_port)
     return runtime
 
 

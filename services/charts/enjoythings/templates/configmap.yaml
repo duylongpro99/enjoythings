@@ -34,3 +34,5 @@ data:
   VERIFICATION_OUTBOX_BATCH_SIZE: {{ .Values.config.verificationOutboxBatchSize | quote }}
   NOTIFICATION_CONSUMER_GROUP: {{ .Values.config.notificationConsumerGroup | quote }}
   STUB_RAIL_TIMEOUT_SLEEP: {{ .Values.config.stubRailTimeoutSleep | quote }}
+  LLM_PROVIDERS_JSON: {{ .Values.config.llmProvidersJson | quote }}
+  LLM_DEFAULT_PROVIDER: {{ .Values.config.llmDefaultProvider | quote }}

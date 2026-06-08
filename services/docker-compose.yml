@@ -306,3 +306,108 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+
+  fraud-timescaledb:
+    image: timescale/timescaledb:2.17.2-pg16
+    environment:
+      POSTGRES_DB: ${FRAUD_DB_NAME}
+      POSTGRES_USER: ${FRAUD_DB_USER}
+      POSTGRES_PASSWORD: ${FRAUD_DB_PASSWORD}
+    volumes:
+      - fraud-timescaledb-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${FRAUD_DB_USER} -d ${FRAUD_DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  fraud-worker:
+    build:
+      context: ..
+      dockerfile: app/fraud/Dockerfile
+    environment:
+      FRAUD_DATABASE_URL: postgres://${FRAUD_DB_USER}:${FRAUD_DB_PASSWORD}@fraud-timescaledb:5432/${FRAUD_DB_NAME}
+      FRAUD_METRICS_PORT: "9101"
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      LEDGER_GRPC_ADDR: ledger:9091
+      VERIFICATION_GRPC_ADDR: verification:9094
+      LLM_PROVIDERS_JSON: ${LLM_PROVIDERS_JSON}
+      LLM_DEFAULT_PROVIDER: ${LLM_DEFAULT_PROVIDER}
+      LOCAL_LLM_API_KEY: ${LOCAL_LLM_API_KEY}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+    ports:
+      - "${FRAUD_METRICS_PORT:-9101}:9101"
+    depends_on:
+      fraud-timescaledb:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      ledger:
+        condition: service_healthy
+      verification:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "uv run python -c \"import urllib.request; urllib.request.urlopen('http://localhost:9101/metrics')\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9095}:9090"
+    depends_on:
+      gateway:
+        condition: service_healthy
+      wallet:
+        condition: service_healthy
+      ledger:
+        condition: service_healthy
+      saga-orchestrator:
+        condition: service_healthy
+      payment-processor:
+        condition: service_healthy
+      verification:
+        condition: service_healthy
+      notification:
+        condition: service_healthy
+      fraud-worker:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:9090/-/ready >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  grafana:
+    image: grafana/grafana:11.5.2
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:3000/api/health >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  fraud-timescaledb-data:
+  prometheus-data:
+  grafana-data:

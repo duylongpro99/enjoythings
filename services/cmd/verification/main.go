@@ -85,7 +85,7 @@ func run() error {
 		verification.Config{Mode: cfg.VerificationMode},
 		nil,
 	)
-	grpcServer := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()))
+	grpcServer := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()), grpc.UnaryInterceptor(telemetry.ServiceMetrics("verification").UnaryServerInterceptor()))
 	verificationv1.RegisterVerificationServiceServer(grpcServer, verificationgrpc.NewServer(service))
 	httpServer := healthServer(cfg.HTTPAddr, db)
 
@@ -140,7 +140,7 @@ func healthServer(addr string, db *repo.Database) *http.Server {
 	mux.Handle("/readyz", healthhandler.Ready(db))
 	return &http.Server{
 		Addr:              addr,
-		Handler:           otelhttp.NewHandler(mux, "verification.health.http"),
+		Handler:           otelhttp.NewHandler(telemetry.InstrumentHTTP("verification", mux), "verification.health.http"),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 }

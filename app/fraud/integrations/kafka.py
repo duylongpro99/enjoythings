@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from typing import Any, Callable
 
 from app.fraud.dto import FraudOutcome, FraudScoreRequest
+from app.fraud.metrics import DEFAULT_METRICS, FraudMetrics
 from app.fraud.tracing import inject_kafka_context, start_span
 from app.fraud.worker import ConsumerDecision
 
@@ -18,6 +19,7 @@ class KafkaFraudPublisher:
         now: Callable[[], datetime] | None = None,
         provider_id: str = "",
         model_id: str = "",
+        metrics: FraudMetrics = DEFAULT_METRICS,
     ) -> None:
         self._producer = producer
         self._flagged_topic = flagged_topic
@@ -25,6 +27,7 @@ class KafkaFraudPublisher:
         self._now = now or (lambda: datetime.now(UTC))
         self._provider_id = provider_id
         self._model_id = model_id
+        self._metrics = metrics
 
     async def publish_flagged(
         self, request: FraudScoreRequest, outcome: FraudOutcome, session_id: str = ""
@@ -72,12 +75,17 @@ class KafkaFraudPublisher:
     ) -> None:
         with start_span("fraud.kafka.publish", topic=topic, operation="produce", payment_id=str(event.get("payment_id", ""))):
             headers = inject_kafka_context([])
-            await self._producer.send_and_wait(
-                topic,
-                value=json.dumps(event, separators=(",", ":")).encode(),
-                key=key.encode(),
-                headers=headers,
-            )
+            try:
+                await self._producer.send_and_wait(
+                    topic,
+                    value=json.dumps(event, separators=(",", ":")).encode(),
+                    key=key.encode(),
+                    headers=headers,
+                )
+            except Exception:
+                self._metrics.event_published(topic, "failure")
+                raise
+            self._metrics.event_published(topic, "success")
 
 
 class KafkaWorkerRunner:

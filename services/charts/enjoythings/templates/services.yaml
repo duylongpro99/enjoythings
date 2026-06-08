@@ -23,5 +23,10 @@ spec:
       port: {{ $app.grpcPort }}
       targetPort: grpc
     {{- end }}
+    {{- if and $app.metricsPort (ne (int $app.metricsPort) (int $app.httpPort)) }}
+    - name: metrics
+      port: {{ $app.metricsPort }}
+      targetPort: metrics
+    {{- end }}
 ---
 {{- end }}

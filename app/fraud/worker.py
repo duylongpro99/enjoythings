@@ -4,11 +4,13 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
+from time import monotonic
 from typing import Any
 from uuid import uuid4
 
 from app.fraud.dto import FraudOutcome, FraudScoreRequest, FraudSession
 from app.fraud.ports import FraudSessionStore
+from app.fraud.metrics import DEFAULT_METRICS, FraudMetrics
 from app.fraud.tracing import extract_kafka_context, start_span
 
 
@@ -58,12 +60,14 @@ class FraudWorker:
         store: FraudSessionStore | None = None,
         lease_renew_interval_seconds: float = 20.0,
         telemetry: FraudWorkerTelemetry | None = None,
+        metrics: FraudMetrics = DEFAULT_METRICS,
     ) -> None:
         self._service = service
         self._publisher = publisher
         self._store = store or InMemoryFraudSessionStore()
         self._lease_renew_interval_seconds = lease_renew_interval_seconds
         self._telemetry = telemetry or FraudWorkerTelemetry()
+        self._metrics = metrics
 
     async def handle_payload(self, payload: bytes, headers=None) -> ConsumerDecision:
         context = extract_kafka_context(headers)
@@ -76,6 +80,7 @@ class FraudWorker:
             return await self._handle_request(request)
 
     async def _handle_request(self, request: FraudScoreRequest) -> ConsumerDecision:
+        started = monotonic()
         session: FraudSession | None = None
         heartbeat: asyncio.Task[None] | None = None
         try:
@@ -84,6 +89,10 @@ class FraudWorker:
             if not session.completed or outcome is None:
                 heartbeat = asyncio.create_task(self._renew_lease(session))
                 outcome = await self._service.score(request)
+                action = outcome.action or "fail_open"
+                self._metrics.transaction_scored(
+                    action, getattr(self._service, "provider_id", "unknown")
+                )
                 await _cancel(heartbeat)
                 heartbeat = None
                 if outcome.reason_code == "audit_failed":
@@ -134,6 +143,10 @@ class FraudWorker:
         except Exception:
             return ConsumerDecision.RETRY
         finally:
+            outcome_label = "failure"
+            if session is not None and session.outcome is not None:
+                outcome_label = session.outcome.action or "fail_open"
+            self._metrics.session_duration(outcome_label, monotonic() - started)
             await _cancel(heartbeat)
             if session is not None:
                 try:

@@ -6,6 +6,7 @@ from app.fraud.config import FraudConfig
 from app.fraud.dto import KYCStatus, TransactionHistoryEntry, VelocityMetrics
 from app.fraud.service import FraudScoringService
 from app.fraud.worker import ConsumerDecision, FraudWorker, InMemoryFraudSessionStore
+from prometheus_client import CollectorRegistry, generate_latest
 
 
 def test_worker_integration_uses_fake_model_and_enrichment_and_deduplicates() -> None:
@@ -22,6 +23,27 @@ def test_worker_integration_uses_fake_model_and_enrichment_and_deduplicates() ->
     assert completion.calls == 1
     assert data.calls == 3
     assert publisher.flagged == ["fraud.flagged:fraud.score.requested:payment-1"]
+
+
+def test_local_scoring_scenario_emits_fraud_dashboard_metrics() -> None:
+    registry = CollectorRegistry()
+    from app.fraud.metrics import FraudMetrics
+
+    metrics = FraudMetrics(registry=registry)
+    store = InMemoryFraudSessionStore()
+    completion = FakeCompletion()
+    data = FakeData()
+    service = FraudScoringService(data, completion, FraudConfig(), store=store, metrics=metrics)
+    service.provider_id = completion.provider_id
+    worker = FraudWorker(service, FakePublisher(), store, metrics=metrics)
+
+    assert asyncio.run(worker.handle_payload(payload())) == ConsumerDecision.COMMIT
+
+    rendered = generate_latest(registry).decode()
+    assert 'fraud_transactions_scored_total{action="flag",provider="fake"} 1.0' in rendered
+    assert "fraud_risk_score_bucket" in rendered
+    assert 'fraud_enrichment_calls_total{method="history",outcome="success"} 1.0' in rendered
+    assert 'fraud_model_latency_seconds_count{model="fake-model",provider="fake"} 1.0' in rendered
 
 
 def payload() -> bytes:

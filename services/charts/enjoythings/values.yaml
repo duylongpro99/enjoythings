@@ -32,6 +32,16 @@ kafka:
     - tx.failed
     - user.verified
     - user.rejected
+    - fraud.score.requested
+    - fraud.flagged
+    - fraud.error
+
+fraudTimescaledb:
+  enabled: true
+  image: timescale/timescaledb:2.17.2-pg16
+  database: fraud_audit
+  user: fraud_worker
+  password: local-fraud-password
   resources:
     requests:
       cpu: 250m
@@ -43,6 +53,8 @@ kafka:
 secrets:
   jwtSecret: local-dev-jwt-secret-change-me
   databaseUrl: postgres://enjoythings:enjoythings_dev_password@postgres:5432/enjoythings?sslmode=disable
+  fraudDatabaseUrl: postgres://fraud_worker:local-fraud-password@fraud-timescaledb:5432/fraud_audit?sslmode=disable
+  localLLMApiKey: local-development-key
 
 config:
   dbMaxConns: "10"
@@ -73,6 +85,8 @@ config:
   verificationOutboxBatchSize: "100"
   notificationConsumerGroup: notification-service
   stubRailTimeoutSleep: 3s
+  llmProvidersJson: '{"providers":[{"id":"local","driver_type":"openai_compatible","base_url":"http://host.docker.internal:11434/v1","api_key_env":"LOCAL_LLM_API_KEY","model":"llama3.1","timeout_seconds":30}]}'
+  llmDefaultProvider: local
 
 applications:
   gateway:
@@ -136,6 +150,19 @@ applications:
     grpcPort: null
     env:
       HTTP_ADDR: :18090
+  fraud-worker:
+    image: enjoythings/fraud-worker:local
+    replicas: 1
+    httpPort: 9101
+    metricsPort: 9101
+    grpcPort: null
+    readinessPath: /metrics
+    livenessPath: /metrics
+    env:
+      FRAUD_METRICS_PORT: "9101"
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      LEDGER_GRPC_ADDR: ledger:9091
+      VERIFICATION_GRPC_ADDR: verification:9094
 
 applicationResources:
   requests:

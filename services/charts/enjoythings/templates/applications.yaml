@@ -19,6 +19,10 @@ spec:
       app.kubernetes.io/component: {{ $name }}
   template:
     metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: {{ default $app.httpPort $app.metricsPort | quote }}
       labels:
         {{- include "enjoythings.selectorLabels" $ | nindent 8 }}
         app.kubernetes.io/component: {{ $name }}
@@ -31,6 +35,10 @@ spec:
           ports:
             - name: http
               containerPort: {{ $app.httpPort }}
+            {{- if and $app.metricsPort (ne (int $app.metricsPort) (int $app.httpPort)) }}
+            - name: metrics
+              containerPort: {{ $app.metricsPort }}
+            {{- end }}
             {{- if $app.grpcPort }}
             - name: grpc
               containerPort: {{ $app.grpcPort }}
@@ -47,7 +55,7 @@ spec:
             {{- end }}
           readinessProbe:
             httpGet:
-              path: /readyz
+              path: {{ default "/readyz" $app.readinessPath }}
               port: http
             initialDelaySeconds: 5
             periodSeconds: 5
@@ -55,7 +63,7 @@ spec:
             failureThreshold: 24
           livenessProbe:
             httpGet:
-              path: /healthz
+              path: {{ default "/healthz" $app.livenessPath }}
               port: http
             initialDelaySeconds: 20
             periodSeconds: 10

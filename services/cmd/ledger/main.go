@@ -79,7 +79,7 @@ func run() error {
 	}
 	defer listener.Close()
 
-	grpcServer := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()))
+	grpcServer := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()), grpc.UnaryInterceptor(telemetry.ServiceMetrics("ledger").UnaryServerInterceptor()))
 	ledgerv1.RegisterLedgerServiceServer(grpcServer, ledgergrpc.NewServer(newLedgerApp(db)))
 	httpServer := healthServer(cfg.HTTPAddr, db)
 
@@ -167,7 +167,7 @@ func healthServer(addr string, db *repo.Database) *http.Server {
 	mux.Handle("/readyz", healthhandler.Ready(db))
 	return &http.Server{
 		Addr:              addr,
-		Handler:           otelhttp.NewHandler(mux, "ledger.health.http"),
+		Handler:           otelhttp.NewHandler(telemetry.InstrumentHTTP("ledger", mux), "ledger.health.http"),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 }

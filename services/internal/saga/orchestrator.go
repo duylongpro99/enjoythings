@@ -210,6 +210,9 @@ func (orchestrator *Orchestrator) HandlePaymentCompleted(ctx context.Context, ev
 	_, err = orchestrator.store.Update(ctx, current)
 	if err != nil {
 		telemetry.RecordError(span, err)
+	} else {
+		telemetry.ServiceMetrics("saga-orchestrator").RecordSagaState(StateCompleted)
+		telemetry.ServiceMetrics("saga-orchestrator").RecordSaga("completed", now.Sub(current.CreatedAt))
 	}
 	return err
 }
@@ -285,6 +288,7 @@ func (orchestrator *Orchestrator) HandlePaymentFailed(ctx context.Context, event
 		telemetry.RecordError(span, err)
 		return err
 	}
+	telemetry.ServiceMetrics("saga-orchestrator").RecordSaga("compensation", 0)
 	current.State = StateFailed
 	current.UpdatedAt = now
 	current, err = orchestrator.store.Update(ctx, current)
@@ -292,6 +296,8 @@ func (orchestrator *Orchestrator) HandlePaymentFailed(ctx context.Context, event
 		telemetry.RecordError(span, err)
 		return err
 	}
+	telemetry.ServiceMetrics("saga-orchestrator").RecordSagaState(StateFailed)
+	telemetry.ServiceMetrics("saga-orchestrator").RecordSaga("failed", now.Sub(current.CreatedAt))
 	err = orchestrator.publishTxFailed(ctx, current, traceID(event.TraceID, current.TraceID), nonZeroTime(event.FailedAt, now))
 	if err != nil {
 		telemetry.RecordError(span, err)
@@ -526,6 +532,8 @@ func (orchestrator *Orchestrator) HandleFraudFlagged(ctx context.Context, flagge
 	}
 	if current.State == StatePaymentProcessing {
 		current.State = StateFraudReview
+		telemetry.ServiceMetrics("saga-orchestrator").RecordSagaState(StateFraudReview)
+		telemetry.ServiceMetrics("saga-orchestrator").RecordSaga("fraud_review", 0)
 		current.UpdatedAt = now
 		pausedPayload, err := json.Marshal(event.TxPaused{
 			SchemaVersion: 1,
@@ -776,12 +784,15 @@ func (orchestrator *Orchestrator) resumeCompensation(ctx context.Context, curren
 	}); err != nil {
 		return err
 	}
+	telemetry.ServiceMetrics("saga-orchestrator").RecordSaga("compensation", 0)
 	current.State = StateFailed
 	current.UpdatedAt = orchestrator.clock.Now()
 	updated, err := orchestrator.store.Update(ctx, current)
 	if err != nil {
 		return err
 	}
+	telemetry.ServiceMetrics("saga-orchestrator").RecordSagaState(StateFailed)
+	telemetry.ServiceMetrics("saga-orchestrator").RecordSaga("failed", current.UpdatedAt.Sub(current.CreatedAt))
 	return orchestrator.publishTxFailed(ctx, updated, updated.TraceID, orchestrator.clock.Now())
 }
 
