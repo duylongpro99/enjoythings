@@ -3,9 +3,11 @@ package saga
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -54,12 +56,12 @@ RETURNING id::text, payment_id, idempotency_key, user_id, from_wallet_id, to_wal
 		saga.LedgerReservationID,
 		saga.TransferID,
 		saga.FailureCode,
-		saga.FraudSessionID,
-		saga.FraudAction,
-		saga.FraudRiskScore,
-		saga.FraudReason,
-		saga.FraudFlaggedAt,
-		saga.DeferredPaymentJSON,
+		textToPG(saga.FraudSessionID),
+		textToPG(saga.FraudAction),
+		floatToPG(saga.FraudRiskScore, hasFraudMetadata(saga)),
+		textToPG(saga.FraudReason),
+		timeToPG(saga.FraudFlaggedAt),
+		textToPG(saga.DeferredPaymentJSON),
 		saga.CreatedAt,
 		saga.UpdatedAt,
 	)
@@ -123,6 +125,30 @@ func (store *PostgresStore) Update(ctx context.Context, saga Saga) (Saga, error)
 }
 
 func (store *PostgresStore) UpdateWithOutbox(ctx context.Context, saga Saga, events []OutboxRecord) (Saga, error) {
+	return store.UpdateWithOutboxAndAudit(ctx, saga, events, FraudAuditRecord{})
+}
+
+func (store *PostgresStore) UpdateWithAudit(ctx context.Context, saga Saga, audit FraudAuditRecord) (Saga, error) {
+	tx, err := store.pool.Begin(ctx)
+	if err != nil {
+		return Saga{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	updated, err := updateSaga(ctx, tx, saga)
+	if err != nil {
+		return Saga{}, err
+	}
+	if err := insertFraudAudit(ctx, tx, audit); err != nil {
+		return Saga{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Saga{}, err
+	}
+	return updated, nil
+}
+
+func (store *PostgresStore) UpdateWithOutboxAndAudit(ctx context.Context, saga Saga, events []OutboxRecord, audit FraudAuditRecord) (Saga, error) {
 	tx, err := store.pool.Begin(ctx)
 	if err != nil {
 		return Saga{}, err
@@ -136,6 +162,9 @@ VALUES ($1, $2, $3)`, record.Topic, record.PartitionKey, record.Payload); err !=
 			return Saga{}, err
 		}
 	}
+	if err := insertFraudAudit(ctx, tx, audit); err != nil {
+		return Saga{}, err
+	}
 	updated, err := updateSaga(ctx, tx, saga)
 	if err != nil {
 		return Saga{}, err
@@ -144,6 +173,10 @@ VALUES ($1, $2, $3)`, record.Topic, record.PartitionKey, record.Payload); err !=
 		return Saga{}, err
 	}
 	return updated, nil
+}
+
+func (store *PostgresStore) RecordFraudAudit(ctx context.Context, audit FraudAuditRecord) error {
+	return insertFraudAudit(ctx, store.pool, audit)
 }
 
 func updateSaga(ctx context.Context, db pgDB, saga Saga) (Saga, error) {
@@ -176,12 +209,12 @@ RETURNING id::text, payment_id, idempotency_key, user_id, from_wallet_id, to_wal
 		saga.LedgerReservationID,
 		saga.TransferID,
 		saga.FailureCode,
-		saga.FraudSessionID,
-		saga.FraudAction,
-		saga.FraudRiskScore,
-		saga.FraudReason,
-		saga.FraudFlaggedAt,
-		saga.DeferredPaymentJSON,
+		textToPG(saga.FraudSessionID),
+		textToPG(saga.FraudAction),
+		floatToPG(saga.FraudRiskScore, hasFraudMetadata(saga)),
+		textToPG(saga.FraudReason),
+		timeToPG(saga.FraudFlaggedAt),
+		textToPG(saga.DeferredPaymentJSON),
 		saga.UpdatedAt,
 	))
 }
@@ -214,6 +247,12 @@ type sagaRow interface {
 
 func scanSaga(row sagaRow) (Saga, error) {
 	var saga Saga
+	var fraudSessionID pgtype.Text
+	var fraudAction pgtype.Text
+	var fraudRiskScore pgtype.Float8
+	var fraudReason pgtype.Text
+	var fraudFlaggedAt pgtype.Timestamptz
+	var deferredPaymentJSON pgtype.Text
 	if err := row.Scan(
 		&saga.ID,
 		&saga.PaymentID,
@@ -230,12 +269,12 @@ func scanSaga(row sagaRow) (Saga, error) {
 		&saga.LedgerReservationID,
 		&saga.TransferID,
 		&saga.FailureCode,
-		&saga.FraudSessionID,
-		&saga.FraudAction,
-		&saga.FraudRiskScore,
-		&saga.FraudReason,
-		&saga.FraudFlaggedAt,
-		&saga.DeferredPaymentJSON,
+		&fraudSessionID,
+		&fraudAction,
+		&fraudRiskScore,
+		&fraudReason,
+		&fraudFlaggedAt,
+		&deferredPaymentJSON,
 		&saga.CreatedAt,
 		&saga.UpdatedAt,
 	); err != nil {
@@ -244,6 +283,12 @@ func scanSaga(row sagaRow) (Saga, error) {
 		}
 		return Saga{}, err
 	}
+	saga.FraudSessionID = textFromPG(fraudSessionID)
+	saga.FraudAction = textFromPG(fraudAction)
+	saga.FraudRiskScore = floatFromPG(fraudRiskScore)
+	saga.FraudReason = textFromPG(fraudReason)
+	saga.FraudFlaggedAt = timeFromPG(fraudFlaggedAt)
+	saga.DeferredPaymentJSON = textFromPG(deferredPaymentJSON)
 	return saga, nil
 }
 
@@ -255,6 +300,71 @@ func sameStartPayload(left, right Saga) bool {
 		left.ToWalletID == right.ToWalletID &&
 		left.AmountCents == right.AmountCents &&
 		left.Currency == right.Currency
+}
+
+func hasFraudMetadata(saga Saga) bool {
+	return saga.FraudSessionID != "" || saga.FraudAction != "" || saga.FraudReason != "" ||
+		!saga.FraudFlaggedAt.IsZero() || saga.FraudRiskScore != 0
+}
+
+func textToPG(value string) pgtype.Text {
+	if value == "" {
+		return pgtype.Text{}
+	}
+	return pgtype.Text{String: value, Valid: true}
+}
+
+func textFromPG(value pgtype.Text) string {
+	if !value.Valid {
+		return ""
+	}
+	return value.String
+}
+
+func floatToPG(value float64, valid bool) pgtype.Float8 {
+	if !valid {
+		return pgtype.Float8{}
+	}
+	return pgtype.Float8{Float64: value, Valid: true}
+}
+
+func floatFromPG(value pgtype.Float8) float64 {
+	if !value.Valid {
+		return 0
+	}
+	return value.Float64
+}
+
+func timeToPG(value time.Time) pgtype.Timestamptz {
+	if value.IsZero() {
+		return pgtype.Timestamptz{}
+	}
+	return pgtype.Timestamptz{Time: value, Valid: true}
+}
+
+func timeFromPG(value pgtype.Timestamptz) time.Time {
+	if !value.Valid {
+		return time.Time{}
+	}
+	return value.Time
+}
+
+func insertFraudAudit(ctx context.Context, db pgDB, audit FraudAuditRecord) error {
+	if audit.EventID == "" {
+		return nil
+	}
+	_, err := db.Exec(ctx, `
+INSERT INTO saga_fraud_audit_records (event_id, payment_id, kind, saga_state, details_json, created_at)
+VALUES ($1, $2, $3, $4, $5, COALESCE(NULLIF($6::timestamptz, '0001-01-01 00:00:00+00'::timestamptz), now()))
+ON CONFLICT (event_id) DO NOTHING`,
+		audit.EventID,
+		audit.PaymentID,
+		audit.Kind,
+		audit.SagaState,
+		audit.DetailsJSON,
+		audit.CreatedAt,
+	)
+	return err
 }
 
 func isUniqueViolation(err error) bool {

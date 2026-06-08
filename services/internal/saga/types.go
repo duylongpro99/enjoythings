@@ -27,6 +27,15 @@ const (
 	TopicTxFailed         = "tx.failed"
 )
 
+const (
+	FraudAuditKindOrphan             = "orphan"
+	FraudAuditKindIgnored            = "ignored"
+	FraudAuditKindTransition         = "transition"
+	FraudAuditKindDeferredTerminal   = "deferred_terminal"
+	FraudAuditKindInvariantViolation = "invariant_violation"
+	FraudAuditKindDuplicate          = "duplicate"
+)
+
 var (
 	ErrAlreadyExists        = errors.New("saga idempotency key already exists with different payload")
 	ErrNotFound             = errors.New("saga not found")
@@ -58,6 +67,15 @@ type Saga struct {
 	DeferredPaymentJSON string
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
+}
+
+type FraudAuditRecord struct {
+	EventID     string
+	PaymentID   string
+	Kind        string
+	SagaState   string
+	DetailsJSON string
+	CreatedAt   time.Time
 }
 
 type StartRequest struct {

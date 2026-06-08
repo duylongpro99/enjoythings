@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -360,6 +361,105 @@ func TestFraudFlaggedDoesNotReopenTerminalSaga(t *testing.T) {
 	}
 }
 
+func TestFraudFlaggedRecordsOrphanAuditForUnknownPayment(t *testing.T) {
+	ctx := context.Background()
+	store := newMemoryStore()
+	orchestrator := NewOrchestrator(store, &fakeVerification{}, &fakeWallet{}, &fakeLedger{}, fixedClock{})
+
+	err := orchestrator.HandleFraudFlagged(ctx, event.FraudFlagged{
+		SchemaVersion: 1,
+		EventID:       event.FraudFlaggedEventID("fraud.score.requested:missing"),
+		SourceEventID: "fraud.score.requested:missing",
+		PaymentID:     "missing-payment",
+		SessionID:     "fraud-session-1",
+		Action:        event.FraudActionFlag,
+		RiskScore:     0.8,
+		Reason:        "velocity",
+		ProviderID:    "provider-1",
+		ModelID:       "model-1",
+		OccurredAt:    fixedTime,
+		TraceID:       "trace-2",
+	})
+	if err != nil {
+		t.Fatalf("HandleFraudFlagged: %v", err)
+	}
+	audit, ok := store.audits[event.FraudFlaggedEventID("fraud.score.requested:missing")]
+	if !ok {
+		t.Fatal("missing orphan audit record")
+	}
+	if audit.Kind != FraudAuditKindOrphan || audit.PaymentID != "missing-payment" {
+		t.Fatalf("audit = %+v, want orphan for missing payment", audit)
+	}
+}
+
+func TestPaymentResultsDuringFraudReviewAreDeferredAndConflictingResultsAreAudited(t *testing.T) {
+	ctx := context.Background()
+	store := newMemoryStore()
+	outbox := &fakeOutbox{}
+	orchestrator := NewOrchestrator(store, &fakeVerification{status: VerificationVerified}, &fakeWallet{}, &fakeLedger{}, fixedClock{})
+	orchestrator.SetOutbox(outbox)
+	req := startRequest()
+	if _, err := orchestrator.StartPaymentSaga(ctx, req); err != nil {
+		t.Fatalf("StartPaymentSaga: %v", err)
+	}
+	flagged := event.FraudFlagged{
+		SchemaVersion: 1,
+		EventID:       event.FraudFlaggedEventID(event.FraudScoreRequestedEventID(req.PaymentID)),
+		SourceEventID: event.FraudScoreRequestedEventID(req.PaymentID),
+		PaymentID:     req.PaymentID,
+		SessionID:     "fraud-session-1",
+		Action:        event.FraudActionFlag,
+		RiskScore:     0.9,
+		Reason:        "high velocity",
+		ProviderID:    "provider-1",
+		ModelID:       "model-1",
+		OccurredAt:    fixedTime,
+		TraceID:       req.TraceID,
+	}
+	if err := orchestrator.HandleFraudFlagged(ctx, flagged); err != nil {
+		t.Fatalf("HandleFraudFlagged: %v", err)
+	}
+	if err := orchestrator.HandlePaymentCompleted(ctx, PaymentCompleted{
+		EventID:            "payment.completed:" + req.PaymentID,
+		PaymentID:          req.PaymentID,
+		TraceID:            req.TraceID,
+		ProcessorPaymentID: "processor-1",
+		Status:             "COMPLETED",
+		CompletedAt:        fixedTime,
+		OccurredAt:         fixedTime,
+	}); err != nil {
+		t.Fatalf("HandlePaymentCompleted: %v", err)
+	}
+	if err := orchestrator.HandlePaymentFailed(ctx, PaymentFailed{
+		EventID:        "payment.failed:" + req.PaymentID,
+		PaymentID:      req.PaymentID,
+		TraceID:        req.TraceID,
+		FailureCode:    "rail_declined",
+		FailureMessage: "payment rail declined",
+		FailedAt:       fixedTime,
+		OccurredAt:     fixedTime,
+	}); err != nil {
+		t.Fatalf("HandlePaymentFailed: %v", err)
+	}
+
+	got, err := store.GetByPaymentID(ctx, req.PaymentID)
+	if err != nil {
+		t.Fatalf("GetByPaymentID: %v", err)
+	}
+	if got.State != StateFraudReview {
+		t.Fatalf("state = %s, want %s", got.State, StateFraudReview)
+	}
+	if got.DeferredPaymentJSON == "" || !containsJSONField(got.DeferredPaymentJSON, "payment.completed:"+req.PaymentID) {
+		t.Fatalf("deferred payment = %q, want completed event JSON", got.DeferredPaymentJSON)
+	}
+	if audit, ok := store.audits["payment.completed:"+req.PaymentID]; !ok || audit.Kind != FraudAuditKindDeferredTerminal {
+		t.Fatalf("completed audit = %+v, want deferred terminal", audit)
+	}
+	if audit, ok := store.audits["payment.failed:"+req.PaymentID]; !ok || audit.Kind != FraudAuditKindInvariantViolation {
+		t.Fatalf("failed audit = %+v, want invariant violation", audit)
+	}
+}
+
 func TestResumeNonTerminalSagasContinuesFromLastDurableState(t *testing.T) {
 	ctx := context.Background()
 	store := newMemoryStore()
@@ -499,6 +599,10 @@ func startRequest() StartRequest {
 		AmountCents:    1250,
 		Currency:       "USD",
 	}
+}
+
+func containsJSONField(payload, needle string) bool {
+	return strings.Contains(payload, needle)
 }
 
 var fixedTime = time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
