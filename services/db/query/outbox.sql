@@ -1,7 +1,7 @@
 -- name: CreateOutboxEvent :one
-INSERT INTO outbox_events (topic, partition_key, payload)
-VALUES ($1, $2, $3)
-RETURNING id, topic, partition_key, payload, claimed_at, published_at, created_at;
+INSERT INTO outbox_events (topic, partition_key, payload, traceparent, tracestate)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, topic, partition_key, payload, traceparent, tracestate, claimed_at, published_at, created_at;
 
 -- name: ClaimUnpublishedOutboxEvents :many
 WITH claimed AS (
@@ -16,7 +16,7 @@ UPDATE outbox_events AS outbox
 SET claimed_at = now()
 FROM claimed
 WHERE outbox.id = claimed.id
-RETURNING outbox.id, outbox.topic, outbox.partition_key, outbox.payload, outbox.claimed_at, outbox.published_at, outbox.created_at;
+RETURNING outbox.id, outbox.topic, outbox.partition_key, outbox.payload, outbox.traceparent, outbox.tracestate, outbox.claimed_at, outbox.published_at, outbox.created_at;
 
 -- name: MarkOutboxEventPublished :exec
 UPDATE outbox_events

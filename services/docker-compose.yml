@@ -51,8 +51,20 @@ services:
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic payment.failed --partitions 1 --replication-factor 1
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic tx.completed --partitions 1 --replication-factor 1
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic tx.failed --partitions 1 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic tx.paused --partitions 1 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic fraud.score.requested --partitions 1 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic fraud.flagged --partitions 1 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic fraud.error --partitions 1 --replication-factor 1
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic user.verified --partitions 1 --replication-factor 1
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic user.rejected --partitions 1 --replication-factor 1
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "${JAEGER_UI_PORT:-16686}:16686"
+      - "${OTLP_HTTP_PORT:-4318}:4318"
 
   gateway:
     build:
@@ -68,6 +80,7 @@ services:
       LEDGER_GRPC_ADDR: ledger:9091
       SAGA_GRPC_ADDR: saga-orchestrator:9093
       VERIFICATION_GRPC_ADDR: verification:9094
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
       RATE_LIMIT_BURST: "600"
       RATE_LIMIT_REFILL_EVERY: 1s
     ports:
@@ -103,6 +116,7 @@ services:
       WALLET_OUTBOX_TOPIC: tx.initiated
       WALLET_OUTBOX_POLL_INTERVAL: 100ms
       WALLET_OUTBOX_BATCH_SIZE: "100"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
     ports:
       - "${WALLET_HTTP_PORT:-8081}:8080"
       - "${WALLET_GRPC_PORT:-9090}:9090"
@@ -133,6 +147,7 @@ services:
       LEDGER_CONSUMER_ENABLED: "true"
       LEDGER_CONSUMER_TOPIC: tx.initiated
       LEDGER_CONSUMER_GROUP_ID: ledger-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
     ports:
       - "${LEDGER_HTTP_PORT:-8082}:8080"
       - "${LEDGER_GRPC_PORT:-9091}:9091"
@@ -167,6 +182,7 @@ services:
       SAGA_CONSUMER_GROUP_ID: saga-orchestrator
       SAGA_OUTBOX_POLL_INTERVAL: 100ms
       SAGA_OUTBOX_BATCH_SIZE: "100"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
     ports:
       - "${SAGA_HTTP_PORT:-8084}:8080"
       - "${SAGA_GRPC_PORT:-9093}:9093"
@@ -221,6 +237,7 @@ services:
       PAYMENT_RAIL_TIMEOUT: 2s
       PAYMENT_PROCESSOR_OUTBOX_INTERVAL: 100ms
       PAYMENT_PROCESSOR_OUTBOX_BATCH_SIZE: "100"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
     ports:
       - "${PAYMENT_PROCESSOR_HTTP_PORT:-8085}:8080"
     depends_on:
@@ -252,6 +269,7 @@ services:
       VERIFICATION_MODE: auto
       VERIFICATION_OUTBOX_INTERVAL: 100ms
       VERIFICATION_OUTBOX_BATCH_SIZE: "100"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
     ports:
       - "${VERIFICATION_HTTP_PORT:-8086}:8080"
       - "${VERIFICATION_GRPC_PORT:-9094}:9094"
@@ -277,6 +295,7 @@ services:
       HTTP_ADDR: :8080
       KAFKA_BROKERS: kafka:9092
       NOTIFICATION_CONSUMER_GROUP: notification-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
     ports:
       - "${NOTIFICATION_HTTP_PORT:-8087}:8080"
     depends_on:

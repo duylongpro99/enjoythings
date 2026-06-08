@@ -1,8 +1,10 @@
 import json
+import inspect
 from datetime import UTC, datetime
 from typing import Any, Callable
 
 from app.fraud.dto import FraudOutcome, FraudScoreRequest
+from app.fraud.tracing import inject_kafka_context, start_span
 from app.fraud.worker import ConsumerDecision
 
 
@@ -68,13 +70,14 @@ class KafkaFraudPublisher:
     async def _send(
         self, topic: str, key: str, event: dict[str, object], *, trace_id: str
     ) -> None:
-        headers = [("traceparent", trace_id.encode())] if trace_id else []
-        await self._producer.send_and_wait(
-            topic,
-            value=json.dumps(event, separators=(",", ":")).encode(),
-            key=key.encode(),
-            headers=headers,
-        )
+        with start_span("fraud.kafka.publish", topic=topic, operation="produce", payment_id=str(event.get("payment_id", ""))):
+            headers = inject_kafka_context([])
+            await self._producer.send_and_wait(
+                topic,
+                value=json.dumps(event, separators=(",", ":")).encode(),
+                key=key.encode(),
+                headers=headers,
+            )
 
 
 class KafkaWorkerRunner:
@@ -88,7 +91,7 @@ class KafkaWorkerRunner:
             async for record in self._consumer:
                 if self._stopping:
                     break
-                decision = await self._worker.handle_payload(record.value)
+                decision = await self._handle_record(record)
                 if decision == ConsumerDecision.COMMIT:
                     await self._consumer.commit_record(record)
         finally:
@@ -96,6 +99,12 @@ class KafkaWorkerRunner:
 
     async def shutdown(self) -> None:
         self._stopping = True
+
+    async def _handle_record(self, record: Any) -> ConsumerDecision:
+        handle_payload = self._worker.handle_payload
+        if "headers" in inspect.signature(handle_payload).parameters:
+            return await handle_payload(record.value, headers=getattr(record, "headers", None))
+        return await handle_payload(record.value)
 
 
 class AIOKafkaConsumerAdapter:

@@ -17,6 +17,7 @@ from app.fraud.integrations.kafka import (
 from app.fraud.repo.postgres import PostgresFraudSessionStore
 from app.fraud.runtime import WorkerHealth, WorkerRuntime, provider_configuration_ready
 from app.fraud.service import FraudScoringService
+from app.fraud.tracing import init_tracing
 from app.fraud.worker import FraudWorker
 from app.llm.config import load_provider_registry_config
 from app.llm.registry import DriverRegistry
@@ -25,6 +26,7 @@ from app.llm.registry import DriverRegistry
 async def build_runtime(environ=None) -> WorkerRuntime:
     source = environ if environ is not None else os.environ
     config = FraudConfig.from_env(source)
+    shutdown_tracing = init_tracing("fraud-worker", source)
     provider_config = load_provider_registry_config(source)
     registry = DriverRegistry.from_config(provider_config)
     provider = next(
@@ -60,6 +62,7 @@ async def build_runtime(environ=None) -> WorkerRuntime:
         database=store,
         grpc_clients=grpc_channels,
         producer=producer,
+        tracing_shutdown=shutdown_tracing,
     )
     runtime.health = WorkerHealth(
         kafka_check=consumer_adapter.connectivity_ready,

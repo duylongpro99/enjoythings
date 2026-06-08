@@ -7,8 +7,10 @@ import (
 
 	"enjoythings/services/internal/event"
 	"enjoythings/services/internal/saga"
+	"enjoythings/services/internal/telemetry"
 
 	"github.com/twmb/franz-go/pkg/kgo"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -41,6 +43,9 @@ func New(app App, committer Committer, logger *slog.Logger) *Consumer {
 }
 
 func (consumer *Consumer) HandleRecord(ctx context.Context, record *kgo.Record) error {
+	ctx = telemetry.ExtractKafka(ctx, record)
+	ctx, span := telemetry.Tracer().Start(ctx, "kafka.consume", trace.WithSpanKind(trace.SpanKindConsumer), trace.WithAttributes(telemetry.SafeAttributes("messaging.kafka.topic", record.Topic, "operation", "consume")...))
+	defer span.End()
 	switch record.Topic {
 	case PaymentCompletedTopic:
 		var event saga.PaymentCompleted
@@ -49,6 +54,7 @@ func (consumer *Consumer) HandleRecord(ctx context.Context, record *kgo.Record) 
 			return consumer.commit(ctx, record)
 		}
 		if err := consumer.app.HandlePaymentCompleted(ctx, event); err != nil {
+			telemetry.RecordError(span, err)
 			return err
 		}
 	case PaymentFailedTopic:
@@ -58,6 +64,7 @@ func (consumer *Consumer) HandleRecord(ctx context.Context, record *kgo.Record) 
 			return consumer.commit(ctx, record)
 		}
 		if err := consumer.app.HandlePaymentFailed(ctx, event); err != nil {
+			telemetry.RecordError(span, err)
 			return err
 		}
 	case event.FraudFlaggedTopic:
@@ -67,6 +74,7 @@ func (consumer *Consumer) HandleRecord(ctx context.Context, record *kgo.Record) 
 			return consumer.commit(ctx, record)
 		}
 		if err := consumer.app.HandleFraudFlagged(ctx, flagged); err != nil {
+			telemetry.RecordError(span, err)
 			return err
 		}
 	default:

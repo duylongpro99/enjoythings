@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from app.fraud.dto import FraudOutcome, FraudScoreRequest, FraudSession
 from app.fraud.ports import FraudSessionStore
+from app.fraud.tracing import extract_kafka_context, start_span
 
 
 class TransportClassification(StrEnum):
@@ -64,12 +65,17 @@ class FraudWorker:
         self._lease_renew_interval_seconds = lease_renew_interval_seconds
         self._telemetry = telemetry or FraudWorkerTelemetry()
 
-    async def handle_payload(self, payload: bytes) -> ConsumerDecision:
-        parsed = classify_transport_payload(payload)
-        if parsed.classification != TransportClassification.VALID or parsed.request is None:
-            self._telemetry.malformed_record()
-            return ConsumerDecision.COMMIT
-        request = parsed.request
+    async def handle_payload(self, payload: bytes, headers=None) -> ConsumerDecision:
+        context = extract_kafka_context(headers)
+        with start_span("fraud.worker.consume", context=context, operation="consume"):
+            parsed = classify_transport_payload(payload)
+            if parsed.classification != TransportClassification.VALID or parsed.request is None:
+                self._telemetry.malformed_record()
+                return ConsumerDecision.COMMIT
+            request = parsed.request
+            return await self._handle_request(request)
+
+    async def _handle_request(self, request: FraudScoreRequest) -> ConsumerDecision:
         session: FraudSession | None = None
         heartbeat: asyncio.Task[None] | None = None
         try:

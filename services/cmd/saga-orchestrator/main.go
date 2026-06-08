@@ -20,7 +20,10 @@ import (
 	"enjoythings/services/internal/saga"
 	"enjoythings/services/internal/sagaconsumer"
 	"enjoythings/services/internal/sagagrpc"
+	"enjoythings/services/internal/telemetry"
 
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -40,6 +43,11 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	shutdownTracing, err := telemetry.Init(ctx, "saga-orchestrator", cfg.AppEnv)
+	if err != nil {
+		slog.Warn("telemetry init failed", "error", err)
+	}
+	defer func() { _ = shutdownTracing(context.Background()) }()
 
 	db, err := repo.Connect(ctx, cfg.DatabaseURL, cfg.DBMaxConns)
 	if err != nil {
@@ -50,17 +58,17 @@ func run() error {
 		return err
 	}
 
-	walletConn, err := grpc.NewClient(cfg.WalletGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	walletConn, err := grpc.NewClient(cfg.WalletGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithStatsHandler(otelgrpc.NewClientHandler()))
 	if err != nil {
 		return err
 	}
 	defer walletConn.Close()
-	ledgerConn, err := grpc.NewClient(cfg.LedgerGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	ledgerConn, err := grpc.NewClient(cfg.LedgerGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithStatsHandler(otelgrpc.NewClientHandler()))
 	if err != nil {
 		return err
 	}
 	defer ledgerConn.Close()
-	verificationConn, err := grpc.NewClient(cfg.VerificationGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	verificationConn, err := grpc.NewClient(cfg.VerificationGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithStatsHandler(otelgrpc.NewClientHandler()))
 	if err != nil {
 		return err
 	}
@@ -110,7 +118,7 @@ func run() error {
 	}
 	defer listener.Close()
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()))
 	sagav1.RegisterSagaServiceServer(grpcServer, sagagrpc.NewServer(orchestrator))
 	httpServer := healthServer(cfg.HTTPAddr, db)
 
@@ -171,7 +179,7 @@ func healthServer(addr string, db *repo.Database) *http.Server {
 	mux.Handle("/readyz", healthhandler.Ready(db))
 	return &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           otelhttp.NewHandler(mux, "saga.health.http"),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 }

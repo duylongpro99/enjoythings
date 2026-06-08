@@ -5,7 +5,12 @@ import (
 	"log/slog"
 	"time"
 
+	"enjoythings/services/internal/telemetry"
+
 	"github.com/google/uuid"
+	"github.com/twmb/franz-go/pkg/kgo"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -19,7 +24,7 @@ type Store interface {
 }
 
 type Producer interface {
-	Produce(ctx context.Context, topic string, key, value []byte) error
+	Produce(ctx context.Context, topic string, key, value []byte, headers []kgo.RecordHeader) error
 }
 
 type PublisherConfig struct {
@@ -72,7 +77,22 @@ func (publisher *Publisher) PublishBatch(ctx context.Context) (int, error) {
 
 	published := 0
 	for _, event := range events {
-		if err := publisher.producer.Produce(ctx, event.Topic, []byte(event.PartitionKey), event.Payload); err != nil {
+		eventCtx := event.Context(ctx)
+		eventCtx, span := telemetry.Tracer().Start(
+			eventCtx,
+			"kafka.produce",
+			trace.WithSpanKind(trace.SpanKindProducer),
+			trace.WithAttributes(telemetry.SafeAttributes(
+				"messaging.kafka.topic", event.Topic,
+				"operation", "produce",
+			)...),
+		)
+		headers := event.Headers()
+		record := &kgo.Record{Headers: headers}
+		telemetry.InjectKafka(eventCtx, record)
+		err := publisher.producer.Produce(eventCtx, event.Topic, []byte(event.PartitionKey), event.Payload, record.Headers)
+		if err != nil {
+			telemetry.RecordError(span, err)
 			publisher.logger.Error(
 				"outbox publish failed",
 				"outbox_id", event.ID,
@@ -80,8 +100,10 @@ func (publisher *Publisher) PublishBatch(ctx context.Context) (int, error) {
 				"partition_key", event.PartitionKey,
 				"error", err,
 			)
+			span.End()
 			return published, err
 		}
+		span.End()
 		if err := publisher.store.MarkPublished(ctx, event.ID); err != nil {
 			publisher.logger.Error(
 				"outbox mark published failed",
@@ -95,4 +117,26 @@ func (publisher *Publisher) PublishBatch(ctx context.Context) (int, error) {
 		published++
 	}
 	return published, nil
+}
+
+func (event Event) Context(ctx context.Context) context.Context {
+	carrier := propagation.MapCarrier{}
+	if event.Traceparent != "" {
+		carrier.Set(telemetry.TraceparentHeader, event.Traceparent)
+	}
+	if event.Tracestate != "" {
+		carrier.Set(telemetry.TracestateHeader, event.Tracestate)
+	}
+	return telemetry.ExtractTextMap(ctx, carrier)
+}
+
+func (event Event) Headers() []kgo.RecordHeader {
+	headers := make([]kgo.RecordHeader, 0, 2)
+	if event.Traceparent != "" {
+		headers = append(headers, kgo.RecordHeader{Key: telemetry.TraceparentHeader, Value: []byte(event.Traceparent)})
+	}
+	if event.Tracestate != "" {
+		headers = append(headers, kgo.RecordHeader{Key: telemetry.TracestateHeader, Value: []byte(event.Tracestate)})
+	}
+	return headers
 }

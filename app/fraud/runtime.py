@@ -41,12 +41,13 @@ class WorkerHealth:
 
 class WorkerRuntime:
     def __init__(
-        self, *, runner, database, grpc_clients=(), producer=None, health=None
+        self, *, runner, database, grpc_clients=(), producer=None, health=None, tracing_shutdown=None
     ) -> None:
         self._runner = runner
         self._database = database
         self._grpc_clients = tuple(grpc_clients)
         self._producer = producer
+        self._tracing_shutdown = tracing_shutdown
         self.health = health
         self._run_task: asyncio.Task | None = None
         self._live = False
@@ -74,6 +75,10 @@ class WorkerRuntime:
             await _close(client)
         if self._producer is not None:
             await _close(self._producer, method="stop")
+        if self._tracing_shutdown is not None:
+            result = self._tracing_shutdown()
+            if inspect.isawaitable(result):
+                await result
         await _close(self._database)
 
     def is_live(self) -> bool:

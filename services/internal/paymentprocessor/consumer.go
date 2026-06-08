@@ -6,8 +6,10 @@ import (
 	"log/slog"
 
 	"enjoythings/services/internal/saga"
+	"enjoythings/services/internal/telemetry"
 
 	"github.com/twmb/franz-go/pkg/kgo"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type PaymentExecute = saga.PaymentExecute
@@ -34,6 +36,9 @@ func NewConsumer(app App, committer Committer, logger *slog.Logger) *Consumer {
 }
 
 func (consumer *Consumer) HandleRecord(ctx context.Context, record *kgo.Record) error {
+	ctx = telemetry.ExtractKafka(ctx, record)
+	ctx, span := telemetry.Tracer().Start(ctx, "kafka.consume", trace.WithSpanKind(trace.SpanKindConsumer), trace.WithAttributes(telemetry.SafeAttributes("messaging.kafka.topic", record.Topic, "operation", "consume")...))
+	defer span.End()
 	if record.Topic != PaymentExecuteTopic {
 		consumer.logger.Warn("payment processor skipped unknown topic", "topic", record.Topic)
 		return consumer.commit(ctx, record)
@@ -44,6 +49,7 @@ func (consumer *Consumer) HandleRecord(ctx context.Context, record *kgo.Record) 
 		return consumer.commit(ctx, record)
 	}
 	if err := consumer.app.HandleExecute(ctx, command); err != nil {
+		telemetry.RecordError(span, err)
 		return err
 	}
 	return consumer.commit(ctx, record)
