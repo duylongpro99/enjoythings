@@ -8,6 +8,9 @@ import (
 	"time"
 
 	"enjoythings/services/internal/event"
+	"enjoythings/services/internal/telemetry"
+
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Store interface {
@@ -91,7 +94,21 @@ func (orchestrator *Orchestrator) SetOutbox(outbox Outbox) {
 	}
 }
 
+func (orchestrator *Orchestrator) startSpan(ctx context.Context, name, paymentID string) (context.Context, trace.Span) {
+	return telemetry.Tracer().Start(
+		ctx,
+		name,
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(telemetry.SafeAttributes(
+			"payment.id", paymentID,
+			"operation", name,
+		)...),
+	)
+}
+
 func (orchestrator *Orchestrator) StartPaymentSaga(ctx context.Context, req StartRequest) (Saga, error) {
+	ctx, span := orchestrator.startSpan(ctx, "saga.start", req.PaymentID)
+	defer span.End()
 	now := orchestrator.clock.Now()
 	created, err := orchestrator.store.Create(ctx, Saga{
 		PaymentID:      req.PaymentID,
@@ -107,6 +124,7 @@ func (orchestrator *Orchestrator) StartPaymentSaga(ctx context.Context, req Star
 		UpdatedAt:      now,
 	})
 	if err != nil {
+		telemetry.RecordError(span, err)
 		return Saga{}, err
 	}
 	if created.State != StateStarted {
@@ -133,8 +151,11 @@ func (orchestrator *Orchestrator) ResumeNonTerminal(ctx context.Context) error {
 }
 
 func (orchestrator *Orchestrator) HandlePaymentCompleted(ctx context.Context, event PaymentCompleted) error {
+	ctx, span := orchestrator.startSpan(ctx, "saga.payment_completed", event.PaymentID)
+	defer span.End()
 	current, err := orchestrator.store.GetByPaymentID(ctx, event.PaymentID)
 	if err != nil {
+		telemetry.RecordError(span, err)
 		return err
 	}
 	if current.State == StateCompleted {
@@ -168,6 +189,7 @@ func (orchestrator *Orchestrator) HandlePaymentCompleted(ctx context.Context, ev
 		WalletDebitID:       current.WalletDebitID,
 	})
 	if err != nil {
+		telemetry.RecordError(span, err)
 		return err
 	}
 	now := orchestrator.clock.Now()
@@ -176,20 +198,28 @@ func (orchestrator *Orchestrator) HandlePaymentCompleted(ctx context.Context, ev
 	current.UpdatedAt = now
 	current, err = orchestrator.store.Update(ctx, current)
 	if err != nil {
+		telemetry.RecordError(span, err)
 		return err
 	}
 	if err := orchestrator.publishTxCompleted(ctx, current, traceID(event.TraceID, current.TraceID), nonZeroTime(confirmed.CompletedAt, now)); err != nil {
+		telemetry.RecordError(span, err)
 		return err
 	}
 	current.State = StateCompleted
 	current.UpdatedAt = now
 	_, err = orchestrator.store.Update(ctx, current)
+	if err != nil {
+		telemetry.RecordError(span, err)
+	}
 	return err
 }
 
 func (orchestrator *Orchestrator) HandlePaymentFailed(ctx context.Context, event PaymentFailed) error {
+	ctx, span := orchestrator.startSpan(ctx, "saga.payment_failed", event.PaymentID)
+	defer span.End()
 	current, err := orchestrator.store.GetByPaymentID(ctx, event.PaymentID)
 	if err != nil {
+		telemetry.RecordError(span, err)
 		return err
 	}
 	if current.State == StateFailed {
@@ -222,6 +252,7 @@ func (orchestrator *Orchestrator) HandlePaymentFailed(ctx context.Context, event
 	current.UpdatedAt = now
 	current, err = orchestrator.store.Update(ctx, current)
 	if err != nil {
+		telemetry.RecordError(span, err)
 		return err
 	}
 	if err := orchestrator.ledger.CancelReservation(ctx, LedgerCancelRequest{
@@ -231,12 +262,14 @@ func (orchestrator *Orchestrator) HandlePaymentFailed(ctx context.Context, event
 		LedgerReservationID: current.LedgerReservationID,
 		Reason:              event.FailureMessage,
 	}); err != nil {
+		telemetry.RecordError(span, err)
 		return err
 	}
 	current.State = StateCompensatingWallet
 	current.UpdatedAt = now
 	current, err = orchestrator.store.Update(ctx, current)
 	if err != nil {
+		telemetry.RecordError(span, err)
 		return err
 	}
 	if err := orchestrator.wallet.CompensateDebit(ctx, WalletCompensateRequest{
@@ -249,18 +282,27 @@ func (orchestrator *Orchestrator) HandlePaymentFailed(ctx context.Context, event
 		Currency:       current.Currency,
 		Reason:         event.FailureMessage,
 	}); err != nil {
+		telemetry.RecordError(span, err)
 		return err
 	}
 	current.State = StateFailed
 	current.UpdatedAt = now
 	current, err = orchestrator.store.Update(ctx, current)
 	if err != nil {
+		telemetry.RecordError(span, err)
 		return err
 	}
-	return orchestrator.publishTxFailed(ctx, current, traceID(event.TraceID, current.TraceID), nonZeroTime(event.FailedAt, now))
+	err = orchestrator.publishTxFailed(ctx, current, traceID(event.TraceID, current.TraceID), nonZeroTime(event.FailedAt, now))
+	if err != nil {
+		telemetry.RecordError(span, err)
+	}
+	return err
 }
 
 func (orchestrator *Orchestrator) advance(ctx context.Context, current Saga) (Saga, error) {
+	ctx, span := orchestrator.startSpan(ctx, "saga.advance", current.PaymentID)
+	defer span.End()
+	span.SetAttributes(telemetry.SafeAttributes("outcome", current.State)...)
 	if current.State == StateStarted {
 		verification, err := orchestrator.verification.GetStatus(ctx, VerificationRequest{
 			UserID:  current.UserID,
@@ -374,15 +416,26 @@ func (orchestrator *Orchestrator) advance(ctx context.Context, current Saga) (Sa
 }
 
 func (orchestrator *Orchestrator) updateWithOutbox(ctx context.Context, current Saga, events []OutboxRecord) (Saga, error) {
+	ctx, span := orchestrator.startSpan(ctx, "saga.outbox", current.PaymentID)
+	defer span.End()
 	if store, ok := orchestrator.store.(atomicOutboxStore); ok {
-		return store.UpdateWithOutbox(ctx, current, events)
+		updated, err := store.UpdateWithOutbox(ctx, current, events)
+		if err != nil {
+			telemetry.RecordError(span, err)
+		}
+		return updated, err
 	}
 	for _, record := range events {
 		if err := orchestrator.outbox.Enqueue(ctx, record.Topic, record.PartitionKey, record.Payload); err != nil {
+			telemetry.RecordError(span, err)
 			return Saga{}, err
 		}
 	}
-	return orchestrator.store.Update(ctx, current)
+	updated, err := orchestrator.store.Update(ctx, current)
+	if err != nil {
+		telemetry.RecordError(span, err)
+	}
+	return updated, err
 }
 
 func (orchestrator *Orchestrator) updateWithAudit(ctx context.Context, current Saga, audit FraudAuditRecord) (Saga, error) {
@@ -400,19 +453,28 @@ func (orchestrator *Orchestrator) updateWithAudit(ctx context.Context, current S
 }
 
 func (orchestrator *Orchestrator) updateWithOutboxAndAudit(ctx context.Context, current Saga, events []OutboxRecord, audit FraudAuditRecord) (Saga, error) {
+	ctx, span := orchestrator.startSpan(ctx, "saga.outbox_audit", current.PaymentID)
+	defer span.End()
 	if store, ok := orchestrator.store.(auditOutboxStore); ok {
-		return store.UpdateWithOutboxAndAudit(ctx, current, events, audit)
+		updated, err := store.UpdateWithOutboxAndAudit(ctx, current, events, audit)
+		if err != nil {
+			telemetry.RecordError(span, err)
+		}
+		return updated, err
 	}
 	for _, record := range events {
 		if err := orchestrator.outbox.Enqueue(ctx, record.Topic, record.PartitionKey, record.Payload); err != nil {
+			telemetry.RecordError(span, err)
 			return Saga{}, err
 		}
 	}
 	updated, err := orchestrator.store.Update(ctx, current)
 	if err != nil {
+		telemetry.RecordError(span, err)
 		return Saga{}, err
 	}
 	if err := orchestrator.recordFraudAudit(ctx, audit); err != nil {
+		telemetry.RecordError(span, err)
 		return Saga{}, err
 	}
 	return updated, nil
@@ -426,7 +488,11 @@ func (orchestrator *Orchestrator) recordFraudAudit(ctx context.Context, audit Fr
 }
 
 func (orchestrator *Orchestrator) HandleFraudFlagged(ctx context.Context, flagged event.FraudFlagged) error {
+	ctx, span := orchestrator.startSpan(ctx, "saga.fraud_flagged", flagged.PaymentID)
+	defer span.End()
+	span.SetAttributes(telemetry.SafeAttributes("verdict.action", flagged.Action)...)
 	if err := flagged.Validate(); err != nil {
+		telemetry.RecordError(span, err)
 		return err
 	}
 	current, err := orchestrator.store.GetByPaymentID(ctx, flagged.PaymentID)
@@ -441,6 +507,7 @@ func (orchestrator *Orchestrator) HandleFraudFlagged(ctx context.Context, flagge
 				CreatedAt:   orchestrator.clock.Now(),
 			})
 		}
+		telemetry.RecordError(span, err)
 		return err
 	}
 	now := orchestrator.clock.Now()

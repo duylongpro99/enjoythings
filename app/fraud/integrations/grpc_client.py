@@ -8,6 +8,7 @@ from app.fraud.integrations.gen.ledger.v1 import ledger_pb2_grpc
 from app.fraud.integrations.gen.verification.v1 import verification_pb2
 from app.fraud.integrations.gen.verification.v1 import verification_pb2_grpc
 from app.fraud.ports import FraudDataPort
+from app.fraud.tracing import start_span, trace_metadata
 
 RPC_TIMEOUT_SECONDS = 2.0
 UNAVAILABLE_RETRY_DELAY_SECONDS = 0.1
@@ -94,12 +95,14 @@ class GrpcFraudDataClient(FraudDataPort):
     def _call_with_retry(
         self, method, request, trace_id: str, *, not_found_is_none: bool = False
     ):
+        rpc_name = getattr(method, "__name__", "grpc_call")
         try:
-            return method(
-                request,
-                timeout=RPC_TIMEOUT_SECONDS,
-                metadata=_trace_metadata(trace_id),
-            )
+            with start_span(f"fraud.grpc.{rpc_name}", operation="grpc"):
+                return method(
+                    request,
+                    timeout=RPC_TIMEOUT_SECONDS,
+                    metadata=_trace_metadata(trace_id),
+                )
         except Exception as exc:
             if not_found_is_none and _rpc_code_name(exc) == "NOT_FOUND":
                 return None
@@ -107,11 +110,12 @@ class GrpcFraudDataClient(FraudDataPort):
                 raise _enrichment_error(exc) from exc
             time.sleep(UNAVAILABLE_RETRY_DELAY_SECONDS)
         try:
-            return method(
-                request,
-                timeout=RPC_TIMEOUT_SECONDS,
-                metadata=_trace_metadata(trace_id),
-            )
+            with start_span(f"fraud.grpc.{rpc_name}", operation="grpc"):
+                return method(
+                    request,
+                    timeout=RPC_TIMEOUT_SECONDS,
+                    metadata=_trace_metadata(trace_id),
+                )
         except Exception as exc:
             if not_found_is_none and _rpc_code_name(exc) == "NOT_FOUND":
                 return None
@@ -119,9 +123,7 @@ class GrpcFraudDataClient(FraudDataPort):
 
 
 def _trace_metadata(trace_id: str) -> tuple[tuple[str, str], ...]:
-    if not trace_id:
-        return ()
-    return (("traceparent", trace_id),)
+    return trace_metadata()
 
 
 def _rpc_code_name(exc: Exception) -> str:

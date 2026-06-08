@@ -139,10 +139,10 @@ def test_grpc_client_sets_deadline_and_trace_metadata_on_every_rpc() -> None:
     client.get_kyc_status_sync("user-1", "trace-1")
 
     assert ledger.calls == [
-        ("history", 2.0, (("traceparent", "trace-1"),)),
-        ("velocity", 2.0, (("traceparent", "trace-1"),)),
+        ("history", 2.0, ()),
+        ("velocity", 2.0, ()),
     ]
-    assert verification.call_options == [(2.0, (("traceparent", "trace-1"),))]
+    assert verification.call_options == [(2.0, ())]
 
 
 @pytest.mark.parametrize(

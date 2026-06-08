@@ -10,9 +10,11 @@ import (
 	"enjoythings/services/internal/domain"
 	"enjoythings/services/internal/event"
 	"enjoythings/services/internal/repo"
+	"enjoythings/services/internal/telemetry"
 
 	"github.com/google/uuid"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -43,6 +45,9 @@ func New(store Store, committer Committer, logger *slog.Logger) *Consumer {
 }
 
 func (consumer *Consumer) HandleRecord(ctx context.Context, record *kgo.Record) error {
+	ctx = telemetry.ExtractKafka(ctx, record)
+	ctx, span := telemetry.Tracer().Start(ctx, "kafka.consume", trace.WithSpanKind(trace.SpanKindConsumer), trace.WithAttributes(telemetry.SafeAttributes("messaging.kafka.topic", record.Topic, "operation", "consume")...))
+	defer span.End()
 	transfer, err := decodeTransfer(record.Value)
 	if err != nil {
 		consumer.logger.Warn("ledger consumer skipped invalid tx.initiated event", "topic", record.Topic, "partition", record.Partition, "offset", record.Offset, "error", err)
@@ -50,6 +55,7 @@ func (consumer *Consumer) HandleRecord(ctx context.Context, record *kgo.Record) 
 	}
 
 	if err := consumer.store.AppendTransferEntries(ctx, transfer); err != nil {
+		telemetry.RecordError(span, err)
 		return err
 	}
 	return consumer.commit(ctx, record)

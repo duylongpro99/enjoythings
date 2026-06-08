@@ -25,6 +25,7 @@ func NewPoolConfig(databaseURL string, maxConns int32) (*pgxpool.Config, error) 
 		return nil, err
 	}
 	cfg.MaxConns = maxConns
+	cfg.ConnConfig.Tracer = pgxQueryTracer{}
 	return cfg, nil
 }
 

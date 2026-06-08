@@ -5,7 +5,10 @@ import (
 	"errors"
 	"log/slog"
 
+	"enjoythings/services/internal/telemetry"
+
 	"github.com/twmb/franz-go/pkg/kgo"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type App interface {
@@ -30,6 +33,9 @@ func NewConsumer(app App, committer Committer, logger *slog.Logger) *Consumer {
 }
 
 func (consumer *Consumer) HandleRecord(ctx context.Context, record *kgo.Record) error {
+	ctx = telemetry.ExtractKafka(ctx, record)
+	ctx, span := telemetry.Tracer().Start(ctx, "kafka.consume", trace.WithSpanKind(trace.SpanKindConsumer), trace.WithAttributes(telemetry.SafeAttributes("messaging.kafka.topic", record.Topic, "operation", "consume")...))
+	defer span.End()
 	if !IsSupportedTopic(record.Topic) {
 		consumer.logger.Warn("notification skipped unknown topic", "topic", record.Topic)
 		return consumer.commit(ctx, record)
@@ -39,6 +45,7 @@ func (consumer *Consumer) HandleRecord(ctx context.Context, record *kgo.Record) 
 			consumer.logger.Warn("notification skipped invalid event", "topic", record.Topic, "error", err)
 			return consumer.commit(ctx, record)
 		}
+		telemetry.RecordError(span, err)
 		return err
 	}
 	return consumer.commit(ctx, record)

@@ -5,9 +5,12 @@ import (
 	"time"
 
 	"enjoythings/services/internal/repo/queries"
+	"enjoythings/services/internal/telemetry"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Event struct {
@@ -15,6 +18,8 @@ type Event struct {
 	Topic        string
 	PartitionKey string
 	Payload      []byte
+	Traceparent  string
+	Tracestate   string
 	ClaimedAt    *time.Time
 	PublishedAt  *time.Time
 	CreatedAt    time.Time
@@ -29,12 +34,27 @@ func NewRepository(db queries.DBTX) *Repository {
 }
 
 func (repo *Repository) Enqueue(ctx context.Context, topic, partitionKey string, payload []byte) (Event, error) {
+	carrier := propagation.MapCarrier{}
+	telemetry.InjectTextMap(ctx, carrier)
+	ctx, span := telemetry.Tracer().Start(
+		ctx,
+		"outbox.enqueue",
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(telemetry.SafeAttributes(
+			"messaging.kafka.topic", topic,
+			"operation", "enqueue",
+		)...),
+	)
+	defer span.End()
 	row, err := repo.queries.CreateOutboxEvent(ctx, queries.CreateOutboxEventParams{
 		Topic:        topic,
 		PartitionKey: partitionKey,
 		Payload:      payload,
+		Traceparent:  carrier.Get(telemetry.TraceparentHeader),
+		Tracestate:   carrier.Get(telemetry.TracestateHeader),
 	})
 	if err != nil {
+		telemetry.RecordError(span, err)
 		return Event{}, err
 	}
 	return eventFromQuery(row), nil
@@ -65,6 +85,8 @@ func eventFromQuery(row queries.OutboxEvent) Event {
 		Topic:        row.Topic,
 		PartitionKey: row.PartitionKey,
 		Payload:      append([]byte(nil), row.Payload...),
+		Traceparent:  row.Traceparent,
+		Tracestate:   row.Tracestate,
 		ClaimedAt:    timeFromPG(row.ClaimedAt),
 		PublishedAt:  timeFromPG(row.PublishedAt),
 		CreatedAt:    row.CreatedAt.Time,

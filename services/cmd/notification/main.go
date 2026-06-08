@@ -14,6 +14,9 @@ import (
 	"enjoythings/services/internal/config"
 	healthhandler "enjoythings/services/internal/handler"
 	"enjoythings/services/internal/notification"
+	"enjoythings/services/internal/telemetry"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 func main() {
@@ -31,6 +34,11 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	shutdownTracing, err := telemetry.Init(ctx, "notification", cfg.AppEnv)
+	if err != nil {
+		slog.Warn("telemetry init failed", "error", err)
+	}
+	defer func() { _ = shutdownTracing(context.Background()) }()
 
 	email := notification.NewStubEmailAdapter(slog.Default())
 	sms := notification.NewStubSMSAdapter(slog.Default())
@@ -83,7 +91,7 @@ func healthServer(addr string) *http.Server {
 	mux.Handle("/readyz", healthhandler.Health())
 	return &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           otelhttp.NewHandler(mux, "notification.health.http"),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 }

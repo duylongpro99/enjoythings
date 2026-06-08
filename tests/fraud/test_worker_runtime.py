@@ -19,7 +19,7 @@ def test_kafka_publisher_emits_stable_sanitized_flagged_event() -> None:
 
     asyncio.run(publisher.publish_flagged(request, outcome, session_id="session-1"))
 
-    topic, value, key = producer.sent[0]
+    topic, value, key, headers = producer.sent[0]
     event = json.loads(value)
     assert topic == "fraud.flagged"
     assert key == b"payment-1"
@@ -27,6 +27,7 @@ def test_kafka_publisher_emits_stable_sanitized_flagged_event() -> None:
     assert event["session_id"] == "session-1"
     assert "private-user" not in value.decode()
     assert "private-wallet" not in value.decode()
+    assert dict(headers).get("traceparent") != b"trace-1"
 
 
 def test_runner_commits_only_commit_decisions_and_stops_polling() -> None:
@@ -137,7 +138,7 @@ class FakeProducer:
         self.sent = []
 
     async def send_and_wait(self, topic, *, value, key, headers):
-        self.sent.append((topic, value, key))
+        self.sent.append((topic, value, key, headers))
 
 
 class FakeRecord:

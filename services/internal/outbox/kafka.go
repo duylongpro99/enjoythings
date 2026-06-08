@@ -18,11 +18,12 @@ func NewKafkaProducer(brokers []string) (*KafkaProducer, error) {
 	return &KafkaProducer{client: client}, nil
 }
 
-func (producer *KafkaProducer) Produce(ctx context.Context, topic string, key, value []byte) error {
+func (producer *KafkaProducer) Produce(ctx context.Context, topic string, key, value []byte, headers []kgo.RecordHeader) error {
 	record := &kgo.Record{
-		Topic: topic,
-		Key:   key,
-		Value: value,
+		Topic:   topic,
+		Key:     key,
+		Value:   value,
+		Headers: headers,
 	}
 	return producer.client.ProduceSync(ctx, record).FirstErr()
 }

@@ -16,6 +16,9 @@ import (
 	"enjoythings/services/internal/outbox"
 	"enjoythings/services/internal/paymentprocessor"
 	"enjoythings/services/internal/repo"
+	"enjoythings/services/internal/telemetry"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 func main() {
@@ -33,6 +36,11 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	shutdownTracing, err := telemetry.Init(ctx, "payment-processor", cfg.AppEnv)
+	if err != nil {
+		slog.Warn("telemetry init failed", "error", err)
+	}
+	defer func() { _ = shutdownTracing(context.Background()) }()
 
 	db, err := repo.Connect(ctx, cfg.DatabaseURL, cfg.DBMaxConns)
 	if err != nil {
@@ -60,7 +68,7 @@ func run() error {
 	)
 	go publisher.Run(ctx)
 
-	rail := paymentprocessor.NewHTTPRail(cfg.PaymentRailURL, &http.Client{Timeout: cfg.PaymentRailTimeout})
+	rail := paymentprocessor.NewHTTPRail(cfg.PaymentRailURL, &http.Client{Timeout: cfg.PaymentRailTimeout, Transport: otelhttp.NewTransport(http.DefaultTransport)})
 	processor := paymentprocessor.NewProcessor(
 		db.PaymentAttemptStore(),
 		rail,
@@ -124,7 +132,7 @@ func healthServer(addr string, db *repo.Database) *http.Server {
 	mux.Handle("/readyz", healthhandler.Ready(db))
 	return &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           otelhttp.NewHandler(mux, "payment-processor.health.http"),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 }

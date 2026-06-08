@@ -18,6 +18,7 @@ from app.fraud.dto import (
 from app.fraud.guards import guard_prompt
 from app.fraud.instruction import SYSTEM_INSTRUCTION
 from app.fraud.ports import CompletionPort, FraudDataPort, FraudSessionStore
+from app.fraud.tracing import start_span
 from app.fraud.validator import ValidationResult, validate_verdict
 from app.llm.types import ChatMessage
 
@@ -118,69 +119,78 @@ class FraudScoringGraph:
         return graph.compile()
 
     async def _node_create_session(self, state: GraphState) -> GraphState:
-        await self._create_session(state)
-        if state.session and state.session.completed and state.session.outcome:
-            state.outcome = state.session.outcome
-            state.next_step = "done"
-        else:
-            state.next_step = "build_sanitized_context"
+        with start_span("fraud.graph.create_session", payment_id=state.request.payment_id):
+            await self._create_session(state)
+            if state.session and state.session.completed and state.session.outcome:
+                state.outcome = state.session.outcome
+                state.next_step = "done"
+            else:
+                state.next_step = "build_sanitized_context"
         return state
 
     async def _node_build_sanitized_context(self, state: GraphState) -> GraphState:
-        await self._build_sanitized_context(state)
-        state.next_step = "enrich_transaction"
+        with start_span("fraud.graph.build_sanitized_context", payment_id=state.request.payment_id, fraud_session_id=_session_id(state)):
+            await self._build_sanitized_context(state)
+            state.next_step = "enrich_transaction"
         return state
 
     async def _node_enrich_transaction(self, state: GraphState) -> GraphState:
-        try:
-            await self._enrich_transaction(state)
-            state.next_step = "build_prompt"
-        except Exception:
-            state.outcome = FraudOutcome(action=None, reason_code="enrichment_failed")
-            state.next_step = "complete_session"
+        with start_span("fraud.graph.enrich_transaction", payment_id=state.request.payment_id, fraud_session_id=_session_id(state)):
+            try:
+                await self._enrich_transaction(state)
+                state.next_step = "build_prompt"
+            except Exception:
+                state.outcome = FraudOutcome(action=None, reason_code="enrichment_failed")
+                state.next_step = "complete_session"
         return state
 
     async def _node_build_prompt(self, state: GraphState) -> GraphState:
-        await self._build_prompt(state)
-        state.next_step = "input_guard"
+        with start_span("fraud.graph.build_prompt", payment_id=state.request.payment_id, fraud_session_id=_session_id(state)):
+            await self._build_prompt(state)
+            state.next_step = "input_guard"
         return state
 
     async def _node_input_guard(self, state: GraphState) -> GraphState:
-        rejection = await self._input_guard(state, attempt=state.attempt)
-        if rejection is None:
-            state.next_step = "call_llm"
-        else:
-            state.outcome = FraudOutcome(action=None, reason_code="prompt_rejected")
-            state.next_step = "complete_session"
+        with start_span("fraud.input_guard", payment_id=state.request.payment_id, fraud_session_id=_session_id(state)):
+            rejection = await self._input_guard(state, attempt=state.attempt)
+            if rejection is None:
+                state.next_step = "call_llm"
+            else:
+                state.outcome = FraudOutcome(action=None, reason_code="prompt_rejected")
+                state.next_step = "complete_session"
         return state
 
     async def _node_call_llm(self, state: GraphState) -> GraphState:
-        if await self._call_llm(state, attempt=state.attempt):
-            state.next_step = "validate_verdict"
-        else:
-            state.outcome = FraudOutcome(action=None, reason_code="model_failed")
-            state.next_step = "complete_session"
+        with start_span("fraud.llm.complete", payment_id=state.request.payment_id, fraud_session_id=_session_id(state), provider_id=_metadata(self._completion, "provider_id"), model_id=_metadata(self._completion, "model_id")):
+            if await self._call_llm(state, attempt=state.attempt):
+                state.next_step = "validate_verdict"
+            else:
+                state.outcome = FraudOutcome(action=None, reason_code="model_failed")
+                state.next_step = "complete_session"
         return state
 
     async def _node_validate_verdict(self, state: GraphState) -> GraphState:
-        if await self._validate_verdict(state, attempt=state.attempt):
-            state.next_step = "complete_session"
-        elif state.attempt == 1:
-            state.next_step = "retry_prompt"
-        else:
-            state.outcome = FraudOutcome(action=None, reason_code="validation_failed")
-            state.next_step = "complete_session"
+        with start_span("fraud.output_validate", payment_id=state.request.payment_id, fraud_session_id=_session_id(state)):
+            if await self._validate_verdict(state, attempt=state.attempt):
+                state.next_step = "complete_session"
+            elif state.attempt == 1:
+                state.next_step = "retry_prompt"
+            else:
+                state.outcome = FraudOutcome(action=None, reason_code="validation_failed")
+                state.next_step = "complete_session"
         return state
 
     async def _node_retry_prompt(self, state: GraphState) -> GraphState:
-        await self._retry_prompt(state)
-        state.attempt = 2
-        state.next_step = "input_guard"
+        with start_span("fraud.graph.retry_prompt", payment_id=state.request.payment_id, fraud_session_id=_session_id(state)):
+            await self._retry_prompt(state)
+            state.attempt = 2
+            state.next_step = "input_guard"
         return state
 
     async def _node_complete_session(self, state: GraphState) -> GraphState:
-        state.outcome = await self._complete_session(state, state.outcome)
-        state.next_step = "done"
+        with start_span("fraud.graph.complete_session", payment_id=state.request.payment_id, fraud_session_id=_session_id(state), verdict_action=(state.outcome.action if state.outcome else "")):
+            state.outcome = await self._complete_session(state, state.outcome)
+            state.next_step = "done"
         return state
 
     async def _create_session(self, state: GraphState) -> None:
@@ -359,14 +369,15 @@ class FraudScoringGraph:
     async def _audit(self, state: GraphState, *, node: str, **event: object) -> None:
         if state.session is None:
             return
-        await self._store.append_event(
-            state.session.session_id,
-            {
-                "node": node,
-                "occurred_at": self._clock.datetime().isoformat(),
-                **event,
-            },
-        )
+        with start_span("fraud.audit.write", payment_id=state.request.payment_id, fraud_session_id=state.session.session_id, operation=node, outcome=str(event.get("outcome", ""))):
+            await self._store.append_event(
+                state.session.session_id,
+                {
+                    "node": node,
+                    "occurred_at": self._clock.datetime().isoformat(),
+                    **event,
+                },
+            )
 
 
 class InMemoryFraudGraphSessionStore:
@@ -459,6 +470,10 @@ def _output_event_type(outcome: FraudOutcome) -> str:
     if outcome.reason_code:
         return "fraud.error"
     return ""
+
+
+def _session_id(state: GraphState) -> str:
+    return state.session.session_id if state.session is not None else ""
 
 
 def _json_safe(value):

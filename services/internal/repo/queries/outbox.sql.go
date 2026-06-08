@@ -24,7 +24,7 @@ UPDATE outbox_events AS outbox
 SET claimed_at = now()
 FROM claimed
 WHERE outbox.id = claimed.id
-RETURNING outbox.id, outbox.topic, outbox.partition_key, outbox.payload, outbox.claimed_at, outbox.published_at, outbox.created_at
+RETURNING outbox.id, outbox.topic, outbox.partition_key, outbox.payload, outbox.traceparent, outbox.tracestate, outbox.claimed_at, outbox.published_at, outbox.created_at
 `
 
 func (q *Queries) ClaimUnpublishedOutboxEvents(ctx context.Context, limit int32) ([]OutboxEvent, error) {
@@ -41,6 +41,8 @@ func (q *Queries) ClaimUnpublishedOutboxEvents(ctx context.Context, limit int32)
 			&i.Topic,
 			&i.PartitionKey,
 			&i.Payload,
+			&i.Traceparent,
+			&i.Tracestate,
 			&i.ClaimedAt,
 			&i.PublishedAt,
 			&i.CreatedAt,
@@ -56,25 +58,29 @@ func (q *Queries) ClaimUnpublishedOutboxEvents(ctx context.Context, limit int32)
 }
 
 const createOutboxEvent = `-- name: CreateOutboxEvent :one
-INSERT INTO outbox_events (topic, partition_key, payload)
-VALUES ($1, $2, $3)
-RETURNING id, topic, partition_key, payload, claimed_at, published_at, created_at
+INSERT INTO outbox_events (topic, partition_key, payload, traceparent, tracestate)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, topic, partition_key, payload, traceparent, tracestate, claimed_at, published_at, created_at
 `
 
 type CreateOutboxEventParams struct {
 	Topic        string
 	PartitionKey string
 	Payload      []byte
+	Traceparent string
+	Tracestate   string
 }
 
 func (q *Queries) CreateOutboxEvent(ctx context.Context, arg CreateOutboxEventParams) (OutboxEvent, error) {
-	row := q.db.QueryRow(ctx, createOutboxEvent, arg.Topic, arg.PartitionKey, arg.Payload)
+	row := q.db.QueryRow(ctx, createOutboxEvent, arg.Topic, arg.PartitionKey, arg.Payload, arg.Traceparent, arg.Tracestate)
 	var i OutboxEvent
 	err := row.Scan(
 		&i.ID,
 		&i.Topic,
 		&i.PartitionKey,
 		&i.Payload,
+		&i.Traceparent,
+		&i.Tracestate,
 		&i.ClaimedAt,
 		&i.PublishedAt,
 		&i.CreatedAt,

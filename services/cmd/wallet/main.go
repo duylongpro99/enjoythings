@@ -17,9 +17,12 @@ import (
 	healthhandler "enjoythings/services/internal/handler"
 	"enjoythings/services/internal/outbox"
 	"enjoythings/services/internal/repo"
+	"enjoythings/services/internal/telemetry"
 	"enjoythings/services/internal/wallet"
 	"enjoythings/services/internal/walletgrpc"
 
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/grpc"
 )
 
@@ -38,6 +41,11 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	shutdownTracing, err := telemetry.Init(ctx, "wallet", cfg.AppEnv)
+	if err != nil {
+		slog.Warn("telemetry init failed", "error", err)
+	}
+	defer func() { _ = shutdownTracing(context.Background()) }()
 
 	db, err := repo.Connect(ctx, cfg.DatabaseURL, cfg.DBMaxConns)
 	if err != nil {
@@ -72,7 +80,7 @@ func run() error {
 	}
 	defer listener.Close()
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()))
 	walletv1.RegisterWalletServiceServer(grpcServer, walletgrpc.NewServer(wallet.NewService(db)))
 	httpServer := healthServer(cfg.HTTPAddr, db)
 
@@ -118,7 +126,7 @@ func healthServer(addr string, db *repo.Database) *http.Server {
 	mux.Handle("/readyz", healthhandler.Ready(db))
 	return &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           otelhttp.NewHandler(mux, "wallet.health.http"),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 }

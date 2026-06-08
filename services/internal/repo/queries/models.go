@@ -23,6 +23,8 @@ type OutboxEvent struct {
 	Topic        string
 	PartitionKey string
 	Payload      []byte
+	Traceparent string
+	Tracestate   string
 	ClaimedAt    pgtype.Timestamptz
 	PublishedAt  pgtype.Timestamptz
 	CreatedAt    pgtype.Timestamptz
