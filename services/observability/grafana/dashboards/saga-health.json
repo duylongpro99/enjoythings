@@ -1,0 +1,12 @@
+{
+  "uid": "saga-health",
+  "title": "Saga Health",
+  "schemaVersion": 39,
+  "panels": [
+    {"id": 5, "title": "State counts", "type": "timeseries", "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"expr": "sum by (state) (saga_state_transitions_total)"}]},
+    {"id": 1, "title": "Saga duration", "type": "timeseries", "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"expr": "histogram_quantile(0.99, sum by (le, outcome) (rate(saga_duration_seconds_bucket[5m])))"}]},
+    {"id": 2, "title": "Step failures", "type": "timeseries", "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"expr": "rate(saga_events_total{event=\"step_failure\"}[5m])"}]},
+    {"id": 3, "title": "Compensations", "type": "timeseries", "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"expr": "rate(saga_events_total{event=\"compensation\"}[5m])"}]},
+    {"id": 4, "title": "Fraud reviews", "type": "timeseries", "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"expr": "rate(saga_events_total{event=\"fraud_review\"}[5m])"}]}
+  ]
+}

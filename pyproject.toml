@@ -16,6 +16,7 @@ dependencies = [
   "opentelemetry-instrumentation-grpc>=0.60b0,<1",
   "opentelemetry-instrumentation-httpx>=0.60b0,<1",
   "opentelemetry-sdk>=1.39,<2",
+  "prometheus-client>=0.22,<1",
   "protobuf>=6.33.5,<7.0.0",
   "python-dotenv>=1.2.2",
   "uvicorn>=0.30.0,<1.0.0",

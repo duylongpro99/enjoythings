@@ -292,3 +292,20 @@ The API loads configuration from environment variables at startup.
 | `DB_MAX_CONNS` | No | `10` |
 
 Missing required values or invalid `DB_MAX_CONNS` values fail startup.
+
+## Phase 4 observability
+
+Create a local `.env` from the repository `.env.example`, replace every
+`change-me` value, and configure the local `LLM_PROVIDERS_JSON` provider. Then start the
+complete stack and run the scoring scenario:
+
+```sh
+make phase4-observability
+```
+
+Prometheus is available at `http://localhost:9095`, Grafana at
+`http://localhost:3001`, and Jaeger at `http://localhost:16686`. Grafana uses
+`GRAFANA_ADMIN_USER` and `GRAFANA_ADMIN_PASSWORD` from `.env`; anonymous admin
+access is disabled. The provisioned System Overview, Saga Health, and Fraud Agent
+dashboards query Prometheus only. The smoke scenario publishes
+`fraud.score.requested`, allowing the fraud panels to populate.

@@ -42,7 +42,14 @@ func New(app App, committer Committer, logger *slog.Logger) *Consumer {
 	return &Consumer{app: app, committer: committer, logger: logger}
 }
 
-func (consumer *Consumer) HandleRecord(ctx context.Context, record *kgo.Record) error {
+func (consumer *Consumer) HandleRecord(ctx context.Context, record *kgo.Record) (err error) {
+	defer func() {
+		outcome := "consumed"
+		if err != nil {
+			outcome = "failed"
+		}
+		telemetry.ServiceMetrics("saga-orchestrator").RecordKafka(record.Topic, outcome)
+	}()
 	ctx = telemetry.ExtractKafka(ctx, record)
 	ctx, span := telemetry.Tracer().Start(ctx, "kafka.consume", trace.WithSpanKind(trace.SpanKindConsumer), trace.WithAttributes(telemetry.SafeAttributes("messaging.kafka.topic", record.Topic, "operation", "consume")...))
 	defer span.End()
@@ -131,6 +138,7 @@ func (consumer *KafkaConsumer) Run(ctx context.Context) {
 				return
 			}
 			if err := consumer.handler.HandleRecord(ctx, record); err != nil && ctx.Err() == nil {
+				telemetry.ServiceMetrics("saga-orchestrator").RecordKafka(record.Topic, "retried")
 				consumer.logger.Error("saga consumer record failed", "topic", record.Topic, "partition", record.Partition, "offset", record.Offset, "error", err)
 			}
 		})

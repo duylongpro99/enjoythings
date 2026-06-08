@@ -13,6 +13,7 @@ from app.fraud.graph import (
     messages,
 )
 from app.fraud.instruction import SYSTEM_INSTRUCTION
+from app.fraud.metrics import DEFAULT_METRICS, FraudMetrics
 from app.fraud.ports import CompletionPort, FraudDataPort, FraudSessionStore
 
 
@@ -23,6 +24,7 @@ class FraudScoringService:
         completion: CompletionPort,
         config: FraudConfig,
         store: FraudSessionStore | None = None,
+        metrics: FraudMetrics = DEFAULT_METRICS,
     ) -> None:
         self._graph = FraudScoringGraph(
             data=data,
@@ -30,6 +32,7 @@ class FraudScoringService:
             store=store or InMemoryFraudGraphSessionStore(),
             config=config,
             system_instruction=SYSTEM_INSTRUCTION,
+            metrics=metrics,
         )
 
     async def score(self, request: FraudScoreRequest) -> FraudOutcome:

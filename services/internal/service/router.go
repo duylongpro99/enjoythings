@@ -5,6 +5,7 @@ import (
 
 	"enjoythings/services/internal/auth"
 	"enjoythings/services/internal/handler"
+	"enjoythings/services/internal/telemetry"
 	"enjoythings/services/internal/wallet"
 )
 
@@ -21,5 +22,5 @@ func NewRouter(readiness handler.ReadinessChecker, store wallet.Store, jwtSecret
 	mux.Handle("/healthz", handler.Health())
 	mux.Handle("/readyz", handler.Ready(readiness))
 	mux.Handle("/v1/", auth.Middleware(jwtSecret)(business))
-	return mux
+	return telemetry.InstrumentHTTP("api", mux)
 }

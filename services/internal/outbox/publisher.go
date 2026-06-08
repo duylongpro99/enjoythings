@@ -92,6 +92,7 @@ func (publisher *Publisher) PublishBatch(ctx context.Context) (int, error) {
 		telemetry.InjectKafka(eventCtx, record)
 		err := publisher.producer.Produce(eventCtx, event.Topic, []byte(event.PartitionKey), event.Payload, record.Headers)
 		if err != nil {
+			telemetry.ServiceMetrics("outbox").RecordKafka(event.Topic, "failed")
 			telemetry.RecordError(span, err)
 			publisher.logger.Error(
 				"outbox publish failed",
@@ -103,6 +104,7 @@ func (publisher *Publisher) PublishBatch(ctx context.Context) (int, error) {
 			span.End()
 			return published, err
 		}
+		telemetry.ServiceMetrics("outbox").RecordKafka(event.Topic, "produced")
 		span.End()
 		if err := publisher.store.MarkPublished(ctx, event.ID); err != nil {
 			publisher.logger.Error(

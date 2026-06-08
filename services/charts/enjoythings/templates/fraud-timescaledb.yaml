@@ -1,0 +1,50 @@
+{{- if .Values.fraudTimescaledb.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fraud-timescaledb
+  labels:
+    {{- include "enjoythings.labels" . | nindent 4 }}
+    app.kubernetes.io/component: fraud-timescaledb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "enjoythings.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: fraud-timescaledb
+  template:
+    metadata:
+      labels:
+        {{- include "enjoythings.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: fraud-timescaledb
+    spec:
+      containers:
+        - name: fraud-timescaledb
+          image: {{ .Values.fraudTimescaledb.image | quote }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.fraudTimescaledb.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.fraudTimescaledb.user | quote }}
+            - name: POSTGRES_PASSWORD
+              value: {{ .Values.fraudTimescaledb.password | quote }}
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "-ec", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fraud-timescaledb
+spec:
+  selector:
+    {{- include "enjoythings.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: fraud-timescaledb
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+{{- end }}

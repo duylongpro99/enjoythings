@@ -91,7 +91,7 @@ func healthServer(addr string) *http.Server {
 	mux.Handle("/readyz", healthhandler.Health())
 	return &http.Server{
 		Addr:              addr,
-		Handler:           otelhttp.NewHandler(mux, "notification.health.http"),
+		Handler:           otelhttp.NewHandler(telemetry.InstrumentHTTP("notification", mux), "notification.health.http"),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 }

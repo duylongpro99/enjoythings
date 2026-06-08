@@ -132,7 +132,7 @@ func healthServer(addr string, db *repo.Database) *http.Server {
 	mux.Handle("/readyz", healthhandler.Ready(db))
 	return &http.Server{
 		Addr:              addr,
-		Handler:           otelhttp.NewHandler(mux, "payment-processor.health.http"),
+		Handler:           otelhttp.NewHandler(telemetry.InstrumentHTTP("payment-processor", mux), "payment-processor.health.http"),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 }

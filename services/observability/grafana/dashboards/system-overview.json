@@ -1,0 +1,11 @@
+{
+  "uid": "system-overview",
+  "title": "System Overview",
+  "schemaVersion": 39,
+  "panels": [
+    {"id": 1, "title": "Request rate", "type": "timeseries", "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"expr": "sum by (service) (rate(service_http_requests_total[5m]))"}]},
+    {"id": 2, "title": "Error rate", "type": "timeseries", "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"expr": "sum by (service) (rate(service_http_requests_total{status=~\"5..\"}[5m]))"}]},
+    {"id": 3, "title": "p99 latency", "type": "timeseries", "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"expr": "histogram_quantile(0.99, sum by (le, service) (rate(service_http_request_duration_seconds_bucket[5m])))"}]},
+    {"id": 4, "title": "Kafka failures", "type": "timeseries", "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"expr": "sum by (service, topic) (rate(service_kafka_records_total{outcome=\"failed\"}[5m]))"}]}
+  ]
+}
