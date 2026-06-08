@@ -164,6 +164,34 @@ func TestSagaStoreListsOnlyNonTerminalSagas(t *testing.T) {
 	}
 }
 
+func TestSagaStoreRecordsFraudAuditRecords(t *testing.T) {
+	ctx := context.Background()
+	db := newIntegrationDB(t, ctx)
+	store := db.SagaStore()
+
+	audit := saga.FraudAuditRecord{
+		EventID:     "fraud.flagged:source",
+		PaymentID:   uuid.NewString(),
+		Kind:        saga.FraudAuditKindOrphan,
+		SagaState:   "",
+		DetailsJSON: `{"kind":"orphan"}`,
+	}
+	if err := store.RecordFraudAudit(ctx, audit); err != nil {
+		t.Fatalf("RecordFraudAudit: %v", err)
+	}
+
+	var gotEventID, gotPaymentID, gotKind, gotState, gotDetails string
+	if err := db.pool.QueryRow(ctx, `
+SELECT event_id, payment_id, kind, saga_state, details_json
+FROM saga_fraud_audit_records
+WHERE event_id = $1`, audit.EventID).Scan(&gotEventID, &gotPaymentID, &gotKind, &gotState, &gotDetails); err != nil {
+		t.Fatalf("query fraud audit: %v", err)
+	}
+	if gotEventID != audit.EventID || gotPaymentID != audit.PaymentID || gotKind != audit.Kind || gotState != audit.SagaState || gotDetails != audit.DetailsJSON {
+		t.Fatalf("fraud audit row = %s/%s/%s/%s/%s, want %+v", gotEventID, gotPaymentID, gotKind, gotState, gotDetails, audit)
+	}
+}
+
 func sagaFixture(state string) saga.Saga {
 	return saga.Saga{
 		PaymentID:      uuid.NewString(),

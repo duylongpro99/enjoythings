@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"log/slog"
+	"strings"
 )
 
 var ErrInvalidEvent = errors.New("invalid notification event")
@@ -114,6 +116,7 @@ func render(event Event) (Message, error) {
 		if reason == "" {
 			reason = "additional review is required"
 		}
+		reason = sanitizeReason(reason)
 		return Message{
 			ID:          TopicTxPaused + ":" + payload.PaymentID,
 			AggregateID: payload.PaymentID,
@@ -170,6 +173,14 @@ func formatMoney(amountCents int64, currency string) string {
 		amountCents = -amountCents
 	}
 	return fmt.Sprintf("%s%d.%02d %s", sign, amountCents/100, amountCents%100, currency)
+}
+
+func sanitizeReason(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return ""
+	}
+	return strings.Join(strings.Fields(html.EscapeString(reason)), " ")
 }
 
 type txCompletedPayload struct {

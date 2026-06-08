@@ -105,6 +105,29 @@ func TestDispatcherReturnsAdapterErrorForKafkaRedelivery(t *testing.T) {
 	}
 }
 
+func TestDispatcherSanitizesPausedReason(t *testing.T) {
+	email := &recordingAdapter{}
+	dispatcher := NewDispatcher(email, nil, slog.New(slog.DiscardHandler))
+
+	err := dispatcher.Dispatch(context.Background(), Event{
+		Topic:   TopicTxPaused,
+		Payload: []byte(`{"schema_version":1,"event_id":"tx.paused:payment-9","payment_id":"payment-9","session_id":"session-1","action":"block","risk_score":0.95,"reason":"<script>alert(1)</script> high velocity","trace_id":"trace-9"}`),
+	})
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if len(email.messages) != 1 {
+		t.Fatalf("email messages = %d, want 1", len(email.messages))
+	}
+	body := email.messages[0].Body
+	if strings.Contains(body, "<script>") {
+		t.Fatalf("body = %q, want sanitized reason", body)
+	}
+	if !strings.Contains(body, "&lt;script&gt;alert(1)&lt;/script&gt; high velocity") {
+		t.Fatalf("body = %q, want escaped reason", body)
+	}
+}
+
 func assertDelivered(t *testing.T, messages []Message, channel, messageID, aggregateID, subject, bodyContains, traceID string) {
 	t.Helper()
 	if len(messages) != 1 {

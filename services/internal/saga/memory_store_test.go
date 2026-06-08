@@ -9,6 +9,7 @@ import (
 type memoryStore struct {
 	byPaymentID map[string]Saga
 	byUserKey   map[string]string
+	audits      map[string]FraudAuditRecord
 	createCalls int
 }
 
@@ -21,6 +22,7 @@ func newMemoryStore() *memoryStore {
 	return &memoryStore{
 		byPaymentID: make(map[string]Saga),
 		byUserKey:   make(map[string]string),
+		audits:      make(map[string]FraudAuditRecord),
 	}
 }
 
@@ -75,10 +77,39 @@ func (store *memoryStore) Update(_ context.Context, saga Saga) (Saga, error) {
 }
 
 func (store *atomicMemoryStore) UpdateWithOutbox(ctx context.Context, saga Saga, events []OutboxRecord) (Saga, error) {
+	return store.UpdateWithOutboxAndAudit(ctx, saga, events, FraudAuditRecord{})
+}
+
+func (store *memoryStore) UpdateWithAudit(ctx context.Context, saga Saga, audit FraudAuditRecord) (Saga, error) {
+	updated, err := store.Update(ctx, saga)
+	if err != nil {
+		return Saga{}, err
+	}
+	if err := store.RecordFraudAudit(ctx, audit); err != nil {
+		return Saga{}, err
+	}
+	return updated, nil
+}
+
+func (store *atomicMemoryStore) UpdateWithOutboxAndAudit(ctx context.Context, saga Saga, events []OutboxRecord, audit FraudAuditRecord) (Saga, error) {
 	updated, err := store.Update(ctx, saga)
 	if err != nil {
 		return Saga{}, err
 	}
 	store.events = append(store.events, events...)
+	if err := store.RecordFraudAudit(ctx, audit); err != nil {
+		return Saga{}, err
+	}
 	return updated, nil
+}
+
+func (store *memoryStore) RecordFraudAudit(_ context.Context, audit FraudAuditRecord) error {
+	if audit.EventID == "" {
+		return nil
+	}
+	if _, ok := store.audits[audit.EventID]; ok {
+		return nil
+	}
+	store.audits[audit.EventID] = audit
+	return nil
 }

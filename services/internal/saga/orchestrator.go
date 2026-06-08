@@ -46,6 +46,18 @@ type atomicOutboxStore interface {
 	UpdateWithOutbox(context.Context, Saga, []OutboxRecord) (Saga, error)
 }
 
+type auditStore interface {
+	RecordFraudAudit(context.Context, FraudAuditRecord) error
+}
+
+type auditUpdateStore interface {
+	UpdateWithAudit(context.Context, Saga, FraudAuditRecord) (Saga, error)
+}
+
+type auditOutboxStore interface {
+	UpdateWithOutboxAndAudit(context.Context, Saga, []OutboxRecord, FraudAuditRecord) (Saga, error)
+}
+
 type Clock interface {
 	Now() time.Time
 }
@@ -126,7 +138,24 @@ func (orchestrator *Orchestrator) HandlePaymentCompleted(ctx context.Context, ev
 		return err
 	}
 	if current.State == StateCompleted {
-		return nil
+		return orchestrator.recordFraudAudit(ctx, FraudAuditRecord{
+			EventID:     event.EventID,
+			PaymentID:   current.PaymentID,
+			Kind:        FraudAuditKindDuplicate,
+			SagaState:   current.State,
+			DetailsJSON: paymentResultAuditJSON("payment.completed", event.EventID, current.State, "duplicate", event.Status, event.CompletedAt, event.OccurredAt, event.TraceID, event.ProcessorPaymentID, "", ""),
+			CreatedAt:   orchestrator.clock.Now(),
+		})
+	}
+	if current.State == StateFailed {
+		return orchestrator.recordFraudAudit(ctx, FraudAuditRecord{
+			EventID:     event.EventID,
+			PaymentID:   current.PaymentID,
+			Kind:        FraudAuditKindInvariantViolation,
+			SagaState:   current.State,
+			DetailsJSON: paymentResultAuditJSON("payment.completed", event.EventID, current.State, "terminal_state_mismatch", event.Status, event.CompletedAt, event.OccurredAt, event.TraceID, event.ProcessorPaymentID, "", ""),
+			CreatedAt:   orchestrator.clock.Now(),
+		})
 	}
 	if current.State == StateFraudReview {
 		return orchestrator.deferTerminalPaymentResult(ctx, current, event)
@@ -164,7 +193,24 @@ func (orchestrator *Orchestrator) HandlePaymentFailed(ctx context.Context, event
 		return err
 	}
 	if current.State == StateFailed {
-		return nil
+		return orchestrator.recordFraudAudit(ctx, FraudAuditRecord{
+			EventID:     event.EventID,
+			PaymentID:   current.PaymentID,
+			Kind:        FraudAuditKindDuplicate,
+			SagaState:   current.State,
+			DetailsJSON: paymentResultAuditJSON("payment.failed", event.EventID, current.State, "duplicate", "", event.FailedAt, event.OccurredAt, event.TraceID, "", event.FailureCode, event.FailureMessage),
+			CreatedAt:   orchestrator.clock.Now(),
+		})
+	}
+	if current.State == StateCompleted {
+		return orchestrator.recordFraudAudit(ctx, FraudAuditRecord{
+			EventID:     event.EventID,
+			PaymentID:   current.PaymentID,
+			Kind:        FraudAuditKindInvariantViolation,
+			SagaState:   current.State,
+			DetailsJSON: paymentResultAuditJSON("payment.failed", event.EventID, current.State, "terminal_state_mismatch", "", event.FailedAt, event.OccurredAt, event.TraceID, "", event.FailureCode, event.FailureMessage),
+			CreatedAt:   orchestrator.clock.Now(),
+		})
 	}
 	if current.State == StateFraudReview {
 		return orchestrator.deferTerminalPaymentResult(ctx, current, event)
@@ -339,6 +385,46 @@ func (orchestrator *Orchestrator) updateWithOutbox(ctx context.Context, current 
 	return orchestrator.store.Update(ctx, current)
 }
 
+func (orchestrator *Orchestrator) updateWithAudit(ctx context.Context, current Saga, audit FraudAuditRecord) (Saga, error) {
+	if store, ok := orchestrator.store.(auditUpdateStore); ok {
+		return store.UpdateWithAudit(ctx, current, audit)
+	}
+	updated, err := orchestrator.store.Update(ctx, current)
+	if err != nil {
+		return Saga{}, err
+	}
+	if err := orchestrator.recordFraudAudit(ctx, audit); err != nil {
+		return Saga{}, err
+	}
+	return updated, nil
+}
+
+func (orchestrator *Orchestrator) updateWithOutboxAndAudit(ctx context.Context, current Saga, events []OutboxRecord, audit FraudAuditRecord) (Saga, error) {
+	if store, ok := orchestrator.store.(auditOutboxStore); ok {
+		return store.UpdateWithOutboxAndAudit(ctx, current, events, audit)
+	}
+	for _, record := range events {
+		if err := orchestrator.outbox.Enqueue(ctx, record.Topic, record.PartitionKey, record.Payload); err != nil {
+			return Saga{}, err
+		}
+	}
+	updated, err := orchestrator.store.Update(ctx, current)
+	if err != nil {
+		return Saga{}, err
+	}
+	if err := orchestrator.recordFraudAudit(ctx, audit); err != nil {
+		return Saga{}, err
+	}
+	return updated, nil
+}
+
+func (orchestrator *Orchestrator) recordFraudAudit(ctx context.Context, audit FraudAuditRecord) error {
+	if store, ok := orchestrator.store.(auditStore); ok {
+		return store.RecordFraudAudit(ctx, audit)
+	}
+	return nil
+}
+
 func (orchestrator *Orchestrator) HandleFraudFlagged(ctx context.Context, flagged event.FraudFlagged) error {
 	if err := flagged.Validate(); err != nil {
 		return err
@@ -346,7 +432,14 @@ func (orchestrator *Orchestrator) HandleFraudFlagged(ctx context.Context, flagge
 	current, err := orchestrator.store.GetByPaymentID(ctx, flagged.PaymentID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return nil
+			return orchestrator.recordFraudAudit(ctx, FraudAuditRecord{
+				EventID:     flagged.EventID,
+				PaymentID:   flagged.PaymentID,
+				Kind:        FraudAuditKindOrphan,
+				SagaState:   "",
+				DetailsJSON: fraudFlaggedAuditJSON(flagged, "", FraudAuditKindOrphan),
+				CreatedAt:   orchestrator.clock.Now(),
+			})
 		}
 		return err
 	}
@@ -356,32 +449,200 @@ func (orchestrator *Orchestrator) HandleFraudFlagged(ctx context.Context, flagge
 	current.FraudRiskScore = flagged.RiskScore
 	current.FraudReason = flagged.Reason
 	current.FraudFlaggedAt = nonZeroTime(flagged.OccurredAt, now)
-	if current.State != StatePaymentProcessing {
+	audit := FraudAuditRecord{
+		EventID:     flagged.EventID,
+		PaymentID:   current.PaymentID,
+		Kind:        fraudFlaggedAuditKind(current.State),
+		SagaState:   current.State,
+		DetailsJSON: fraudFlaggedAuditJSON(flagged, current.State, fraudFlaggedAuditKind(current.State)),
+		CreatedAt:   now,
+	}
+	if current.State == StatePaymentProcessing {
+		current.State = StateFraudReview
 		current.UpdatedAt = now
-		_, err := orchestrator.store.Update(ctx, current)
+		pausedPayload, err := json.Marshal(event.TxPaused{
+			SchemaVersion: 1,
+			EventID:       event.TxPausedEventID(current.PaymentID),
+			PaymentID:     current.PaymentID,
+			SessionID:     current.FraudSessionID,
+			Action:        current.FraudAction,
+			RiskScore:     current.FraudRiskScore,
+			Reason:        current.FraudReason,
+			PausedAt:      now,
+			OccurredAt:    now,
+			TraceID:       traceID(flagged.TraceID, current.TraceID),
+		})
+		if err != nil {
+			return err
+		}
+		_, err = orchestrator.updateWithOutboxAndAudit(ctx, current, []OutboxRecord{
+			{Topic: event.TxPausedTopic, PartitionKey: current.PaymentID, Payload: pausedPayload},
+		}, audit)
 		return err
 	}
-	current.State = StateFraudReview
 	current.UpdatedAt = now
-	updated, err := orchestrator.store.Update(ctx, current)
-	if err != nil {
-		return err
-	}
-	return orchestrator.publishTxPaused(ctx, updated, traceID(flagged.TraceID, updated.TraceID), now)
+	_, err = orchestrator.updateWithAudit(ctx, current, audit)
+	return err
 }
 
 func (orchestrator *Orchestrator) deferTerminalPaymentResult(ctx context.Context, current Saga, terminal any) error {
-	if current.DeferredPaymentJSON != "" {
-		return nil
+	switch event := terminal.(type) {
+	case PaymentCompleted:
+		return orchestrator.deferPaymentCompleted(ctx, current, event)
+	case PaymentFailed:
+		return orchestrator.deferPaymentFailed(ctx, current, event)
+	default:
+		return fmt.Errorf("unsupported terminal event %T", terminal)
 	}
-	payload, err := json.Marshal(terminal)
+}
+
+func (orchestrator *Orchestrator) deferPaymentCompleted(ctx context.Context, current Saga, event PaymentCompleted) error {
+	if current.DeferredPaymentJSON != "" {
+		if deferredEventID(current.DeferredPaymentJSON) == event.EventID {
+			return orchestrator.recordFraudAudit(ctx, FraudAuditRecord{
+				EventID:     event.EventID,
+				PaymentID:   current.PaymentID,
+				Kind:        FraudAuditKindDuplicate,
+				SagaState:   current.State,
+				DetailsJSON: paymentResultAuditJSON("payment.completed", event.EventID, current.State, "duplicate", event.Status, event.CompletedAt, event.OccurredAt, event.TraceID, event.ProcessorPaymentID, "", ""),
+				CreatedAt:   orchestrator.clock.Now(),
+			})
+		}
+		return orchestrator.recordFraudAudit(ctx, FraudAuditRecord{
+			EventID:     event.EventID,
+			PaymentID:   current.PaymentID,
+			Kind:        FraudAuditKindInvariantViolation,
+			SagaState:   current.State,
+			DetailsJSON: paymentResultAuditJSON("payment.completed", event.EventID, current.State, "conflicting_terminal_result", event.Status, event.CompletedAt, event.OccurredAt, event.TraceID, event.ProcessorPaymentID, "", ""),
+			CreatedAt:   orchestrator.clock.Now(),
+		})
+	}
+	payload, err := json.Marshal(event)
 	if err != nil {
 		return err
 	}
 	current.DeferredPaymentJSON = string(payload)
 	current.UpdatedAt = orchestrator.clock.Now()
-	_, err = orchestrator.store.Update(ctx, current)
+	_, err = orchestrator.updateWithAudit(ctx, current, FraudAuditRecord{
+		EventID:     event.EventID,
+		PaymentID:   current.PaymentID,
+		Kind:        FraudAuditKindDeferredTerminal,
+		SagaState:   current.State,
+		DetailsJSON: paymentResultAuditJSON("payment.completed", event.EventID, current.State, "deferred", event.Status, event.CompletedAt, event.OccurredAt, event.TraceID, event.ProcessorPaymentID, "", ""),
+		CreatedAt:   current.UpdatedAt,
+	})
 	return err
+}
+
+func (orchestrator *Orchestrator) deferPaymentFailed(ctx context.Context, current Saga, event PaymentFailed) error {
+	if current.DeferredPaymentJSON != "" {
+		if deferredEventID(current.DeferredPaymentJSON) == event.EventID {
+			return orchestrator.recordFraudAudit(ctx, FraudAuditRecord{
+				EventID:     event.EventID,
+				PaymentID:   current.PaymentID,
+				Kind:        FraudAuditKindDuplicate,
+				SagaState:   current.State,
+				DetailsJSON: paymentResultAuditJSON("payment.failed", event.EventID, current.State, "duplicate", "", event.FailedAt, event.OccurredAt, event.TraceID, "", event.FailureCode, event.FailureMessage),
+				CreatedAt:   orchestrator.clock.Now(),
+			})
+		}
+		return orchestrator.recordFraudAudit(ctx, FraudAuditRecord{
+			EventID:     event.EventID,
+			PaymentID:   current.PaymentID,
+			Kind:        FraudAuditKindInvariantViolation,
+			SagaState:   current.State,
+			DetailsJSON: paymentResultAuditJSON("payment.failed", event.EventID, current.State, "conflicting_terminal_result", "", event.FailedAt, event.OccurredAt, event.TraceID, "", event.FailureCode, event.FailureMessage),
+			CreatedAt:   orchestrator.clock.Now(),
+		})
+	}
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+	current.DeferredPaymentJSON = string(payload)
+	current.UpdatedAt = orchestrator.clock.Now()
+	_, err = orchestrator.updateWithAudit(ctx, current, FraudAuditRecord{
+		EventID:     event.EventID,
+		PaymentID:   current.PaymentID,
+		Kind:        FraudAuditKindDeferredTerminal,
+		SagaState:   current.State,
+		DetailsJSON: paymentResultAuditJSON("payment.failed", event.EventID, current.State, "deferred", "", event.FailedAt, event.OccurredAt, event.TraceID, "", event.FailureCode, event.FailureMessage),
+		CreatedAt:   current.UpdatedAt,
+	})
+	return err
+}
+
+func fraudFlaggedAuditKind(state string) string {
+	switch state {
+	case StatePaymentProcessing:
+		return FraudAuditKindTransition
+	case StateFraudReview, StateCompleted, StateFailed:
+		return FraudAuditKindDuplicate
+	default:
+		return FraudAuditKindIgnored
+	}
+}
+
+func fraudFlaggedAuditJSON(flagged event.FraudFlagged, state, kind string) string {
+	payload, _ := json.Marshal(struct {
+		SourceEventID string  `json:"source_event_id"`
+		PaymentID     string  `json:"payment_id"`
+		State         string  `json:"state"`
+		Kind          string  `json:"kind"`
+		SessionID     string  `json:"session_id"`
+		Action        string  `json:"action"`
+		RiskScore     float64 `json:"risk_score"`
+		Reason        string  `json:"reason"`
+	}{
+		SourceEventID: flagged.SourceEventID,
+		PaymentID:     flagged.PaymentID,
+		State:         state,
+		Kind:          kind,
+		SessionID:     flagged.SessionID,
+		Action:        flagged.Action,
+		RiskScore:     flagged.RiskScore,
+		Reason:        flagged.Reason,
+	})
+	return string(payload)
+}
+
+func paymentResultAuditJSON(topic, eventID, state, outcome string, status string, timestamp time.Time, occurredAt time.Time, traceID, processorPaymentID, failureCode, failureMessage string) string {
+	payload, _ := json.Marshal(struct {
+		Topic              string    `json:"topic"`
+		EventID            string    `json:"event_id"`
+		State              string    `json:"state"`
+		Outcome            string    `json:"outcome"`
+		Status             string    `json:"status,omitempty"`
+		Timestamp          time.Time `json:"timestamp,omitempty"`
+		OccurredAt         time.Time `json:"occurred_at,omitempty"`
+		TraceID            string    `json:"trace_id"`
+		ProcessorPaymentID string    `json:"processor_payment_id,omitempty"`
+		FailureCode        string    `json:"failure_code,omitempty"`
+		FailureMessage     string    `json:"failure_message,omitempty"`
+	}{
+		Topic:              topic,
+		EventID:            eventID,
+		State:              state,
+		Outcome:            outcome,
+		Status:             status,
+		Timestamp:          timestamp,
+		OccurredAt:         occurredAt,
+		TraceID:            traceID,
+		ProcessorPaymentID: processorPaymentID,
+		FailureCode:        failureCode,
+		FailureMessage:     failureMessage,
+	})
+	return string(payload)
+}
+
+func deferredEventID(payload string) string {
+	var envelope struct {
+		EventID string `json:"event_id"`
+	}
+	if err := json.Unmarshal([]byte(payload), &envelope); err != nil {
+		return ""
+	}
+	return envelope.EventID
 }
 
 func (orchestrator *Orchestrator) failUnverified(ctx context.Context, current Saga) (Saga, error) {
