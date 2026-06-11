@@ -3,7 +3,19 @@ set -eu
 
 namespace="${KUBE_NAMESPACE:-enjoythings}"
 gateway_ready_url="${GATEWAY_READY_URL:-http://localhost:18080/readyz}"
+wallet_probe_url="${WALLET_PROBE_URL:-}"
+gateway_token="${GATEWAY_TOKEN:-}"
 rollout_timeout="${ROLLOUT_TIMEOUT:-5m}"
+
+if [ -z "$wallet_probe_url" ]; then
+  echo "wallet rollout test: WALLET_PROBE_URL is required" >&2
+  exit 1
+fi
+if [ -z "$gateway_token" ]; then
+  echo "wallet rollout test: GATEWAY_TOKEN is required" >&2
+  exit 1
+fi
+
 probe_log="$(mktemp)"
 probe_failures="$(mktemp)"
 probe_pid=""
@@ -23,7 +35,10 @@ kubectl rollout status deployment/wallet -n "$namespace" --timeout="$rollout_tim
 (
   while :; do
     if ! curl -fsS --max-time 2 "$gateway_ready_url" >>"$probe_log" 2>&1; then
-      date -u "+%Y-%m-%dT%H:%M:%SZ" >>"$probe_failures"
+      printf "%s gateway readiness boundary\n" "$(date -u "+%Y-%m-%dT%H:%M:%SZ")" >>"$probe_failures"
+    fi
+    if ! curl -fsS --max-time 2 -H "Authorization: Bearer $gateway_token" "$wallet_probe_url" >>"$probe_log" 2>&1; then
+      printf "%s wallet request boundary\n" "$(date -u "+%Y-%m-%dT%H:%M:%SZ")" >>"$probe_failures"
     fi
     sleep 0.2
   done
@@ -40,7 +55,7 @@ wait "$probe_pid" 2>/dev/null || true
 probe_pid=""
 
 if [ -s "$probe_failures" ]; then
-  echo "wallet rollout test: gateway readiness requests failed during rollout" >&2
+  echo "wallet rollout test: readiness or wallet requests failed during rollout" >&2
   cat "$probe_failures" >&2
   cat "$probe_log" >&2
   exit 1

@@ -2,6 +2,7 @@ package devtools
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -175,6 +176,9 @@ func TestPhase3WalletRolloutValidatorAndLocalCommands(t *testing.T) {
 		"kubectl rollout restart deployment/wallet",
 		"kubectl rollout status deployment/wallet",
 		"curl -fsS",
+		"WALLET_PROBE_URL is required",
+		"GATEWAY_TOKEN is required",
+		`Authorization: Bearer $gateway_token`,
 		"probe_failures",
 	} {
 		requireContains(t, script, snippet)
@@ -199,6 +203,8 @@ func TestPhase3WalletRolloutValidatorAndLocalCommands(t *testing.T) {
 
 	guide := readText(t, filepath.Join(root, "docs", "phase3", "kubernetes-local-guide.md"))
 	requireContains(t, guide, "make wallet-rollout-test")
+	requireContains(t, guide, "WALLET_PROBE_URL")
+	requireContains(t, guide, "GATEWAY_TOKEN")
 
 	deployments := readText(t, filepath.Join(root, "charts", "enjoythings", "templates", "applications.yaml"))
 	for _, snippet := range []string{
@@ -209,6 +215,19 @@ func TestPhase3WalletRolloutValidatorAndLocalCommands(t *testing.T) {
 		"terminationGracePeriodSeconds: 15",
 	} {
 		requireContains(t, deployments, snippet)
+	}
+}
+
+func TestWalletRolloutValidatorRejectsMissingInputsWithoutLeakingTempFiles(t *testing.T) {
+	root := repoRoot(t)
+	script := readText(t, filepath.Join(root, "devtools", "k8s_wallet_rollout.sh"))
+	validationIndex := strings.Index(script, `if [ -z "$wallet_probe_url" ]`)
+	allocationIndex := strings.Index(script, `probe_log="$(mktemp)"`)
+	if validationIndex == -1 || allocationIndex == -1 {
+		t.Fatalf("validator is missing input validation or temporary-file allocation")
+	}
+	if validationIndex > allocationIndex {
+		t.Fatal("validator allocates temporary files before rejecting missing inputs")
 	}
 }
 
