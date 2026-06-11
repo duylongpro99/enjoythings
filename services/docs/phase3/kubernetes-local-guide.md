@@ -172,17 +172,30 @@ kubectl rollout restart deployment/wallet -n enjoythings
 kubectl rollout status deployment/wallet -n enjoythings
 ```
 
-With the gateway port-forward from section 7 still running, validate readiness
-gating and uninterrupted requests automatically:
+With the gateway port-forward from section 7 still running, create an
+authenticated Wallet probe:
 
 ```sh
 cd services
-make wallet-rollout-test
+USER_ID=11111111-1111-1111-1111-111111111111
+GATEWAY_TOKEN="$(JWT_SECRET=local-dev-jwt-secret-change-me go run ./cmd/devtoken -user-id "$USER_ID")"
+WALLET_ID="$(
+  curl -fsS -X POST http://localhost:18080/v1/wallets \
+    -H "Authorization: Bearer $GATEWAY_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"currency":"USD"}' |
+  jq -r .id
+)"
+WALLET_PROBE_URL="http://localhost:18080/v1/wallets/$WALLET_ID" \
+GATEWAY_TOKEN="$GATEWAY_TOKEN" \
+  make wallet-rollout-test
 ```
 
 The validator scales Wallet to two replicas before restarting it and
-continuously requests Gateway `/readyz`. It fails if any request is interrupted
-or if fewer than two Wallet replicas are ready after the rollout.
+continuously requests Gateway `/readyz` and the Wallet-backed API endpoint. It
+fails if readiness or authenticated Wallet requests are interrupted, or if
+fewer than two Wallet replicas are ready after the rollout. The setup requires
+`jq` to extract the created Wallet ID.
 
 Delete one Wallet Pod and watch the Deployment replace it:
 

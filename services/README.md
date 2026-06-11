@@ -105,15 +105,19 @@ reservation states, and terminal outbox events. The stub rail uses amount
 `40901` for terminal failure and `50301` for one retry followed by success.
 
 To validate a Wallet rolling restart, deploy the Helm chart, start the gateway
-port-forward documented in the Kubernetes guide, then run:
+port-forward documented in the Kubernetes guide, create the authenticated
+Wallet probe documented there, then run:
 
 ```sh
 cd services
-make wallet-rollout-test
+WALLET_PROBE_URL="http://localhost:18080/v1/wallets/$WALLET_ID" \
+GATEWAY_TOKEN="$GATEWAY_TOKEN" \
+  make wallet-rollout-test
 ```
 
 The validator scales Wallet to two ready replicas, continuously requests
-Gateway `/readyz`, restarts Wallet, and fails if any request is interrupted.
+Gateway `/readyz` and the Wallet-backed API endpoint, restarts Wallet, and
+fails if either boundary is interrupted.
 
 ## Phase 2 API
 
