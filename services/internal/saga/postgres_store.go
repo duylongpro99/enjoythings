@@ -5,10 +5,13 @@ import (
 	"errors"
 	"time"
 
+	"enjoythings/services/internal/telemetry"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 type pgDB interface {
@@ -155,10 +158,17 @@ func (store *PostgresStore) UpdateWithOutboxAndAudit(ctx context.Context, saga S
 	}
 	defer tx.Rollback(ctx)
 
+	// Saga events start their trace here, so the relay and the fraud worker can
+	// continue it: an outbox row without a carrier begins an unlinked trace.
+	carrier := propagation.MapCarrier{}
+	telemetry.InjectTextMap(ctx, carrier)
 	for _, record := range events {
 		if _, err := tx.Exec(ctx, `
-INSERT INTO outbox_events (topic, partition_key, payload)
-VALUES ($1, $2, $3)`, record.Topic, record.PartitionKey, record.Payload); err != nil {
+INSERT INTO outbox_events (topic, partition_key, payload, traceparent, tracestate)
+VALUES ($1, $2, $3, $4, $5)`,
+			record.Topic, record.PartitionKey, record.Payload,
+			carrier.Get(telemetry.TraceparentHeader), carrier.Get(telemetry.TracestateHeader),
+		); err != nil {
 			return Saga{}, err
 		}
 	}

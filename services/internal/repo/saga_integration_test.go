@@ -9,6 +9,7 @@ import (
 	"enjoythings/services/internal/saga"
 
 	"github.com/google/uuid"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 func TestSagaStoreCreatesReadsAndUpdatesSaga(t *testing.T) {
@@ -55,6 +56,10 @@ func TestSagaStoreCreatesReadsAndUpdatesSaga(t *testing.T) {
 func TestSagaStoreAtomicallyUpdatesStateAndCreatesOutboxEvents(t *testing.T) {
 	ctx := context.Background()
 	db := newIntegrationDB(t, ctx)
+	// The orchestrator always writes these rows inside a span; the outbox row
+	// carries that context to the relay and on to the fraud worker.
+	ctx, span := sdktrace.NewTracerProvider().Tracer("test").Start(ctx, "saga.outbox")
+	defer span.End()
 	store := db.SagaStore()
 	created, err := store.Create(ctx, sagaFixture(saga.StateLedgerReserved))
 	if err != nil {
@@ -78,6 +83,11 @@ func TestSagaStoreAtomicallyUpdatesStateAndCreatesOutboxEvents(t *testing.T) {
 	}
 	if len(events) != 2 || events[0].Topic != saga.TopicPaymentExecute || events[1].Topic != "fraud.score.requested" {
 		t.Fatalf("events = %+v, want payment and fraud events", events)
+	}
+	for _, event := range events {
+		if event.Traceparent == "" {
+			t.Fatalf("%s outbox row has no traceparent; the fraud worker cannot continue the saga trace", event.Topic)
+		}
 	}
 }
 
