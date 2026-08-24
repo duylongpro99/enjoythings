@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"enjoythings/services/internal/auth"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -23,7 +24,7 @@ func (fn readinessFunc) Ping(ctx context.Context) error {
 }
 
 func TestRouterRegistersHealthEndpoints(t *testing.T) {
-	router := NewRouter(readinessFunc(func(context.Context) error { return nil }), &routerStore{}, "test-jwt-secret")
+	router := NewRouter(readinessFunc(func(context.Context) error { return nil }), &routerStore{}, auth.HMACVerifier("test-jwt-secret"))
 
 	tests := []struct {
 		name   string
@@ -65,7 +66,7 @@ func TestRouterRegistersHealthEndpoints(t *testing.T) {
 func TestRouterReadyEndpointReturnsUnavailable(t *testing.T) {
 	router := NewRouter(readinessFunc(func(context.Context) error {
 		return errors.New("database unavailable")
-	}), &routerStore{}, "test-jwt-secret")
+	}), &routerStore{}, auth.HMACVerifier("test-jwt-secret"))
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	rec := httptest.NewRecorder()
 
@@ -77,7 +78,7 @@ func TestRouterReadyEndpointReturnsUnavailable(t *testing.T) {
 }
 
 func TestRouterRequiresAuthenticationForV1Routes(t *testing.T) {
-	router := NewRouter(readinessFunc(func(context.Context) error { return nil }), &routerStore{}, "test-jwt-secret")
+	router := NewRouter(readinessFunc(func(context.Context) error { return nil }), &routerStore{}, auth.HMACVerifier("test-jwt-secret"))
 	req := httptest.NewRequest(http.MethodPost, "/v1/wallets", nil)
 	rec := httptest.NewRecorder()
 
@@ -94,7 +95,7 @@ func TestRouterRequiresAuthenticationForV1Routes(t *testing.T) {
 
 func TestRouterAllowsAuthenticatedV1RequestsToReachBusinessHandlers(t *testing.T) {
 	store := &routerStore{}
-	router := NewRouter(readinessFunc(func(context.Context) error { return nil }), store, "test-jwt-secret")
+	router := NewRouter(readinessFunc(func(context.Context) error { return nil }), store, auth.HMACVerifier("test-jwt-secret"))
 	req := httptest.NewRequest(http.MethodPost, "/v1/wallets", bytes.NewBufferString(`{"currency":"USD"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+routerTestToken(t))
@@ -111,7 +112,7 @@ func TestRouterAllowsAuthenticatedV1RequestsToReachBusinessHandlers(t *testing.T
 }
 
 func TestRouterUnknownV1RouteUsesErrorEnvelope(t *testing.T) {
-	router := NewRouter(readinessFunc(func(context.Context) error { return nil }), &routerStore{}, "test-jwt-secret")
+	router := NewRouter(readinessFunc(func(context.Context) error { return nil }), &routerStore{}, auth.HMACVerifier("test-jwt-secret"))
 	req := httptest.NewRequest(http.MethodGet, "/v1/unknown", nil)
 	req.Header.Set("Authorization", "Bearer "+routerTestToken(t))
 	rec := httptest.NewRecorder()

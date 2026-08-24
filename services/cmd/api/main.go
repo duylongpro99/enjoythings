@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"enjoythings/services/internal/auth"
 	"enjoythings/services/internal/config"
 	"enjoythings/services/internal/repo"
 	"enjoythings/services/internal/service"
@@ -28,6 +29,11 @@ func run() error {
 		return err
 	}
 
+	verifier, err := auth.NewVerifier(cfg.JWTAlgorithm, cfg.JWTSecret, cfg.JWTPublicKeyPEM)
+	if err != nil {
+		return err
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -39,7 +45,7 @@ func run() error {
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           service.NewRouter(db, db, cfg.JWTSecret),
+		Handler:           service.NewRouter(db, db, verifier),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

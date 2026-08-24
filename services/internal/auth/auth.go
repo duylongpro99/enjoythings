@@ -2,7 +2,9 @@ package auth
 
 import (
 	"context"
+	"crypto/rsa"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -10,6 +12,71 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
+
+// Supported token algorithms. HS256 keeps local development to a single shared
+// secret; RS256 lets an external issuer hold the private key so the services
+// only ever need the public half.
+const (
+	AlgHS256 = "HS256"
+	AlgRS256 = "RS256"
+)
+
+// ErrUnsupportedAlgorithm names an algorithm the services will not accept.
+// Refusing anything outside the list is what prevents an "alg" downgrade.
+var ErrUnsupportedAlgorithm = errors.New("unsupported jwt algorithm")
+
+// Verifier holds the key material for one signing algorithm. It is pinned to a
+// single method so a token signed with a different one is rejected before any
+// claim is read.
+type Verifier struct {
+	method jwt.SigningMethod
+	key    any
+}
+
+// HMACVerifier accepts HS256 tokens signed with the shared secret.
+func HMACVerifier(secret string) Verifier {
+	return Verifier{method: jwt.SigningMethodHS256, key: []byte(secret)}
+}
+
+// RSAVerifier accepts RS256 tokens signed by the holder of the matching
+// private key. The PEM is the public half only.
+func RSAVerifier(publicKeyPEM string) (Verifier, error) {
+	key, err := jwt.ParseRSAPublicKeyFromPEM([]byte(publicKeyPEM))
+	if err != nil {
+		return Verifier{}, err
+	}
+	return Verifier{method: jwt.SigningMethodRS256, key: key}, nil
+}
+
+// NewVerifier builds the verifier described by configuration.
+func NewVerifier(algorithm, secret, publicKeyPEM string) (Verifier, error) {
+	switch strings.ToUpper(strings.TrimSpace(algorithm)) {
+	case "", AlgHS256:
+		return HMACVerifier(secret), nil
+	case AlgRS256:
+		return RSAVerifier(publicKeyPEM)
+	default:
+		return Verifier{}, ErrUnsupportedAlgorithm
+	}
+}
+
+// Algorithm names the accepted signing method.
+func (verifier Verifier) Algorithm() string {
+	if verifier.method == nil {
+		return ""
+	}
+	return verifier.method.Alg()
+}
+
+func (verifier Verifier) keyFunc(token *jwt.Token) (any, error) {
+	if verifier.method == nil || token.Method.Alg() != verifier.method.Alg() {
+		return nil, authError("invalid_signing_method")
+	}
+	if _, ok := verifier.key.(*rsa.PublicKey); ok && verifier.method.Alg() != AlgRS256 {
+		return nil, authError("invalid_signing_method")
+	}
+	return verifier.key, nil
+}
 
 type Principal struct {
 	UserID uuid.UUID
@@ -27,10 +94,17 @@ func ContextWithPrincipal(ctx context.Context, principal Principal) context.Cont
 	return context.WithValue(ctx, contextKey{}, principal)
 }
 
+// Middleware verifies HS256 tokens. It remains the local-development path and
+// the default for services configured with a shared secret.
 func Middleware(secret string) func(http.Handler) http.Handler {
+	return VerifierMiddleware(HMACVerifier(secret))
+}
+
+// VerifierMiddleware verifies tokens with any configured verifier.
+func VerifierMiddleware(verifier Verifier) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			principal, err := authenticate(r.Header.Get("Authorization"), secret)
+			principal, err := authenticate(r.Header.Get("Authorization"), verifier)
 			if err != nil {
 				slog.Debug("authentication failed", "category", err.Error())
 				writeUnauthorized(w)
@@ -43,7 +117,7 @@ func Middleware(secret string) func(http.Handler) http.Handler {
 	}
 }
 
-func authenticate(header string, secret string) (Principal, error) {
+func authenticate(header string, verifier Verifier) (Principal, error) {
 	if header == "" {
 		return Principal{}, authError("missing_authorization")
 	}
@@ -54,12 +128,10 @@ func authenticate(header string, secret string) (Principal, error) {
 	}
 
 	claims := jwt.MapClaims{}
-	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (any, error) {
-		if token.Method != jwt.SigningMethodHS256 {
-			return nil, authError("invalid_signing_method")
-		}
-		return []byte(secret), nil
-	}, jwt.WithExpirationRequired())
+	token, err := jwt.ParseWithClaims(tokenString, claims, verifier.keyFunc,
+		jwt.WithExpirationRequired(),
+		jwt.WithValidMethods([]string{verifier.Algorithm()}),
+	)
 	if err != nil || !token.Valid {
 		return Principal{}, authError("invalid_token")
 	}

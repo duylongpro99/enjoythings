@@ -41,6 +41,11 @@ func run() error {
 		return err
 	}
 
+	verifier, err := auth.NewVerifier(cfg.JWTAlgorithm, cfg.JWTSecret, cfg.JWTPublicKeyPEM)
+	if err != nil {
+		return err
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	shutdownTracing, err := telemetry.Init(ctx, "gateway", cfg.AppEnv)
@@ -85,7 +90,7 @@ func run() error {
 	routes.Handle("/v1/verification/status", gatewayhandler.NewVerification(verificationClient))
 
 	limiter := gatewaymiddleware.NewRateLimiter(cfg.RateLimitBurst, cfg.RateLimitRefillEvery)
-	protected := auth.Middleware(cfg.JWTSecret)(limiter.Middleware(routes))
+	protected := auth.VerifierMiddleware(verifier)(limiter.Middleware(routes))
 	handler := http.NewServeMux()
 	handler.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

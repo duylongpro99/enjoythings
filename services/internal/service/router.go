@@ -9,7 +9,9 @@ import (
 	"enjoythings/services/internal/wallet"
 )
 
-func NewRouter(readiness handler.ReadinessChecker, store wallet.Store, jwtSecret string) http.Handler {
+// NewRouter wires the wallet service HTTP surface. The verifier decides which
+// token algorithm the business routes accept.
+func NewRouter(readiness handler.ReadinessChecker, store wallet.Store, verifier auth.Verifier) http.Handler {
 	walletService := wallet.NewService(store)
 	business := http.NewServeMux()
 	business.Handle("/v1/wallets", handler.NewWallets(walletService))
@@ -21,6 +23,6 @@ func NewRouter(readiness handler.ReadinessChecker, store wallet.Store, jwtSecret
 	mux := http.NewServeMux()
 	mux.Handle("/healthz", handler.Health())
 	mux.Handle("/readyz", handler.Ready(readiness))
-	mux.Handle("/v1/", auth.Middleware(jwtSecret)(business))
+	mux.Handle("/v1/", auth.VerifierMiddleware(verifier)(business))
 	return telemetry.InstrumentHTTP("api", mux)
 }

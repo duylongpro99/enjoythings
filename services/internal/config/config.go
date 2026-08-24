@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -34,6 +35,8 @@ const (
 	defaultRateLimitRefillEvery        = time.Second
 	defaultWalletOutboxPollEvery       = 100 * time.Millisecond
 	defaultPaymentRailTimeout          = 2 * time.Second
+	defaultJWTAlgorithm                = "HS256"
+	jwtAlgorithmRS256                  = "RS256"
 )
 
 type Config struct {
@@ -46,6 +49,8 @@ type Config struct {
 	VerificationGRPCAddr        string
 	DatabaseURL                 string
 	JWTSecret                   string
+	JWTAlgorithm                string
+	JWTPublicKeyPEM             string
 	KafkaBrokers                string
 	WalletOutboxTopic           string
 	LedgerConsumerTopic         string
@@ -102,10 +107,8 @@ func LoadFromLookup(lookup func(string) (string, bool)) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	var ok bool
-	cfg.JWTSecret, ok = lookup("JWT_SECRET")
-	if !ok || cfg.JWTSecret == "" {
-		return Config{}, errors.New("JWT_SECRET is required")
+	if err := loadJWT(lookup, &cfg); err != nil {
+		return Config{}, err
 	}
 
 	return cfg, nil
@@ -287,10 +290,8 @@ func LoadGatewayFromLookup(lookup func(string) (string, bool)) (Config, error) {
 		RateLimitRefillEvery: defaultRateLimitRefillEvery,
 	}
 
-	var ok bool
-	cfg.JWTSecret, ok = lookup("JWT_SECRET")
-	if !ok || cfg.JWTSecret == "" {
-		return Config{}, errors.New("JWT_SECRET is required")
+	if err := loadJWT(lookup, &cfg); err != nil {
+		return Config{}, err
 	}
 
 	if raw, ok := lookup("RATE_LIMIT_BURST"); ok && raw != "" {
@@ -310,6 +311,51 @@ func LoadGatewayFromLookup(lookup func(string) (string, bool)) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// loadJWT resolves token verification settings. HS256 stays the default so
+// local development needs nothing beyond JWT_SECRET; RS256 requires the issuer
+// public key, inline or from a file, and never needs the shared secret.
+func loadJWT(lookup func(string) (string, bool), cfg *Config) error {
+	algorithm := strings.ToUpper(strings.TrimSpace(valueOrDefault(lookup, "JWT_ALG", defaultJWTAlgorithm)))
+	switch algorithm {
+	case defaultJWTAlgorithm:
+		secret, ok := lookup("JWT_SECRET")
+		if !ok || secret == "" {
+			return errors.New("JWT_SECRET is required")
+		}
+		cfg.JWTAlgorithm = algorithm
+		cfg.JWTSecret = secret
+		return nil
+	case jwtAlgorithmRS256:
+		pem, err := rsaPublicKeyPEM(lookup)
+		if err != nil {
+			return err
+		}
+		cfg.JWTAlgorithm = algorithm
+		cfg.JWTPublicKeyPEM = pem
+		return nil
+	default:
+		return fmt.Errorf("JWT_ALG must be %s or %s", defaultJWTAlgorithm, jwtAlgorithmRS256)
+	}
+}
+
+func rsaPublicKeyPEM(lookup func(string) (string, bool)) (string, error) {
+	if path, ok := lookup("JWT_PUBLIC_KEY_FILE"); ok && strings.TrimSpace(path) != "" {
+		contents, err := os.ReadFile(strings.TrimSpace(path))
+		if err != nil {
+			return "", fmt.Errorf("read JWT_PUBLIC_KEY_FILE: %w", err)
+		}
+		if len(contents) == 0 {
+			return "", errors.New("JWT_PUBLIC_KEY_FILE is empty")
+		}
+		return string(contents), nil
+	}
+	pem, ok := lookup("JWT_PUBLIC_KEY_PEM")
+	if !ok || strings.TrimSpace(pem) == "" {
+		return "", errors.New("JWT_PUBLIC_KEY_PEM or JWT_PUBLIC_KEY_FILE is required for RS256")
+	}
+	return pem, nil
 }
 
 func loadBase(lookup func(string) (string, bool), defaultGRPC string) (Config, error) {

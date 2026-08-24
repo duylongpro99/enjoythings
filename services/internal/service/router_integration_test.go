@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"enjoythings/services/internal/auth"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -23,7 +24,7 @@ func TestRouterFullWalletAndTransferFlowAgainstPostgres(t *testing.T) {
 	db := newRouterIntegrationDB(t, ctx)
 	userID := uuid.New()
 	otherUserID := uuid.New()
-	router := NewRouter(db, db, "integration-secret")
+	router := NewRouter(db, db, auth.HMACVerifier("integration-secret"))
 
 	fromWalletID := createWalletThroughRouter(t, router, userID)
 	toWalletID := createWalletThroughRouter(t, router, otherUserID)
