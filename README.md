@@ -13,8 +13,12 @@ The implemented platform includes:
 - Kafka events and transactional outbox publishers
 - Python fraud scoring with sanitized LLM prompts, validated verdicts, and a
   dedicated TimescaleDB audit store
+- Operator resume and reject for payments held in fraud review
+- Per-topic Kafka dead-letter topics for unparseable records
+- HS256 or RS256 token verification
 - OpenTelemetry traces, Prometheus metrics, Grafana dashboards, health checks,
   Docker Compose, Kubernetes manifests, and a Helm chart
+- GitHub Actions CI covering the Go, Python, and web suites
 
 ## Architecture
 
@@ -150,6 +154,8 @@ Implemented routes:
 | `GET` | `/v1/wallets/{id}/balance` | Read a wallet balance |
 | `POST` | `/v1/transfers` | Start an asynchronous payment saga |
 | `GET` | `/v1/payments/{id}` | Read payment saga status |
+| `POST` | `/v1/payments/{id}/fraud-review/resume` | Release a payment held in fraud review (admin) |
+| `POST` | `/v1/payments/{id}/fraud-review/reject` | Refund and fail a payment held in fraud review (admin) |
 | `GET` | `/v1/ledger/{wallet_id}` | List ledger entries |
 | `POST` | `/v1/verification/submit` | Submit a verification decision |
 | `GET` | `/v1/verification/status` | Read the authenticated user's verification status |
@@ -189,6 +195,8 @@ fail-open. Provider selection is configuration-only through
 ```bash
 uv sync
 uv run pytest
+uv run ruff check .
+uv run mypy
 ```
 
 Run the standalone chat API:
@@ -209,6 +217,15 @@ cd web
 cp .env.local.example .env.local
 pnpm install
 pnpm dev
+```
+
+Checks for the web app:
+
+```bash
+cd web
+pnpm lint
+pnpm typecheck
+pnpm test
 ```
 
 The UI runs at `http://localhost:3000` and proxies chat requests to FastAPI.
@@ -297,6 +314,47 @@ for image loading, port forwarding, rollout validation, and cleanup.
 └── docs/                   # Cross-project plans and engineering lessons
 ```
 
+## Fraud Review Decisions
+
+A saga that the fraud worker flags moves to `FRAUD_REVIEW` and stays there until
+an operator decides. Both routes require an `admin` `role` claim and record the
+acting user in the fraud audit trail. Mint a local admin token with
+`go run ./cmd/devtoken -user-id <uuid> -role admin -ttl 1h`.
+
+```bash
+# Release the payment. A payment result that arrived during the review is
+# applied immediately; otherwise the saga waits for it as usual.
+curl -X POST "$GATEWAY/v1/payments/$PAYMENT_ID/fraud-review/resume" \
+  -H "Authorization: Bearer $ADMIN_JWT" \
+  -H 'content-type: application/json' \
+  -d '{"reason":"manual check cleared"}'
+
+# Refund the payer and fail the saga with failure code fraud_rejected.
+curl -X POST "$GATEWAY/v1/payments/$PAYMENT_ID/fraud-review/reject" \
+  -H "Authorization: Bearer $ADMIN_JWT" \
+  -H 'content-type: application/json' \
+  -d '{"reason":"confirmed fraud"}'
+```
+
+## Dead-Letter Topics
+
+Every consumer publishes a record it cannot parse to `<topic>.dlq` before it
+commits the offset, so a broker outage retries the record instead of dropping
+it. The payload carries the raw key and value, the source topic, partition and
+offset, the decode error, and the failure time. Compose and the Helm chart
+provision one dead-letter topic per consumed topic.
+
+## Token Verification
+
+`JWT_ALG` selects the accepted signing method, and the services accept only that
+one, so a token signed with anything else is rejected before its claims are
+read.
+
+| Setting | Purpose |
+| --- | --- |
+| `JWT_ALG=HS256` (default) | Verifies with the shared `JWT_SECRET`. Local development. |
+| `JWT_ALG=RS256` | Verifies with an issuer public key from `JWT_PUBLIC_KEY_PEM` or `JWT_PUBLIC_KEY_FILE`. No shared secret needed. |
+
 ## Documentation
 
 - [`services/docs/prd.md`](services/docs/prd.md): platform product requirements
@@ -307,6 +365,10 @@ for image loading, port forwarding, rollout validation, and cleanup.
   fraud agent and observability
 - [`services/docs/phase4/specs/README.md`](services/docs/phase4/specs/README.md):
   Phase 4 implementation contracts
+- [`services/docs/design-notes/phase5-operability-debt.md`](services/docs/design-notes/phase5-operability-debt.md):
+  fraud review exit, dead letters, and RS256
+- [`services/docs/phase5/backlog.md`](services/docs/phase5/backlog.md):
+  what is still deliberately deferred
 
 ## Security Notes
 
@@ -316,3 +378,6 @@ for image loading, port forwarding, rollout validation, and cleanup.
   the configured LLM provider.
 - Local JWT, database, Grafana, Kafka, and gRPC settings are not production
   security guidance.
+- Internal gRPC between services still relies on the trusted-network
+  assumption. mTLS and workload identity are tracked in
+  [`services/docs/phase5/backlog.md`](services/docs/phase5/backlog.md).

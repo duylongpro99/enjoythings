@@ -419,7 +419,8 @@ Fraud event handling:
 - If saga state is `PAYMENT_PROCESSING`, update state to `FRAUD_REVIEW`.
 - Emit `tx.paused` with fraud reason and session ID.
 - If saga is terminal, record/ignore without state mutation.
-- Resume/reject can be stubbed for Phase 4.
+- Resume/reject was stubbed for Phase 4 and implemented in Phase 5. See
+  `docs/design-notes/phase5-operability-debt.md`.
 
 This design keeps fraud verdicts asynchronous and avoids making the payment path wait on the LLM.
 

@@ -1,5 +1,7 @@
 # Phase 1 Testing Implementation Plan
 
+> **Status: complete.** Phase 1 testing shipped; every step below is implemented and covered by `go test ./...`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Implement the Phase 1 testing spec by adding the business code and tests required for wallet, transfer, ledger, repository, auth, readiness, and verification gates.
@@ -17,10 +19,10 @@
 - Create: `services/internal/domain/wallet.go`
 - Test: `services/internal/domain/wallet_test.go`
 
-- [ ] Write failing tests for debit invariants, unsupported currency, and positive transfer amounts.
-- [ ] Run `go test ./internal/domain` from `services/` and verify the tests fail because the symbols are missing.
-- [ ] Add minimal domain types and errors.
-- [ ] Run `go test ./internal/domain` and verify it passes.
+- [x] Write failing tests for debit invariants, unsupported currency, and positive transfer amounts.
+- [x] Run `go test ./internal/domain` from `services/` and verify the tests fail because the symbols are missing.
+- [x] Add minimal domain types and errors.
+- [x] Run `go test ./internal/domain` and verify it passes.
 
 ### Task 2: Database Schema and Repository
 
@@ -33,11 +35,11 @@
 - Create: `services/internal/repo/wallets.go`
 - Test: `services/internal/repo/db_integration_test.go`
 
-- [ ] Write failing integration tests for create/read wallet, transfer commit, insufficient funds rollback, ledger pagination, and concurrent transfer safety.
-- [ ] Run the targeted repo integration test and verify it fails on missing schema/repo behavior.
-- [ ] Add schema, SQL queries, and repository methods.
-- [ ] Run `sqlc generate`.
-- [ ] Run the targeted repo integration test and verify it passes.
+- [x] Write failing integration tests for create/read wallet, transfer commit, insufficient funds rollback, ledger pagination, and concurrent transfer safety.
+- [x] Run the targeted repo integration test and verify it fails on missing schema/repo behavior.
+- [x] Add schema, SQL queries, and repository methods.
+- [x] Run `sqlc generate`.
+- [x] Run the targeted repo integration test and verify it passes.
 
 ### Task 3: Service Rules
 
@@ -45,10 +47,10 @@
 - Create: `services/internal/wallet/service.go`
 - Test: `services/internal/wallet/service_test.go`
 
-- [ ] Write failing unit tests for create wallet, read own wallet, ownership mismatch, unsupported currency, transfer rules, insufficient funds, and ledger ownership/pagination boundaries.
-- [ ] Run `go test ./internal/wallet` and verify the tests fail on missing service behavior.
-- [ ] Add service implementation against a small transactional store interface.
-- [ ] Run `go test ./internal/wallet` and verify it passes.
+- [x] Write failing unit tests for create wallet, read own wallet, ownership mismatch, unsupported currency, transfer rules, insufficient funds, and ledger ownership/pagination boundaries.
+- [x] Run `go test ./internal/wallet` and verify the tests fail on missing service behavior.
+- [x] Add service implementation against a small transactional store interface.
+- [x] Run `go test ./internal/wallet` and verify it passes.
 
 ### Task 4: HTTP Handlers and Router
 
@@ -62,18 +64,18 @@
 - Test: `services/internal/handler/ledger_test.go`
 - Test: `services/internal/service/router_test.go`
 
-- [ ] Write failing handler tests for request parsing, auth context usage, response mapping, invalid UUIDs, invalid cursor/limit, and business errors.
-- [ ] Run targeted handler/router tests and verify they fail on missing routes/handlers.
-- [ ] Add handlers and wire router dependencies.
-- [ ] Run targeted handler/router tests and verify they pass.
+- [x] Write failing handler tests for request parsing, auth context usage, response mapping, invalid UUIDs, invalid cursor/limit, and business errors.
+- [x] Run targeted handler/router tests and verify they fail on missing routes/handlers.
+- [x] Add handlers and wire router dependencies.
+- [x] Run targeted handler/router tests and verify they pass.
 
 ### Task 5: Verification Gate
 
 **Files:**
 - Existing service files only.
 
-- [ ] Run `go test ./...` from `services/`.
-- [ ] Run `go vet ./...` from `services/`.
-- [ ] Run `golangci-lint run` from `services/`.
-- [ ] Run `sqlc generate` from `services/` and verify no generated diff remains unexpected.
-- [ ] Audit each acceptance criterion in `services/docs/phase1/specs/phase1-testing.md` against current files and command output.
+- [x] Run `go test ./...` from `services/`.
+- [x] Run `go vet ./...` from `services/`.
+- [x] Run `golangci-lint run` from `services/`.
+- [x] Run `sqlc generate` from `services/` and verify no generated diff remains unexpected.
+- [x] Audit each acceptance criterion in `services/docs/phase1/specs/phase1-testing.md` against current files and command output.
