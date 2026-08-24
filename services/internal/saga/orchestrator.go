@@ -835,25 +835,6 @@ func (orchestrator *Orchestrator) publishTxFailed(ctx context.Context, current S
 	return orchestrator.outbox.Enqueue(ctx, TopicTxFailed, current.FromWalletID, payload)
 }
 
-func (orchestrator *Orchestrator) publishTxPaused(ctx context.Context, current Saga, traceID string, pausedAt time.Time) error {
-	payload, err := json.Marshal(event.TxPaused{
-		SchemaVersion: 1,
-		EventID:       event.TxPausedEventID(current.PaymentID),
-		PaymentID:     current.PaymentID,
-		SessionID:     current.FraudSessionID,
-		Action:        current.FraudAction,
-		RiskScore:     current.FraudRiskScore,
-		Reason:        current.FraudReason,
-		PausedAt:      pausedAt,
-		OccurredAt:    orchestrator.clock.Now(),
-		TraceID:       traceID,
-	})
-	if err != nil {
-		return err
-	}
-	return orchestrator.outbox.Enqueue(ctx, event.TxPausedTopic, current.PaymentID, payload)
-}
-
 func stepKey(paymentID, step string) string {
 	return fmt.Sprintf("%s:%s", paymentID, step)
 }

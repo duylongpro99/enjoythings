@@ -26,7 +26,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "phase3 smoke: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Fprintln(os.Stdout, "phase3 smoke: ok")
+	_, _ = fmt.Fprintln(os.Stdout, "phase3 smoke: ok")
 }
 
 func run(ctx context.Context, args []string) error {

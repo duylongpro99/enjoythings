@@ -136,7 +136,7 @@ func (store *PostgresStore) UpdateWithAudit(ctx context.Context, saga Saga, audi
 	if err != nil {
 		return Saga{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	updated, err := updateSaga(ctx, tx, saga)
 	if err != nil {
@@ -156,7 +156,7 @@ func (store *PostgresStore) UpdateWithOutboxAndAudit(ctx context.Context, saga S
 	if err != nil {
 		return Saga{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	// Saga events start their trace here, so the relay and the fraud worker can
 	// continue it: an outbox row without a carrier begins an unlinked trace.

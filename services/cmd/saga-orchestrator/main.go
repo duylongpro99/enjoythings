@@ -62,17 +62,17 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer walletConn.Close()
+	defer func() { _ = walletConn.Close() }()
 	ledgerConn, err := grpc.NewClient(cfg.LedgerGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithStatsHandler(otelgrpc.NewClientHandler()))
 	if err != nil {
 		return err
 	}
-	defer ledgerConn.Close()
+	defer func() { _ = ledgerConn.Close() }()
 	verificationConn, err := grpc.NewClient(cfg.VerificationGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithStatsHandler(otelgrpc.NewClientHandler()))
 	if err != nil {
 		return err
 	}
-	defer verificationConn.Close()
+	defer func() { _ = verificationConn.Close() }()
 
 	producer, err := outbox.NewKafkaProducer(splitCSV(cfg.KafkaBrokers))
 	if err != nil {
@@ -116,7 +116,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	grpcServer := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()), grpc.UnaryInterceptor(telemetry.ServiceMetrics("saga-orchestrator").UnaryServerInterceptor()))
 	sagav1.RegisterSagaServiceServer(grpcServer, sagagrpc.NewServer(orchestrator))

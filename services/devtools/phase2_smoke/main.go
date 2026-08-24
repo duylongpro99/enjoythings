@@ -51,7 +51,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "phase2 smoke: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Fprintln(os.Stdout, "phase2 smoke: ok")
+	_, _ = fmt.Fprintln(os.Stdout, "phase2 smoke: ok")
 }
 
 func run(ctx context.Context, args []string) error {
@@ -145,7 +145,7 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("create transfer: %w", err)
 	}
-	fmt.Fprintf(os.Stdout, "phase2 smoke: user_id=%s from_wallet_id=%s transfer_id=%s\n", userID, from.ID, transfer.ID)
+	_, _ = fmt.Fprintf(os.Stdout, "phase2 smoke: user_id=%s from_wallet_id=%s transfer_id=%s\n", userID, from.ID, transfer.ID)
 	if skipLedgerWait {
 		return nil
 	}
@@ -252,7 +252,7 @@ func doJSON(ctx context.Context, client *http.Client, method, url, token string,
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err

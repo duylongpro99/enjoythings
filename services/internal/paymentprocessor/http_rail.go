@@ -38,7 +38,7 @@ func (rail *HTTPRail) Charge(ctx context.Context, charge RailChargeRequest) (Rai
 	if err != nil {
 		return RailResult{}, RetryableRailError("rail_unavailable", err.Error())
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		var body struct {

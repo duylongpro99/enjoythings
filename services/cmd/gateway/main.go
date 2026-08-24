@@ -53,23 +53,23 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer walletConn.Close()
+	defer func() { _ = walletConn.Close() }()
 
 	ledgerConn, err := grpc.NewClient(cfg.LedgerGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithStatsHandler(otelgrpc.NewClientHandler()))
 	if err != nil {
 		return err
 	}
-	defer ledgerConn.Close()
+	defer func() { _ = ledgerConn.Close() }()
 	sagaConn, err := grpc.NewClient(cfg.SagaGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithStatsHandler(otelgrpc.NewClientHandler()))
 	if err != nil {
 		return err
 	}
-	defer sagaConn.Close()
+	defer func() { _ = sagaConn.Close() }()
 	verificationConn, err := grpc.NewClient(cfg.VerificationGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithStatsHandler(otelgrpc.NewClientHandler()))
 	if err != nil {
 		return err
 	}
-	defer verificationConn.Close()
+	defer func() { _ = verificationConn.Close() }()
 
 	walletClient := gatewayclient.NewWalletClient(walletv1.NewWalletServiceClient(walletConn))
 	ledgerClient := gatewayclient.NewLedgerClient(ledgerv1.NewLedgerServiceClient(ledgerConn))

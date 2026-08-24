@@ -78,7 +78,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	grpcServer := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()), grpc.UnaryInterceptor(telemetry.ServiceMetrics("wallet").UnaryServerInterceptor()))
 	walletv1.RegisterWalletServiceServer(grpcServer, walletgrpc.NewServer(wallet.NewService(db)))

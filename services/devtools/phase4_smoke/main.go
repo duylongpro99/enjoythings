@@ -53,7 +53,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "phase4 smoke: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Fprintln(os.Stdout, "phase4 smoke: ok")
+	_, _ = fmt.Fprintln(os.Stdout, "phase4 smoke: ok")
 }
 
 func run(ctx context.Context, args []string) error {
@@ -68,7 +68,7 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stdout, "phase4 smoke: scored payment %s\n", paymentID)
+	_, _ = fmt.Fprintf(os.Stdout, "phase4 smoke: scored payment %s\n", paymentID)
 
 	if err := checkAuditSession(ctx, cfg, paymentID); err != nil {
 		return fmt.Errorf("fraud audit boundary: %w", err)
@@ -206,7 +206,7 @@ func checkAuditSession(ctx context.Context, cfg config, paymentID string) error 
 	if uuidsIn(stored) {
 		return fmt.Errorf("audit row leaked a raw identifier: %s", truncate(stored))
 	}
-	fmt.Fprintf(os.Stdout, "phase4 smoke: audit outcome=%s reason=%q\n", session.FinalOutcome, session.FailureReason)
+	_, _ = fmt.Fprintf(os.Stdout, "phase4 smoke: audit outcome=%s reason=%q\n", session.FinalOutcome, session.FailureReason)
 	return nil
 }
 
@@ -312,7 +312,7 @@ func checkTrace(ctx context.Context, cfg config, paymentID string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stdout, "phase4 smoke: trace services %v\n", seenServices)
+	_, _ = fmt.Fprintf(os.Stdout, "phase4 smoke: trace services %v\n", seenServices)
 	return nil
 }
 
@@ -366,7 +366,7 @@ func getJSON(ctx context.Context, client *http.Client, endpoint, user, password 
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("GET %s status=%d", endpoint, resp.StatusCode)
 	}
@@ -375,7 +375,7 @@ func getJSON(ctx context.Context, client *http.Client, endpoint, user, password 
 
 func uuidsIn(value string) bool {
 	fields := strings.FieldsFunc(value, func(r rune) bool {
-		return !(r == '-' || (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F'))
+		return r != '-' && (r < '0' || r > '9') && (r < 'a' || r > 'f') && (r < 'A' || r > 'F')
 	})
 	for _, field := range fields {
 		if len(field) == 36 && strings.Count(field, "-") == 4 {

@@ -65,7 +65,7 @@ func (client *Client) WaitReady(ctx context.Context) error {
 		if err != nil {
 			return false, nil
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		return resp.StatusCode == http.StatusOK, nil
 	}, "gateway readiness")
 }
@@ -163,7 +163,7 @@ func (client *Client) doJSON(ctx context.Context, method, path string, body any,
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err

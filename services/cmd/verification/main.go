@@ -77,7 +77,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	service := verification.NewService(
 		db.VerificationStore(),

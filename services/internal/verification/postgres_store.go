@@ -23,7 +23,7 @@ func (store *PostgresStore) Submit(ctx context.Context, cmd SubmitCommand, decis
 	if err != nil {
 		return SubmitResult{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if owner, err := idempotencyKeyOwner(ctx, tx, cmd.IdempotencyKey); err == nil && owner != cmd.UserID {
 		return SubmitResult{}, ErrIdempotencyKeyConflict
@@ -72,7 +72,7 @@ func (store *PostgresStore) Decide(ctx context.Context, cmd DecisionCommand, dec
 	if err != nil {
 		return SubmitResult{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	existing, err := selectVerificationForUpdate(ctx, tx, cmd.UserID)
 	if err != nil {

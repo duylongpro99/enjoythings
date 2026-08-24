@@ -39,7 +39,7 @@ func startPayment(w http.ResponseWriter, r *http.Request, client PaymentClient, 
 	if rejectNonJSONContentType(w, r) {
 		return
 	}
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 	var request struct {
 		PaymentID   string `json:"payment_id"`
 		FromWallet  string `json:"from_wallet_id"`

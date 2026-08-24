@@ -38,7 +38,7 @@ func NewVerification(client VerificationClient) http.Handler {
 }
 
 func handleSubmitVerification(w http.ResponseWriter, r *http.Request, client VerificationClient, userID string) {
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 	var request struct {
 		PaymentID      string `json:"payment_id"`
 		IdempotencyKey string `json:"idempotency_key"`
