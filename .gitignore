@@ -37,6 +37,7 @@ coverage.out
 
 # Local data and generated state
 .worktrees/
+.claude/worktrees/
 *.db
 *.sqlite
 *.sqlite3
