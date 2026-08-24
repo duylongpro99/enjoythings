@@ -1,9 +1,9 @@
 import json
 from dataclasses import asdict
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
-from app.fraud.dto import FraudOutcome, FraudScoreRequest, FraudSession, FraudVerdict
+from app.fraud.dto import FraudAction, FraudOutcome, FraudScoreRequest, FraudSession, FraudVerdict
 from app.fraud.worker import SessionClaimError
 
 
@@ -174,7 +174,7 @@ class PostgresFraudSessionStore:
         outcome = None
         if row.get("completed_at") is not None:
             outcome = FraudOutcome(
-                action=final_outcome if final_outcome in ("allow", "flag", "block") else None,
+                action=_fraud_action(final_outcome),
                 verdict=verdict,
                 reason_code=failure_reason or None,
             )
@@ -201,3 +201,10 @@ def _output_event_type(outcome: FraudOutcome) -> str:
     if outcome.reason_code:
         return "fraud.error"
     return ""
+
+
+def _fraud_action(value: object) -> FraudAction | None:
+    """Narrow a stored outcome string to the action literal, or drop it."""
+    if value in ("allow", "flag", "block"):
+        return cast(FraudAction, value)
+    return None

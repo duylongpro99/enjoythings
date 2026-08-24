@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from prometheus_client import CollectorRegistry, Counter, Histogram, REGISTRY
+from prometheus_client import REGISTRY, CollectorRegistry, Counter, Histogram
 
 RISK_BUCKETS = tuple(index / 10 for index in range(11))
 MODEL_LATENCY_BUCKETS = (0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30)

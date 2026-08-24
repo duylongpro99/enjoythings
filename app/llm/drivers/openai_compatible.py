@@ -51,24 +51,23 @@ class OpenAICompatibleDriver:
             async with httpx.AsyncClient(
                 timeout=self._timeout,
                 transport=self._transport,
-            ) as client:
-                async with client.stream("POST", url, json=payload, headers=headers) as response:
-                    if response.status_code < 200 or response.status_code >= 300:
-                        raise ProviderHTTPStatusError(
-                            f"Provider returned status {response.status_code}"
-                        )
+            ) as client, client.stream("POST", url, json=payload, headers=headers) as response:
+                if response.status_code < 200 or response.status_code >= 300:
+                    raise ProviderHTTPStatusError(
+                        f"Provider returned status {response.status_code}"
+                    )
 
-                    async for line in response.aiter_lines():
-                        if not line or not line.startswith("data:"):
-                            continue
+                async for line in response.aiter_lines():
+                    if not line or not line.startswith("data:"):
+                        continue
 
-                        data = line.removeprefix("data:").strip()
-                        if data == "[DONE]":
-                            break
+                    data = line.removeprefix("data:").strip()
+                    if data == "[DONE]":
+                        break
 
-                        delta_text = _extract_delta_text(data)
-                        if delta_text is not None and delta_text != "":
-                            yield ChatDelta(content=delta_text)
+                    delta_text = _extract_delta_text(data)
+                    if delta_text is not None and delta_text != "":
+                        yield ChatDelta(content=delta_text)
         except httpx.TimeoutException as exc:
             raise ProviderTimeoutError("request timed out") from exc
         except ProviderHTTPStatusError:

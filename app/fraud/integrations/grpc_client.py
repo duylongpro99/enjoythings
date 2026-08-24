@@ -3,10 +3,8 @@ import time
 from typing import Any
 
 from app.fraud.dto import KYCStatus, TransactionHistoryEntry, VelocityMetrics
-from app.fraud.integrations.gen.ledger.v1 import ledger_pb2
-from app.fraud.integrations.gen.ledger.v1 import ledger_pb2_grpc
-from app.fraud.integrations.gen.verification.v1 import verification_pb2
-from app.fraud.integrations.gen.verification.v1 import verification_pb2_grpc
+from app.fraud.integrations.gen.ledger.v1 import ledger_pb2, ledger_pb2_grpc
+from app.fraud.integrations.gen.verification.v1 import verification_pb2, verification_pb2_grpc
 from app.fraud.ports import FraudDataPort
 from app.fraud.tracing import start_span, trace_metadata
 

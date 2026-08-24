@@ -136,6 +136,8 @@ def test_app_startup_fails_when_provider_config_missing(
     monkeypatch.delenv("LLM_PROVIDERS_JSON", raising=False)
     monkeypatch.delenv("LLM_DEFAULT_PROVIDER", raising=False)
 
-    with pytest.raises(ProviderConfigError, match="LLM_PROVIDERS_JSON is required"):
-        with TestClient(create_app()):
-            pass
+    with (
+        pytest.raises(ProviderConfigError, match="LLM_PROVIDERS_JSON is required"),
+        TestClient(create_app()),
+    ):
+        pass

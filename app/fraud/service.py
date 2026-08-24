@@ -16,6 +16,8 @@ from app.fraud.instruction import SYSTEM_INSTRUCTION
 from app.fraud.metrics import DEFAULT_METRICS, FraudMetrics
 from app.fraud.ports import CompletionPort, FraudDataPort, FraudSessionStore
 
+UNKNOWN_PROVIDER = "unknown"
+
 
 class FraudScoringService:
     def __init__(
@@ -25,7 +27,11 @@ class FraudScoringService:
         config: FraudConfig,
         store: FraudSessionStore | None = None,
         metrics: FraudMetrics = DEFAULT_METRICS,
+        provider_id: str = UNKNOWN_PROVIDER,
     ) -> None:
+        # The metric label is a bounded value, so an unconfigured provider is
+        # reported as "unknown" rather than as an empty label.
+        self.provider_id = provider_id or UNKNOWN_PROVIDER
         self._graph = FraudScoringGraph(
             data=data,
             completion=completion,

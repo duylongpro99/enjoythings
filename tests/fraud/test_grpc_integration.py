@@ -1,5 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import grpc
 from google.protobuf.timestamp_pb2 import Timestamp
@@ -14,7 +14,7 @@ from app.fraud.integrations.grpc_client import GrpcFraudDataClient
 
 
 def test_grpc_fraud_client_calls_ledger_and_verification_without_model() -> None:
-    occurred_at = datetime(2026, 6, 7, 12, 0, tzinfo=timezone.utc)
+    occurred_at = datetime(2026, 6, 7, 12, 0, tzinfo=UTC)
     timestamp = Timestamp()
     timestamp.FromDatetime(occurred_at)
     ledger = LedgerServicer(timestamp)

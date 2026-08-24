@@ -7,8 +7,8 @@ raw identifier ever reaches a model.
 
 import asyncio
 import json
-from contextlib import asynccontextmanager
 from collections.abc import Mapping, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
 import uvicorn

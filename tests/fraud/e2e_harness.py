@@ -7,7 +7,7 @@ source, and the audit store.
 
 import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from prometheus_client import CollectorRegistry, generate_latest

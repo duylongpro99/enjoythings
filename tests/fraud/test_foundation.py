@@ -1,5 +1,5 @@
-import asyncio
 import ast
+import asyncio
 import json
 from pathlib import Path
 
@@ -7,8 +7,8 @@ import pytest
 
 from app.fraud.completion import CompletionService
 from app.fraud.config import FraudConfig, FraudConfigError
-from app.fraud.ports import FraudSessionStore
 from app.fraud.guards import guard_prompt
+from app.fraud.ports import FraudSessionStore
 from app.fraud.validator import validate_verdict
 from app.llm.types import ChatDelta, ChatMessage
 

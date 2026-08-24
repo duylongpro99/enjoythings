@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 GENERATED_ROOT = Path("app/fraud/integrations/gen")
 PACKAGE_ROOT = "app.fraud.integrations.gen"
 

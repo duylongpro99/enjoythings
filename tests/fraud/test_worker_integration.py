@@ -2,11 +2,12 @@ import asyncio
 import json
 from datetime import UTC, datetime
 
+from prometheus_client import CollectorRegistry, generate_latest
+
 from app.fraud.config import FraudConfig
 from app.fraud.dto import KYCStatus, TransactionHistoryEntry, VelocityMetrics
 from app.fraud.service import FraudScoringService
 from app.fraud.worker import ConsumerDecision, FraudWorker, InMemoryFraudSessionStore
-from prometheus_client import CollectorRegistry, generate_latest
 
 
 def test_worker_integration_uses_fake_model_and_enrichment_and_deduplicates() -> None:

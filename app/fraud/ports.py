@@ -2,8 +2,8 @@ from collections.abc import Sequence
 from typing import Protocol
 
 from app.fraud.dto import (
-    FraudScoreRequest,
     FraudOutcome,
+    FraudScoreRequest,
     FraudSession,
     KYCStatus,
     TransactionHistoryEntry,

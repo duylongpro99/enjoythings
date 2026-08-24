@@ -7,21 +7,24 @@
         "dev": "next dev",
         "build": "next build",
         "start": "next start",
-        "lint": "eslint ."
+        "lint": "eslint .",
+        "typecheck": "tsc --noEmit",
+        "test": "vitest run"
     },
     "dependencies": {
-        "@ai-sdk/react": "latest",
-        "ai": "latest",
-        "next": "latest",
-        "react": "latest",
-        "react-dom": "latest"
+        "@ai-sdk/react": "^3.0.195",
+        "ai": "^6.0.193",
+        "next": "^16.2.6",
+        "react": "^19.2.6",
+        "react-dom": "^19.2.6"
     },
     "devDependencies": {
-        "@types/node": "latest",
-        "@types/react": "latest",
-        "@types/react-dom": "latest",
+        "@types/node": "^25.9.1",
+        "@types/react": "^19.2.15",
+        "@types/react-dom": "^19.2.3",
         "eslint": "^9.39.1",
-        "eslint-config-next": "latest",
-        "typescript": "latest"
+        "eslint-config-next": "^16.2.6",
+        "typescript": "^6.0.3",
+        "vitest": "^3.2.4"
     }
 }

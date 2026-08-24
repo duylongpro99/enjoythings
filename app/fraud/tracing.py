@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterable, Mapping
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from typing import Any
 
 from opentelemetry import context as otel_context
@@ -40,10 +40,8 @@ def init_tracing(service_name: str, environ: Mapping[str, str] | None = None):
         sampler=_sampler(source),
     )
     if source.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
-        try:
+        with suppress(Exception):
             provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
-        except Exception:
-            pass
     trace.set_tracer_provider(provider)
     return provider.shutdown
 

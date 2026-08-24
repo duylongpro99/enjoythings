@@ -5,6 +5,8 @@ from app.llm.types import ChatDelta, ChatRequest
 
 
 class LLMPort(Protocol):
-    async def stream_chat(self, request: ChatRequest) -> AsyncIterator[ChatDelta]:
+    # Drivers implement this as an async generator, so the method itself
+    # returns the iterator rather than a coroutine that yields one.
+    def stream_chat(self, request: ChatRequest) -> AsyncIterator[ChatDelta]:
         """Yield provider-agnostic content deltas."""
 

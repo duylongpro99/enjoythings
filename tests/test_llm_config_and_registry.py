@@ -3,9 +3,9 @@ import json
 import pytest
 
 from app.llm.config import load_provider_registry_config
+from app.llm.drivers.openai_compatible import OpenAICompatibleDriver
 from app.llm.errors import ProviderConfigError
 from app.llm.registry import DriverRegistry
-from app.llm.drivers.openai_compatible import OpenAICompatibleDriver
 
 
 def _valid_env() -> dict[str, str]:
