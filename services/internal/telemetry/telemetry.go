@@ -49,9 +49,12 @@ func Init(ctx context.Context, serviceName string, appEnv string) (func(context.
 	if serviceName == "" {
 		serviceName = "enjoythings-service"
 	}
+	// The service resource carries no schema URL of its own: the SDK default
+	// resource pins the schema version it ships with, and merging a different
+	// semconv schema fails and leaves every service without an exporter.
 	res, err := resource.Merge(
 		resource.Default(),
-		resource.NewWithAttributes(semconv.SchemaURL, semconv.ServiceName(serviceName)),
+		resource.NewWithAttributes("", semconv.ServiceName(serviceName)),
 	)
 	if err != nil {
 		return func(context.Context) error { return nil }, err

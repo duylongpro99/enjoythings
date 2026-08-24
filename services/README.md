@@ -119,6 +119,55 @@ The validator scales Wallet to two ready replicas, continuously requests
 Gateway `/readyz` and the Wallet-backed API endpoint, restarts Wallet, and
 fails if either boundary is interrupted.
 
+## Phase 4 Fraud End-to-End Tests
+
+Run the offline fraud acceptance suite. It needs no Compose stack, no Kafka, and
+no external model provider:
+
+```sh
+cd services
+make test-phase4-e2e
+```
+
+The target runs both halves:
+
+- `make test-phase4-python` drives the real worker, LangGraph scoring graph,
+  provider registry, and Kafka publisher against a deterministic
+  OpenAI-compatible server started inside the test. It covers allow, flag, and
+  block verdicts, one validator retry, two malformed responses, prompt and
+  response identifier rejection, enrichment failure, duplicate scoring
+  requests, provider switching by configuration only, audit contents, canonical
+  action derivation, and audit database loss.
+- `go test ./internal/phase4e2e` drives the saga orchestrator, its Kafka
+  consumer, a fraud worker double that publishes the real event contract, and
+  the notification service. It covers the fail-open publish order, the review
+  transition, duplicate flagged events, a payment result racing review, orphan
+  verdicts, and identifier-free fraud events.
+
+Run the deployed-stack fraud and observability smoke after Compose is healthy:
+
+```sh
+cd services
+docker compose --env-file ../.env up -d --build
+make phase4-smoke
+```
+
+`make phase4-observability` starts the stack and runs both smokes. The Phase 4
+smoke drives one payment, then waits at most 30 seconds per boundary for the
+fraud audit session, healthy Prometheus targets and fraud series, one Jaeger
+trace crossing `saga-orchestrator` and `fraud-worker`, and the provisioned
+Grafana dashboards. It names the failed boundary and requires
+`GRAFANA_ADMIN_PASSWORD`, so export the `.env` values first:
+
+```sh
+cd services
+set -a && . ../.env && set +a
+make phase4-smoke
+```
+
+The audit assertions read the fraud database on the host port `FRAUD_DB_PORT`
+(`5433` by default).
+
 ## Phase 2 API
 
 Business endpoints are served under `/v1` and require a bearer JWT. Requests with a JSON body must include `Content-Type: application/json`.
@@ -313,3 +362,7 @@ Prometheus is available at `http://localhost:9095`, Grafana at
 access is disabled. The provisioned System Overview, Saga Health, and Fraud Agent
 dashboards query Prometheus only. The smoke scenario publishes
 `fraud.score.requested`, allowing the fraud panels to populate.
+
+`make phase4-observability` finishes by running `phase4-smoke`, which fails with
+the offending boundary when audit persistence, Prometheus targets, trace
+propagation, or dashboard provisioning is broken.

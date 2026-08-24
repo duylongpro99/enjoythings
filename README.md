@@ -237,10 +237,19 @@ Useful integration commands:
 ```bash
 cd services
 make test-phase3-e2e
+make test-phase4-e2e
 make phase3-smoke
 make phase4-observability
+make phase4-smoke
 make wallet-rollout-test
 ```
+
+`make test-phase4-e2e` runs the offline fraud acceptance suite: the Python
+scenarios against a deterministic OpenAI-compatible test server, then the Go
+saga and fraud review scenarios. `make phase4-smoke` validates a running stack —
+audit persistence, Prometheus targets, one saga-to-worker trace, and the
+provisioned dashboards. See
+[`services/README.md`](services/README.md) for the required environment.
 
 Regenerate protobuf clients after changing `services/proto`:
 
