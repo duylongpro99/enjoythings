@@ -116,6 +116,22 @@ type fakeApp struct {
 	started    saga.Saga
 	got        saga.Saga
 	err        error
+	decision   saga.FraudReviewDecision
+	decided    string
+	reviewed   saga.Saga
+	reviewErr  error
+}
+
+func (app *fakeApp) ResumeFraudReview(_ context.Context, decision saga.FraudReviewDecision) (saga.Saga, error) {
+	app.decision = decision
+	app.decided = "resume"
+	return app.reviewed, app.reviewErr
+}
+
+func (app *fakeApp) RejectFraudReview(_ context.Context, decision saga.FraudReviewDecision) (saga.Saga, error) {
+	app.decision = decision
+	app.decided = "reject"
+	return app.reviewed, app.reviewErr
 }
 
 func (app *fakeApp) StartPaymentSaga(_ context.Context, req saga.StartRequest) (saga.Saga, error) {

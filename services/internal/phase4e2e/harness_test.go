@@ -75,8 +75,8 @@ func newHarness(t *testing.T) *harness {
 		store:         store,
 		ledger:        ledger,
 		orchestrator:  orchestrator,
-		sagaConsumer:  sagaconsumer.New(orchestrator, nil, slog.New(slog.DiscardHandler)),
-		notifications: notification.NewConsumer(notification.NewDispatcher(email, nil, slog.New(slog.DiscardHandler)), nil, slog.New(slog.DiscardHandler)),
+		sagaConsumer:  sagaconsumer.New(orchestrator, nil, nil, slog.New(slog.DiscardHandler)),
+		notifications: notification.NewConsumer(notification.NewDispatcher(email, nil, slog.New(slog.DiscardHandler)), nil, nil, slog.New(slog.DiscardHandler)),
 		email:         email,
 		worker:        &fraudWorkerDouble{bus: bus},
 	}
@@ -480,6 +480,7 @@ func (wallet *walletBoundary) CompensateDebit(context.Context, saga.WalletCompen
 
 type ledgerBoundary struct {
 	confirmCalls int
+	cancelCalls  int
 	reservations map[string]string
 }
 
@@ -502,6 +503,7 @@ func (ledger *ledgerBoundary) ConfirmTransfer(_ context.Context, req saga.Ledger
 }
 
 func (ledger *ledgerBoundary) CancelReservation(context.Context, saga.LedgerCancelRequest) error {
+	ledger.cancelCalls++
 	return nil
 }
 

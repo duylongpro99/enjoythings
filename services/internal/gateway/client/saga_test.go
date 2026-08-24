@@ -66,11 +66,24 @@ func TestSagaClientMapsStartAndGetPayment(t *testing.T) {
 }
 
 type fakeSagaServiceClient struct {
-	startRequest  *sagav1.StartPaymentSagaRequest
-	startResponse *sagav1.StartPaymentSagaResponse
-	getRequest    *sagav1.GetPaymentSagaRequest
-	getResponse   *sagav1.GetPaymentSagaResponse
-	err           error
+	startRequest   *sagav1.StartPaymentSagaRequest
+	startResponse  *sagav1.StartPaymentSagaResponse
+	getRequest     *sagav1.GetPaymentSagaRequest
+	getResponse    *sagav1.GetPaymentSagaResponse
+	resumeRequest  *sagav1.ResumeFraudReviewRequest
+	rejectRequest  *sagav1.RejectFraudReviewRequest
+	reviewResponse *sagav1.FraudReviewResponse
+	err            error
+}
+
+func (client *fakeSagaServiceClient) ResumeFraudReview(_ context.Context, req *sagav1.ResumeFraudReviewRequest, _ ...grpc.CallOption) (*sagav1.FraudReviewResponse, error) {
+	client.resumeRequest = req
+	return client.reviewResponse, client.err
+}
+
+func (client *fakeSagaServiceClient) RejectFraudReview(_ context.Context, req *sagav1.RejectFraudReviewRequest, _ ...grpc.CallOption) (*sagav1.FraudReviewResponse, error) {
+	client.rejectRequest = req
+	return client.reviewResponse, client.err
 }
 
 func (client *fakeSagaServiceClient) StartPaymentSaga(_ context.Context, req *sagav1.StartPaymentSagaRequest, _ ...grpc.CallOption) (*sagav1.StartPaymentSagaResponse, error) {

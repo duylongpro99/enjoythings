@@ -25,6 +25,10 @@ const (
 	TopicPaymentFailed    = "payment.failed"
 	TopicTxCompleted      = "tx.completed"
 	TopicTxFailed         = "tx.failed"
+
+	FailureCodeFraudRejected = "fraud_rejected"
+
+	defaultRejectReason = "rejected in fraud review"
 )
 
 const (
@@ -34,6 +38,8 @@ const (
 	FraudAuditKindDeferredTerminal   = "deferred_terminal"
 	FraudAuditKindInvariantViolation = "invariant_violation"
 	FraudAuditKindDuplicate          = "duplicate"
+	FraudAuditKindReviewResumed      = "review_resumed"
+	FraudAuditKindReviewRejected     = "review_rejected"
 )
 
 var (
@@ -41,6 +47,15 @@ var (
 	ErrNotFound             = errors.New("saga not found")
 	ErrUnverified           = errors.New("user is not verified")
 	ErrVerificationNotFound = errors.New("verification not found")
+
+	// ErrNotUnderReview guards the operator decisions: only a saga actually
+	// held in FRAUD_REVIEW can be resumed or rejected.
+	ErrNotUnderReview = errors.New("saga is not under fraud review")
+
+	// ErrUnknownDeferredResult means a stored terminal result cannot be
+	// matched to a payment completion or failure, so replaying it would
+	// guess at what the rail did.
+	ErrUnknownDeferredResult = errors.New("deferred payment result is unrecognized")
 )
 
 type Saga struct {

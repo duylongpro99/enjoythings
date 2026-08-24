@@ -47,7 +47,36 @@ func (client *SagaClient) GetPayment(ctx context.Context, paymentID, traceID str
 	if err != nil {
 		return saga.Saga{}, err
 	}
-	message := resp.GetSaga()
+	return sagaFromMessage(resp.GetSaga()), nil
+}
+
+func (client *SagaClient) ResumeFraudReview(ctx context.Context, decision saga.FraudReviewDecision) (saga.Saga, error) {
+	resp, err := client.client.ResumeFraudReview(ctx, &sagav1.ResumeFraudReviewRequest{
+		PaymentId: decision.PaymentID,
+		ActorId:   decision.ActorID,
+		Reason:    decision.Reason,
+		TraceId:   decision.TraceID,
+	})
+	if err != nil {
+		return saga.Saga{}, err
+	}
+	return sagaFromMessage(resp.GetSaga()), nil
+}
+
+func (client *SagaClient) RejectFraudReview(ctx context.Context, decision saga.FraudReviewDecision) (saga.Saga, error) {
+	resp, err := client.client.RejectFraudReview(ctx, &sagav1.RejectFraudReviewRequest{
+		PaymentId: decision.PaymentID,
+		ActorId:   decision.ActorID,
+		Reason:    decision.Reason,
+		TraceId:   decision.TraceID,
+	})
+	if err != nil {
+		return saga.Saga{}, err
+	}
+	return sagaFromMessage(resp.GetSaga()), nil
+}
+
+func sagaFromMessage(message *sagav1.PaymentSaga) saga.Saga {
 	current := saga.Saga{
 		PaymentID:    message.GetPaymentId(),
 		State:        message.GetStatus(),
@@ -64,5 +93,5 @@ func (client *SagaClient) GetPayment(ctx context.Context, paymentID, traceID str
 	if message.GetUpdatedAt() != nil {
 		current.UpdatedAt = message.GetUpdatedAt().AsTime()
 	}
-	return current, nil
+	return current
 }

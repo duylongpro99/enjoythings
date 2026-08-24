@@ -105,6 +105,22 @@ type fakePaymentClient struct {
 	gotTraceID   string
 	got          saga.Saga
 	err          error
+	decision     saga.FraudReviewDecision
+	decided      string
+	reviewed     saga.Saga
+	reviewErr    error
+}
+
+func (client *fakePaymentClient) ResumeFraudReview(_ context.Context, decision saga.FraudReviewDecision) (saga.Saga, error) {
+	client.decision = decision
+	client.decided = "resume"
+	return client.reviewed, client.reviewErr
+}
+
+func (client *fakePaymentClient) RejectFraudReview(_ context.Context, decision saga.FraudReviewDecision) (saga.Saga, error) {
+	client.decision = decision
+	client.decided = "reject"
+	return client.reviewed, client.reviewErr
 }
 
 func (client *fakePaymentClient) StartPayment(_ context.Context, req saga.StartRequest) (saga.Saga, error) {

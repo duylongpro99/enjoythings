@@ -16,6 +16,8 @@ type App interface {
 	StartPaymentSaga(context.Context, saga.StartRequest) (saga.Saga, error)
 	GetPaymentSaga(context.Context, string) (saga.Saga, error)
 	ResumeNonTerminal(context.Context) error
+	ResumeFraudReview(context.Context, saga.FraudReviewDecision) (saga.Saga, error)
+	RejectFraudReview(context.Context, saga.FraudReviewDecision) (saga.Saga, error)
 }
 
 type Server struct {
@@ -69,6 +71,44 @@ func (server *Server) GetPaymentSaga(ctx context.Context, req *sagav1.GetPayment
 	return &sagav1.GetPaymentSagaResponse{Saga: sagaMessage(current)}, nil
 }
 
+func (server *Server) ResumeFraudReview(ctx context.Context, req *sagav1.ResumeFraudReviewRequest) (*sagav1.FraudReviewResponse, error) {
+	decision, err := reviewDecision(req.GetPaymentId(), req.GetActorId(), req.GetReason(), req.GetTraceId())
+	if err != nil {
+		return nil, err
+	}
+	current, err := server.app.ResumeFraudReview(ctx, decision)
+	if err != nil {
+		return nil, statusFromSaga(err)
+	}
+	return &sagav1.FraudReviewResponse{Saga: sagaMessage(current)}, nil
+}
+
+func (server *Server) RejectFraudReview(ctx context.Context, req *sagav1.RejectFraudReviewRequest) (*sagav1.FraudReviewResponse, error) {
+	decision, err := reviewDecision(req.GetPaymentId(), req.GetActorId(), req.GetReason(), req.GetTraceId())
+	if err != nil {
+		return nil, err
+	}
+	current, err := server.app.RejectFraudReview(ctx, decision)
+	if err != nil {
+		return nil, statusFromSaga(err)
+	}
+	return &sagav1.FraudReviewResponse{Saga: sagaMessage(current)}, nil
+}
+
+// reviewDecision requires an actor: a review exit is a human decision, and an
+// audit record without one cannot be traced back to anybody.
+func reviewDecision(paymentID, actorID, reason, traceID string) (saga.FraudReviewDecision, error) {
+	if paymentID == "" || actorID == "" {
+		return saga.FraudReviewDecision{}, status.Error(codes.InvalidArgument, "payment_id and actor_id are required")
+	}
+	return saga.FraudReviewDecision{
+		PaymentID: paymentID,
+		ActorID:   actorID,
+		Reason:    reason,
+		TraceID:   traceID,
+	}, nil
+}
+
 func statusFromSaga(err error) error {
 	switch {
 	case errors.Is(err, saga.ErrAlreadyExists):
@@ -77,6 +117,8 @@ func statusFromSaga(err error) error {
 		return status.Error(codes.NotFound, "payment saga not found")
 	case errors.Is(err, saga.ErrUnverified):
 		return status.Error(codes.FailedPrecondition, "user is not verified")
+	case errors.Is(err, saga.ErrNotUnderReview):
+		return status.Error(codes.FailedPrecondition, "payment is not under fraud review")
 	default:
 		return status.Error(codes.Internal, "internal server error")
 	}
@@ -90,6 +132,7 @@ func sagaMessage(current saga.Saga) *sagav1.PaymentSaga {
 		ToWalletId:     current.ToWalletID,
 		AmountCents:    current.AmountCents,
 		Currency:       current.Currency,
+		FailureCode:    current.FailureCode,
 		FailureMessage: current.LastError,
 		CreatedAt:      timestamppb.New(current.CreatedAt),
 		UpdatedAt:      timestamppb.New(current.UpdatedAt),

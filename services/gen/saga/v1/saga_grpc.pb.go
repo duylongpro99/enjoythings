@@ -19,8 +19,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	SagaService_StartPaymentSaga_FullMethodName = "/saga.v1.SagaService/StartPaymentSaga"
-	SagaService_GetPaymentSaga_FullMethodName   = "/saga.v1.SagaService/GetPaymentSaga"
+	SagaService_StartPaymentSaga_FullMethodName  = "/saga.v1.SagaService/StartPaymentSaga"
+	SagaService_GetPaymentSaga_FullMethodName    = "/saga.v1.SagaService/GetPaymentSaga"
+	SagaService_ResumeFraudReview_FullMethodName = "/saga.v1.SagaService/ResumeFraudReview"
+	SagaService_RejectFraudReview_FullMethodName = "/saga.v1.SagaService/RejectFraudReview"
 )
 
 // SagaServiceClient is the client API for SagaService service.
@@ -39,6 +41,10 @@ const (
 type SagaServiceClient interface {
 	StartPaymentSaga(ctx context.Context, in *StartPaymentSagaRequest, opts ...grpc.CallOption) (*StartPaymentSagaResponse, error)
 	GetPaymentSaga(ctx context.Context, in *GetPaymentSagaRequest, opts ...grpc.CallOption) (*GetPaymentSagaResponse, error)
+	// Operator decisions on a saga held in FRAUD_REVIEW. Both are
+	// FAILED_PRECONDITION unless the saga is actually under review.
+	ResumeFraudReview(ctx context.Context, in *ResumeFraudReviewRequest, opts ...grpc.CallOption) (*FraudReviewResponse, error)
+	RejectFraudReview(ctx context.Context, in *RejectFraudReviewRequest, opts ...grpc.CallOption) (*FraudReviewResponse, error)
 }
 
 type sagaServiceClient struct {
@@ -69,6 +75,26 @@ func (c *sagaServiceClient) GetPaymentSaga(ctx context.Context, in *GetPaymentSa
 	return out, nil
 }
 
+func (c *sagaServiceClient) ResumeFraudReview(ctx context.Context, in *ResumeFraudReviewRequest, opts ...grpc.CallOption) (*FraudReviewResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FraudReviewResponse)
+	err := c.cc.Invoke(ctx, SagaService_ResumeFraudReview_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sagaServiceClient) RejectFraudReview(ctx context.Context, in *RejectFraudReviewRequest, opts ...grpc.CallOption) (*FraudReviewResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FraudReviewResponse)
+	err := c.cc.Invoke(ctx, SagaService_RejectFraudReview_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SagaServiceServer is the server API for SagaService service.
 // All implementations must embed UnimplementedSagaServiceServer
 // for forward compatibility.
@@ -85,6 +111,10 @@ func (c *sagaServiceClient) GetPaymentSaga(ctx context.Context, in *GetPaymentSa
 type SagaServiceServer interface {
 	StartPaymentSaga(context.Context, *StartPaymentSagaRequest) (*StartPaymentSagaResponse, error)
 	GetPaymentSaga(context.Context, *GetPaymentSagaRequest) (*GetPaymentSagaResponse, error)
+	// Operator decisions on a saga held in FRAUD_REVIEW. Both are
+	// FAILED_PRECONDITION unless the saga is actually under review.
+	ResumeFraudReview(context.Context, *ResumeFraudReviewRequest) (*FraudReviewResponse, error)
+	RejectFraudReview(context.Context, *RejectFraudReviewRequest) (*FraudReviewResponse, error)
 	mustEmbedUnimplementedSagaServiceServer()
 }
 
@@ -100,6 +130,12 @@ func (UnimplementedSagaServiceServer) StartPaymentSaga(context.Context, *StartPa
 }
 func (UnimplementedSagaServiceServer) GetPaymentSaga(context.Context, *GetPaymentSagaRequest) (*GetPaymentSagaResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetPaymentSaga not implemented")
+}
+func (UnimplementedSagaServiceServer) ResumeFraudReview(context.Context, *ResumeFraudReviewRequest) (*FraudReviewResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResumeFraudReview not implemented")
+}
+func (UnimplementedSagaServiceServer) RejectFraudReview(context.Context, *RejectFraudReviewRequest) (*FraudReviewResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RejectFraudReview not implemented")
 }
 func (UnimplementedSagaServiceServer) mustEmbedUnimplementedSagaServiceServer() {}
 func (UnimplementedSagaServiceServer) testEmbeddedByValue()                     {}
@@ -158,6 +194,42 @@ func _SagaService_GetPaymentSaga_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SagaService_ResumeFraudReview_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResumeFraudReviewRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SagaServiceServer).ResumeFraudReview(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SagaService_ResumeFraudReview_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SagaServiceServer).ResumeFraudReview(ctx, req.(*ResumeFraudReviewRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SagaService_RejectFraudReview_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RejectFraudReviewRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SagaServiceServer).RejectFraudReview(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SagaService_RejectFraudReview_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SagaServiceServer).RejectFraudReview(ctx, req.(*RejectFraudReviewRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // SagaService_ServiceDesc is the grpc.ServiceDesc for SagaService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -172,6 +244,14 @@ var SagaService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetPaymentSaga",
 			Handler:    _SagaService_GetPaymentSaga_Handler,
+		},
+		{
+			MethodName: "ResumeFraudReview",
+			Handler:    _SagaService_ResumeFraudReview_Handler,
+		},
+		{
+			MethodName: "RejectFraudReview",
+			Handler:    _SagaService_RejectFraudReview_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -18,6 +18,11 @@ option go_package = "enjoythings/services/gen/saga/v1;sagav1";
 service SagaService {
   rpc StartPaymentSaga(StartPaymentSagaRequest) returns (StartPaymentSagaResponse);
   rpc GetPaymentSaga(GetPaymentSagaRequest) returns (GetPaymentSagaResponse);
+
+  // Operator decisions on a saga held in FRAUD_REVIEW. Both are
+  // FAILED_PRECONDITION unless the saga is actually under review.
+  rpc ResumeFraudReview(ResumeFraudReviewRequest) returns (FraudReviewResponse);
+  rpc RejectFraudReview(RejectFraudReviewRequest) returns (FraudReviewResponse);
 }
 
 message StartPaymentSagaRequest {
@@ -44,6 +49,24 @@ message GetPaymentSagaRequest {
 }
 
 message GetPaymentSagaResponse {
+  PaymentSaga saga = 1;
+}
+
+message ResumeFraudReviewRequest {
+  string payment_id = 1;
+  string actor_id = 2;
+  string reason = 3;
+  string trace_id = 4;
+}
+
+message RejectFraudReviewRequest {
+  string payment_id = 1;
+  string actor_id = 2;
+  string reason = 3;
+  string trace_id = 4;
+}
+
+message FraudReviewResponse {
   PaymentSaga saga = 1;
 }
 

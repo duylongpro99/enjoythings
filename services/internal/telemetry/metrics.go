@@ -14,10 +14,23 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-var boundedKafkaTopics = map[string]struct{}{
-	"tx.initiated": {}, "payment.execute": {}, "payment.completed": {}, "payment.failed": {},
-	"tx.completed": {}, "tx.failed": {}, "tx.paused": {}, "fraud.score.requested": {},
-	"fraud.flagged": {}, "fraud.error": {}, "user.verified": {}, "user.rejected": {},
+var boundedKafkaTopics = buildBoundedKafkaTopics()
+
+var boundedSourceTopics = []string{
+	"tx.initiated", "payment.execute", "payment.completed", "payment.failed",
+	"tx.completed", "tx.failed", "tx.paused", "fraud.score.requested",
+	"fraud.flagged", "fraud.error", "user.verified", "user.rejected",
+}
+
+// buildBoundedKafkaTopics admits every source topic and its dead-letter topic,
+// so parked poison records stay visible in the same metric as live traffic.
+func buildBoundedKafkaTopics() map[string]struct{} {
+	topics := make(map[string]struct{}, len(boundedSourceTopics)*2)
+	for _, topic := range boundedSourceTopics {
+		topics[topic] = struct{}{}
+		topics[topic+".dlq"] = struct{}{}
+	}
+	return topics
 }
 
 type Metrics struct {
@@ -104,7 +117,7 @@ func (metrics *Metrics) RecordSaga(event string, duration time.Duration) bool {
 		metrics.sagaDuration.WithLabelValues(event).Observe(duration.Seconds())
 		return true
 	}
-	if oneOf(event, "step_failure", "compensation", "fraud_review") {
+	if oneOf(event, "step_failure", "compensation", "fraud_review", "fraud_review_resumed", "fraud_review_rejected") {
 		metrics.sagaEvents.WithLabelValues(event).Inc()
 		return true
 	}
