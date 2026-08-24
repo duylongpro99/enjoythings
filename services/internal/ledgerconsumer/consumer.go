@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"enjoythings/services/internal/deadletter"
 	"enjoythings/services/internal/domain"
 	"enjoythings/services/internal/event"
 	"enjoythings/services/internal/repo"
@@ -32,16 +33,36 @@ type Committer interface {
 }
 
 type Consumer struct {
-	store     Store
-	committer Committer
-	logger    *slog.Logger
+	store       Store
+	committer   Committer
+	deadLetters deadletter.Publisher
+	logger      *slog.Logger
 }
 
-func New(store Store, committer Committer, logger *slog.Logger) *Consumer {
+// New builds the record handler. A nil deadLetters publisher keeps poison
+// records out of Kafka entirely, which is only appropriate in-process; the
+// Kafka consumer below always wires one.
+func New(store Store, committer Committer, deadLetters deadletter.Publisher, logger *slog.Logger) *Consumer {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Consumer{store: store, committer: committer, logger: logger}
+	return &Consumer{store: store, committer: committer, deadLetters: deadLetters, logger: logger}
+}
+
+// deadLetter parks a poison record and only then commits its offset, so a
+// failed dead-letter write retries the record instead of losing it.
+func (consumer *Consumer) deadLetter(ctx context.Context, record *kgo.Record, cause error) error {
+	if consumer.deadLetters == nil {
+		consumer.logger.Warn("ledger consumer dropped invalid event without a dead-letter publisher", "topic", record.Topic, "offset", record.Offset, "error", cause)
+		return consumer.commit(ctx, record)
+	}
+	if err := consumer.deadLetters.Publish(ctx, deadletter.FromKafka(record, cause)); err != nil {
+		consumer.logger.Error("ledger consumer dead-letter publish failed", "topic", record.Topic, "offset", record.Offset, "error", err)
+		return err
+	}
+	telemetry.ServiceMetrics("ledger").RecordKafka(deadletter.TopicFor(record.Topic), "produced")
+	consumer.logger.Warn("ledger consumer dead-lettered invalid event", "topic", record.Topic, "partition", record.Partition, "offset", record.Offset, "error", cause)
+	return consumer.commit(ctx, record)
 }
 
 func (consumer *Consumer) HandleRecord(ctx context.Context, record *kgo.Record) (err error) {
@@ -57,8 +78,7 @@ func (consumer *Consumer) HandleRecord(ctx context.Context, record *kgo.Record) 
 	defer span.End()
 	transfer, err := decodeTransfer(record.Value)
 	if err != nil {
-		consumer.logger.Warn("ledger consumer skipped invalid tx.initiated event", "topic", record.Topic, "partition", record.Partition, "offset", record.Offset, "error", err)
-		return consumer.commit(ctx, record)
+		return consumer.deadLetter(ctx, record, err)
 	}
 
 	if err := consumer.store.AppendTransferEntries(ctx, transfer); err != nil {
@@ -101,7 +121,7 @@ func NewKafkaConsumer(brokers []string, topic, groupID string, store Store, logg
 		return nil, err
 	}
 	runner := &KafkaConsumer{client: client, logger: logger}
-	runner.handler = New(store, runner, logger)
+	runner.handler = New(store, runner, deadletter.NewKafkaPublisher(client), logger)
 	return runner, nil
 }
 

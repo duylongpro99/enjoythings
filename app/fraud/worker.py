@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -9,8 +10,8 @@ from typing import Any
 from uuid import uuid4
 
 from app.fraud.dto import FraudOutcome, FraudScoreRequest, FraudSession
-from app.fraud.ports import FraudSessionStore
 from app.fraud.metrics import DEFAULT_METRICS, FraudMetrics
+from app.fraud.ports import FraudSessionStore
 from app.fraud.tracing import extract_kafka_context, start_span
 
 
@@ -22,6 +23,9 @@ class TransportClassification(StrEnum):
 class ConsumerDecision(StrEnum):
     COMMIT = "commit"
     RETRY = "retry"
+    # The record cannot be parsed, so retrying it will never help. The runner
+    # parks it on the dead-letter topic before committing the offset.
+    DEAD_LETTER = "dead_letter"
 
 
 @dataclass(frozen=True)
@@ -42,7 +46,7 @@ class FraudWorkerTelemetry:
 
     def malformed_record(self) -> None:
         self.malformed_records += 1
-        self._logger.warning("fraud worker committed malformed transport event")
+        self._logger.warning("fraud worker dead-lettered malformed transport event")
 
     def error_publish_failed(self, request: FraudScoreRequest, reason_code: str) -> None:
         self.error_publish_failures += 1
@@ -75,7 +79,7 @@ class FraudWorker:
             parsed = classify_transport_payload(payload)
             if parsed.classification != TransportClassification.VALID or parsed.request is None:
                 self._telemetry.malformed_record()
-                return ConsumerDecision.COMMIT
+                return ConsumerDecision.DEAD_LETTER
             request = parsed.request
             return await self._handle_request(request)
 
@@ -102,7 +106,6 @@ class FraudWorker:
                         )
                     except Exception:
                         self._telemetry.error_publish_failed(request, "audit_failed")
-                        pass
                     return ConsumerDecision.RETRY
                 try:
                     session = await self._store.complete_session(session, outcome)
@@ -122,14 +125,15 @@ class FraudWorker:
                         request, outcome, session.session_id
                     )
                 except Exception:
+                    # Returning from `finally` here would also swallow
+                    # cancellation, so the retry decision is returned plainly.
                     try:
                         await self._publisher.publish_error(
                             request, "publish_failed", session.session_id
                         )
                     except Exception:
                         self._telemetry.error_publish_failed(request, "publish_failed")
-                    finally:
-                        return ConsumerDecision.RETRY
+                    return ConsumerDecision.RETRY
                 await self._store.mark_published(session)
             elif outcome.reason_code is not None:
                 try:
@@ -138,7 +142,6 @@ class FraudWorker:
                     )
                 except Exception:
                     self._telemetry.error_publish_failed(request, outcome.reason_code)
-                    pass
                 await self._store.mark_published(session)
         except Exception:
             return ConsumerDecision.RETRY
@@ -149,10 +152,8 @@ class FraudWorker:
             self._metrics.session_duration(outcome_label, monotonic() - started)
             await _cancel(heartbeat)
             if session is not None:
-                try:
+                with suppress(Exception):
                     await self._store.release_lease(session)
-                except Exception:
-                    pass
         return ConsumerDecision.COMMIT
 
     async def _renew_lease(self, session: FraudSession) -> None:
@@ -279,10 +280,8 @@ async def _cancel(task: asyncio.Task[None] | None) -> None:
     if task is None:
         return
     task.cancel()
-    try:
+    with suppress(asyncio.CancelledError):
         await task
-    except asyncio.CancelledError:
-        pass
 
 
 def _output_event_type(outcome: FraudOutcome) -> str:

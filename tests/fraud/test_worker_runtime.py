@@ -1,9 +1,14 @@
 import asyncio
+import base64
 import json
 from datetime import UTC, datetime
 
 from app.fraud.dto import FraudOutcome, FraudScoreRequest, FraudVerdict
-from app.fraud.integrations.kafka import KafkaFraudPublisher, KafkaWorkerRunner
+from app.fraud.integrations.kafka import (
+    KafkaDeadLetterPublisher,
+    KafkaFraudPublisher,
+    KafkaWorkerRunner,
+)
 from app.fraud.runtime import WorkerHealth, WorkerRuntime, provider_configuration_ready
 from app.fraud.worker import ConsumerDecision, FraudWorker, InMemoryFraudSessionStore
 
@@ -39,6 +44,39 @@ def test_runner_commits_only_commit_decisions_and_stops_polling() -> None:
 
     assert consumer.committed == [consumer.records[0]]
     assert consumer.stopped is True
+
+
+def test_runner_dead_letters_poison_records_before_committing() -> None:
+    consumer = FakeConsumer([FakeRecord(b"not json", offset=11, key=b"payment-1")])
+    worker = FakeWorker([ConsumerDecision.DEAD_LETTER])
+    producer = FakeProducer()
+    runner = KafkaWorkerRunner(
+        consumer,
+        worker,
+        KafkaDeadLetterPublisher(producer, now=lambda: datetime(2026, 6, 7, tzinfo=UTC)),
+    )
+
+    asyncio.run(runner.run())
+
+    topic, value, key, _ = producer.sent[0]
+    payload = json.loads(value)
+    assert topic == "fraud.score.requested.dlq"
+    assert key == b"payment-1"
+    assert payload["topic"] == "fraud.score.requested"
+    assert payload["offset"] == 11
+    assert base64.b64decode(payload["value"]) == b"not json"
+    assert payload["error"]
+    assert consumer.committed == [consumer.records[0]]
+
+
+def test_runner_holds_offset_when_dead_letter_publish_fails() -> None:
+    consumer = FakeConsumer([FakeRecord(b"not json")])
+    worker = FakeWorker([ConsumerDecision.DEAD_LETTER])
+    runner = KafkaWorkerRunner(consumer, worker, FailingDeadLetters())
+
+    asyncio.run(runner.run())
+
+    assert consumer.committed == []
 
 
 def test_worker_renews_and_releases_lease_while_scoring() -> None:
@@ -137,13 +175,17 @@ class FakeProducer:
     def __init__(self) -> None:
         self.sent = []
 
-    async def send_and_wait(self, topic, *, value, key, headers):
+    async def send_and_wait(self, topic, *, value, key, headers=None):
         self.sent.append((topic, value, key, headers))
 
 
 class FakeRecord:
-    def __init__(self, value: bytes) -> None:
+    def __init__(self, value: bytes, topic: str = "fraud.score.requested", partition: int = 0, offset: int = 0, key: bytes | None = None) -> None:
         self.value = value
+        self.topic = topic
+        self.partition = partition
+        self.offset = offset
+        self.key = key
 
 
 class FakeConsumer:
@@ -219,3 +261,8 @@ class Closable:
 
     async def close(self) -> None:
         self.closed = True
+
+
+class FailingDeadLetters:
+    async def publish(self, record, reason) -> None:
+        raise RuntimeError("broker unavailable")

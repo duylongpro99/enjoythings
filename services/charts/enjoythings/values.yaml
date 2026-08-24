@@ -35,6 +35,16 @@ kafka:
     - fraud.score.requested
     - fraud.flagged
     - fraud.error
+    - tx.initiated.dlq
+    - payment.completed.dlq
+    - payment.failed.dlq
+    - fraud.flagged.dlq
+    - fraud.score.requested.dlq
+    - tx.completed.dlq
+    - tx.failed.dlq
+    - tx.paused.dlq
+    - user.verified.dlq
+    - user.rejected.dlq
 
 fraudTimescaledb:
   enabled: true

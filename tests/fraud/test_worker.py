@@ -1,6 +1,5 @@
 import asyncio
 import json
-from datetime import UTC, datetime
 
 from app.fraud.dto import FraudOutcome, FraudVerdict
 from app.fraud.worker import (
@@ -41,7 +40,7 @@ def test_transport_classification_rejects_malformed_records_as_non_retryable() -
     )
 
 
-def test_malformed_record_is_committed_with_sanitized_telemetry() -> None:
+def test_malformed_record_is_dead_lettered_with_sanitized_telemetry() -> None:
     telemetry = FraudWorkerTelemetry()
     worker = FraudWorker(
         service=FakeService(FraudOutcome(action="allow")),
@@ -49,7 +48,10 @@ def test_malformed_record_is_committed_with_sanitized_telemetry() -> None:
         telemetry=telemetry,
     )
 
-    assert asyncio.run(worker.handle_payload(b"private raw malformed payload")) == ConsumerDecision.COMMIT
+    assert (
+        asyncio.run(worker.handle_payload(b"private raw malformed payload"))
+        == ConsumerDecision.DEAD_LETTER
+    )
     assert telemetry.malformed_records == 1
 
 

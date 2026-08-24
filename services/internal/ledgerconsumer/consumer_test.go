@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"testing"
 
+	"enjoythings/services/internal/deadletter"
+
 	"github.com/google/uuid"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
@@ -13,7 +15,8 @@ import (
 func TestHandleRecordAppendsValidTransferAndCommitsOffset(t *testing.T) {
 	store := &fakeStore{}
 	committer := &fakeCommitter{}
-	consumer := New(store, committer, slog.New(slog.DiscardHandler))
+	deadLetters := &fakeDeadLetters{}
+	consumer := New(store, committer, deadLetters, slog.New(slog.DiscardHandler))
 	transferID := uuid.New()
 	fromWalletID := uuid.New()
 	toWalletID := uuid.New()
@@ -45,7 +48,8 @@ func TestHandleRecordAppendsValidTransferAndCommitsOffset(t *testing.T) {
 func TestHandleRecordSkipsMalformedJSONAndCommitsOffset(t *testing.T) {
 	store := &fakeStore{}
 	committer := &fakeCommitter{}
-	consumer := New(store, committer, slog.New(slog.DiscardHandler))
+	deadLetters := &fakeDeadLetters{}
+	consumer := New(store, committer, deadLetters, slog.New(slog.DiscardHandler))
 
 	if err := consumer.HandleRecord(context.Background(), &kgo.Record{Value: []byte(`{`)}); err != nil {
 		t.Fatalf("HandleRecord malformed: %v", err)
@@ -61,7 +65,8 @@ func TestHandleRecordSkipsMalformedJSONAndCommitsOffset(t *testing.T) {
 func TestHandleRecordRejectsSchemaInvalidEventAndCommitsOffset(t *testing.T) {
 	store := &fakeStore{}
 	committer := &fakeCommitter{}
-	consumer := New(store, committer, slog.New(slog.DiscardHandler))
+	deadLetters := &fakeDeadLetters{}
+	consumer := New(store, committer, deadLetters, slog.New(slog.DiscardHandler))
 
 	err := consumer.HandleRecord(context.Background(), &kgo.Record{Value: []byte(`{
 		"transfer_id":"not-a-uuid",
@@ -85,7 +90,8 @@ func TestHandleRecordRejectsSchemaInvalidEventAndCommitsOffset(t *testing.T) {
 func TestHandleRecordDoesNotCommitOffsetWhenStoreFails(t *testing.T) {
 	store := &fakeStore{err: errors.New("database unavailable")}
 	committer := &fakeCommitter{}
-	consumer := New(store, committer, slog.New(slog.DiscardHandler))
+	deadLetters := &fakeDeadLetters{}
+	consumer := New(store, committer, deadLetters, slog.New(slog.DiscardHandler))
 
 	err := consumer.HandleRecord(context.Background(), &kgo.Record{Value: []byte(`{
 		"transfer_id":"` + uuid.NewString() + `",
@@ -101,6 +107,55 @@ func TestHandleRecordDoesNotCommitOffsetWhenStoreFails(t *testing.T) {
 	if committer.count != 0 {
 		t.Fatalf("commits = %d, want 0", committer.count)
 	}
+}
+
+func TestHandleRecordDeadLettersMalformedJSONBeforeCommitting(t *testing.T) {
+	store := &fakeStore{}
+	committer := &fakeCommitter{}
+	deadLetters := &fakeDeadLetters{}
+	consumer := New(store, committer, deadLetters, slog.New(slog.DiscardHandler))
+
+	if err := consumer.HandleRecord(context.Background(), &kgo.Record{Topic: "tx.initiated", Offset: 12, Value: []byte(`{`)}); err != nil {
+		t.Fatalf("HandleRecord malformed: %v", err)
+	}
+	if len(deadLetters.records) != 1 {
+		t.Fatalf("dead letters = %d, want 1", len(deadLetters.records))
+	}
+	parked := deadLetters.records[0]
+	if parked.Topic != "tx.initiated" || parked.Offset != 12 || string(parked.Value) != "{" || parked.Reason == "" {
+		t.Fatalf("dead letter = %+v, want the raw record and a reason", parked)
+	}
+	if committer.count != 1 {
+		t.Fatalf("commits = %d, want 1", committer.count)
+	}
+}
+
+func TestHandleRecordKeepsOffsetWhenDeadLetterPublishFails(t *testing.T) {
+	store := &fakeStore{}
+	committer := &fakeCommitter{}
+	deadLetters := &fakeDeadLetters{err: errors.New("broker unavailable")}
+	consumer := New(store, committer, deadLetters, slog.New(slog.DiscardHandler))
+
+	err := consumer.HandleRecord(context.Background(), &kgo.Record{Topic: "tx.initiated", Value: []byte(`{`)})
+	if err == nil {
+		t.Fatal("expected the dead-letter failure to surface")
+	}
+	if committer.count != 0 {
+		t.Fatalf("commits = %d, want 0 so the record is retried", committer.count)
+	}
+}
+
+type fakeDeadLetters struct {
+	records []deadletter.Record
+	err     error
+}
+
+func (publisher *fakeDeadLetters) Publish(_ context.Context, record deadletter.Record) error {
+	if publisher.err != nil {
+		return publisher.err
+	}
+	publisher.records = append(publisher.records, record)
+	return nil
 }
 
 type fakeStore struct {

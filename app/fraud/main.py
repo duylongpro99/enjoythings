@@ -12,6 +12,7 @@ from app.fraud.config import FraudConfig
 from app.fraud.integrations.grpc_client import build_grpc_fraud_data_client
 from app.fraud.integrations.kafka import (
     AIOKafkaConsumerAdapter,
+    KafkaDeadLetterPublisher,
     KafkaFraudPublisher,
     KafkaWorkerRunner,
 )
@@ -33,9 +34,9 @@ async def build_runtime(environ=None) -> WorkerRuntime:
     provider = next(
         item for item in provider_config.providers if item.id == provider_config.default_provider_id
     )
-    completion = CompletionService(registry.default_driver)
-    completion.provider_id = provider.id
-    completion.model_id = provider.model
+    completion = CompletionService(
+        registry.default_driver, provider_id=provider.id, model_id=provider.model
+    )
 
     pool = await asyncpg.create_pool(config.database_url)
     store = PostgresFraudSessionStore(pool, lease_owner=str(uuid4()))
@@ -54,11 +55,14 @@ async def build_runtime(environ=None) -> WorkerRuntime:
     publisher = KafkaFraudPublisher(
         producer, provider_id=provider.id, model_id=provider.model
     )
-    service = FraudScoringService(data, completion, config, store=store)
-    service.provider_id = provider.id
+    service = FraudScoringService(
+        data, completion, config, store=store, provider_id=provider.id
+    )
     worker = FraudWorker(service, publisher, store)
     consumer_adapter = AIOKafkaConsumerAdapter(consumer)
-    runner = KafkaWorkerRunner(consumer_adapter, worker)
+    runner = KafkaWorkerRunner(
+        consumer_adapter, worker, KafkaDeadLetterPublisher(producer)
+    )
     runtime = WorkerRuntime(
         runner=runner,
         database=store,

@@ -85,7 +85,7 @@ func newHarness(t *testing.T, mode railMode) *harness {
 			Sleeper:  noSleep{},
 			Clock:    fixedClock{},
 		}),
-		notification: notification.NewConsumer(dispatcher, nil, slog.New(slog.DiscardHandler)),
+		notification: notification.NewConsumer(dispatcher, nil, nil, slog.New(slog.DiscardHandler)),
 		email:        email,
 	}
 	h.newOrchestrator()
@@ -675,6 +675,42 @@ func (noSleep) Sleep(context.Context, time.Duration) error {
 
 type directSagaClient struct {
 	server *sagagrpc.Server
+}
+
+func (client directSagaClient) ResumeFraudReview(ctx context.Context, decision saga.FraudReviewDecision) (saga.Saga, error) {
+	resp, err := client.server.ResumeFraudReview(ctx, &sagav1.ResumeFraudReviewRequest{
+		PaymentId: decision.PaymentID,
+		ActorId:   decision.ActorID,
+		Reason:    decision.Reason,
+		TraceId:   decision.TraceID,
+	})
+	if err != nil {
+		return saga.Saga{}, err
+	}
+	return saga.Saga{
+		PaymentID:   resp.GetSaga().GetPaymentId(),
+		State:       resp.GetSaga().GetStatus(),
+		FailureCode: resp.GetSaga().GetFailureCode(),
+		LastError:   resp.GetSaga().GetFailureMessage(),
+	}, nil
+}
+
+func (client directSagaClient) RejectFraudReview(ctx context.Context, decision saga.FraudReviewDecision) (saga.Saga, error) {
+	resp, err := client.server.RejectFraudReview(ctx, &sagav1.RejectFraudReviewRequest{
+		PaymentId: decision.PaymentID,
+		ActorId:   decision.ActorID,
+		Reason:    decision.Reason,
+		TraceId:   decision.TraceID,
+	})
+	if err != nil {
+		return saga.Saga{}, err
+	}
+	return saga.Saga{
+		PaymentID:   resp.GetSaga().GetPaymentId(),
+		State:       resp.GetSaga().GetStatus(),
+		FailureCode: resp.GetSaga().GetFailureCode(),
+		LastError:   resp.GetSaga().GetFailureMessage(),
+	}, nil
 }
 
 func (client directSagaClient) StartPayment(ctx context.Context, req saga.StartRequest) (saga.Saga, error) {

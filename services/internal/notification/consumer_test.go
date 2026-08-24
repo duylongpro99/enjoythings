@@ -6,13 +6,16 @@ import (
 	"log/slog"
 	"testing"
 
+	"enjoythings/services/internal/deadletter"
+
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
 func TestConsumerCommitsOffsetAfterDispatchSucceeds(t *testing.T) {
 	app := &fakeDispatcher{}
 	committer := &fakeCommitter{}
-	consumer := NewConsumer(app, committer, slog.New(slog.DiscardHandler))
+	deadLetters := &fakeDeadLetters{}
+	consumer := NewConsumer(app, committer, deadLetters, slog.New(slog.DiscardHandler))
 
 	err := consumer.HandleRecord(context.Background(), &kgo.Record{
 		Topic: TopicTxCompleted,
@@ -32,7 +35,8 @@ func TestConsumerCommitsOffsetAfterDispatchSucceeds(t *testing.T) {
 func TestConsumerDoesNotCommitOffsetWhenDispatchFails(t *testing.T) {
 	app := &fakeDispatcher{err: errors.New("adapter failed")}
 	committer := &fakeCommitter{}
-	consumer := NewConsumer(app, committer, slog.New(slog.DiscardHandler))
+	deadLetters := &fakeDeadLetters{}
+	consumer := NewConsumer(app, committer, deadLetters, slog.New(slog.DiscardHandler))
 
 	err := consumer.HandleRecord(context.Background(), &kgo.Record{
 		Topic: TopicUserRejected,
@@ -50,8 +54,9 @@ func TestConsumerCommitsInvalidPayloadWithoutDispatchingAdapters(t *testing.T) {
 	email := &recordingAdapter{}
 	sms := &recordingAdapter{}
 	committer := &fakeCommitter{}
+	deadLetters := &fakeDeadLetters{}
 	dispatcher := NewDispatcher(email, sms, slog.New(slog.DiscardHandler))
-	consumer := NewConsumer(dispatcher, committer, slog.New(slog.DiscardHandler))
+	consumer := NewConsumer(dispatcher, committer, deadLetters, slog.New(slog.DiscardHandler))
 
 	err := consumer.HandleRecord(context.Background(), &kgo.Record{Topic: TopicTxCompleted, Value: []byte(`{`)})
 	if err != nil {
@@ -68,7 +73,8 @@ func TestConsumerCommitsInvalidPayloadWithoutDispatchingAdapters(t *testing.T) {
 func TestConsumerCommitsUnknownTopicWithoutDispatch(t *testing.T) {
 	app := &fakeDispatcher{}
 	committer := &fakeCommitter{}
-	consumer := NewConsumer(app, committer, slog.New(slog.DiscardHandler))
+	deadLetters := &fakeDeadLetters{}
+	consumer := NewConsumer(app, committer, deadLetters, slog.New(slog.DiscardHandler))
 
 	err := consumer.HandleRecord(context.Background(), &kgo.Record{Topic: "phase4.fraud.detected", Value: []byte(`{}`)})
 	if err != nil {
@@ -98,5 +104,55 @@ type fakeCommitter struct {
 
 func (committer *fakeCommitter) CommitRecord(context.Context, *kgo.Record) error {
 	committer.count++
+	return nil
+}
+
+func TestConsumerDeadLettersInvalidPayloadBeforeCommitting(t *testing.T) {
+	app := &fakeDispatcher{err: ErrInvalidEvent}
+	committer := &fakeCommitter{}
+	deadLetters := &fakeDeadLetters{}
+	consumer := NewConsumer(app, committer, deadLetters, slog.New(slog.DiscardHandler))
+
+	err := consumer.HandleRecord(context.Background(), &kgo.Record{
+		Topic:  TopicTxPaused,
+		Offset: 4,
+		Value:  []byte(`{`),
+	})
+	if err != nil {
+		t.Fatalf("HandleRecord: %v", err)
+	}
+	if len(deadLetters.records) != 1 || deadLetters.records[0].Topic != TopicTxPaused {
+		t.Fatalf("dead letters = %+v, want the paused event parked", deadLetters.records)
+	}
+	if committer.count != 1 {
+		t.Fatalf("commits = %d, want 1", committer.count)
+	}
+}
+
+func TestConsumerKeepsOffsetWhenDeadLetterPublishFails(t *testing.T) {
+	app := &fakeDispatcher{err: ErrInvalidEvent}
+	committer := &fakeCommitter{}
+	deadLetters := &fakeDeadLetters{err: errors.New("broker unavailable")}
+	consumer := NewConsumer(app, committer, deadLetters, slog.New(slog.DiscardHandler))
+
+	err := consumer.HandleRecord(context.Background(), &kgo.Record{Topic: TopicTxCompleted, Value: []byte(`{`)})
+	if err == nil {
+		t.Fatal("expected the dead-letter failure to surface")
+	}
+	if committer.count != 0 {
+		t.Fatalf("commits = %d, want 0 so the record is retried", committer.count)
+	}
+}
+
+type fakeDeadLetters struct {
+	records []deadletter.Record
+	err     error
+}
+
+func (publisher *fakeDeadLetters) Publish(_ context.Context, record deadletter.Record) error {
+	if publisher.err != nil {
+		return publisher.err
+	}
+	publisher.records = append(publisher.records, record)
 	return nil
 }
