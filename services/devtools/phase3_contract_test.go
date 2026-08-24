@@ -152,11 +152,22 @@ func TestPhase3SagaGatewayAndComposeWiring(t *testing.T) {
 func TestPhase3SmokeCommandCoversDeployedSagaBoundaries(t *testing.T) {
 	root := repoRoot(t)
 
-	smoke := readText(t, filepath.Join(root, "devtools", "phase3_smoke", "main.go"))
+	// The gateway calls live in the client shared by the deployed-stack smokes.
+	client := readText(t, filepath.Join(root, "devtools", "smoke", "client.go"))
 	for _, snippet := range []string{
 		"/v1/verification/submit",
 		"/v1/transfers",
 		"/v1/payments/",
+		"/v1/wallets",
+	} {
+		requireContains(t, client, snippet)
+	}
+
+	smoke := readText(t, filepath.Join(root, "devtools", "phase3_smoke", "main.go"))
+	for _, snippet := range []string{
+		"client.SubmitVerification",
+		"client.StartPayment",
+		"client.WaitPaymentState",
 		"saga.TopicTxCompleted",
 		"saga.TopicTxFailed",
 		`"CONFIRMED"`,

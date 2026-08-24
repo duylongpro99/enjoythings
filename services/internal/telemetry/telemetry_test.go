@@ -33,6 +33,18 @@ func TestKafkaContextRoundTripPreservesParent(t *testing.T) {
 	}
 }
 
+func TestInitBuildsAServiceResourceForTheInstalledSDK(t *testing.T) {
+	shutdown, err := Init(context.Background(), "saga-orchestrator", "local")
+	if err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := shutdown(context.Background()); err != nil {
+			t.Fatalf("shutdown: %v", err)
+		}
+	})
+}
+
 func TestSafeAttributesRejectSensitiveKeys(t *testing.T) {
 	attrs := SafeAttributes(
 		"payment.id", "payment-1",

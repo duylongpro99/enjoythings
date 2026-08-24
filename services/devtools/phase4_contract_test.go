@@ -78,3 +78,26 @@ func TestPhase4HelmValuesExposeMetricsAndFraudRuntime(t *testing.T) {
 	requireContains(t, applications, "prometheus.io/port")
 	requireContains(t, services, "name: metrics")
 }
+
+func TestPhase4EndToEndCommandsAreWiredAndDocumented(t *testing.T) {
+	root := repoRoot(t)
+
+	compose := readText(t, filepath.Join(root, "docker-compose.yml"))
+	requireContains(t, compose, "${FRAUD_DB_PORT:-5433}:5432")
+
+	makefile := readText(t, filepath.Join(root, "Makefile"))
+	for _, snippet := range []string{
+		"test-phase4-e2e: test-phase4-python",
+		"go test ./internal/phase4e2e -v",
+		"test-phase4-python:",
+		"uv run pytest tests/fraud/test_phase4_e2e.py -v",
+		"phase4-smoke:",
+		"go run ./devtools/phase4_smoke",
+	} {
+		requireContains(t, makefile, snippet)
+	}
+
+	readme := readText(t, filepath.Join(root, "README.md"))
+	requireContains(t, readme, "make test-phase4-e2e")
+	requireContains(t, readme, "make phase4-smoke")
+}
