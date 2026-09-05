@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "EnjoyThings Platform Architecture",
+    "quality_profile": "standard",
+    "viewBox": [1380, 600],
+    "views": [
+      { "id": "payment-path", "label": "Payment saga path", "focus": ["client", "gateway", "saga", "kafka", "processor", "rail"], "note": "Follow a transfer from the REST gateway through the saga and Kafka to the stub payment rail." },
+      { "id": "fraud-path", "label": "Fraud scoring path", "focus": ["saga", "kafka", "fraud", "ledger", "verification", "llm", "timescale"], "note": "The Python worker enriches over gRPC, scores through the LLM, and audits to TimescaleDB." },
+      { "id": "chat-path", "label": "Streaming chat", "focus": ["client", "web", "chat", "llm"], "note": "The Next.js UI streams through FastAPI and the shared LLM adapter." }
+    ]
+  },
+  "components": [
+    { "id": "web", "type": "frontend", "label": "Next.js Web", "sublabel": "Vercel AI SDK", "pos": [230, 22], "size": [150, 58] },
+    { "id": "chat", "type": "backend", "label": "FastAPI Chat", "sublabel": "SSE :8000", "pos": [420, 22], "size": [150, 58] },
+    { "id": "llm", "type": "external", "label": "LLM Provider", "sublabel": "OpenAI-compatible", "pos": [1160, 22], "size": [156, 58], "tag": "app.llm" },
+
+    { "id": "client", "type": "external", "label": "Client", "sublabel": "Browser / API", "pos": [30, 280], "size": [140, 60] },
+    { "id": "gateway", "type": "backend", "label": "API Gateway", "sublabel": "REST • JWT :8080", "pos": [220, 280], "size": [164, 64] },
+
+    { "id": "wallet", "type": "backend", "label": "Wallet", "sublabel": "balances • outbox", "pos": [450, 120], "size": [152, 60] },
+    { "id": "ledger", "type": "backend", "label": "Ledger", "sublabel": "append-only", "pos": [450, 232], "size": [152, 60] },
+    { "id": "verification", "type": "backend", "label": "Verification", "sublabel": "KYC decisions", "pos": [450, 344], "size": [152, 60] },
+    { "id": "saga", "type": "backend", "label": "Saga Orchestrator", "sublabel": "compensation", "pos": [450, 456], "size": [158, 60] },
+
+    { "id": "postgres", "type": "database", "label": "PostgreSQL", "sublabel": "per-service schemas", "pos": [220, 456], "size": [152, 60] },
+
+    { "id": "kafka", "type": "messagebus", "label": "Apache Kafka", "sublabel": "events • outbox • DLQ", "pos": [700, 150], "size": [132, 300] },
+
+    { "id": "processor", "type": "backend", "label": "Payment Processor", "sublabel": "idempotent :8085", "pos": [940, 120], "size": [168, 60] },
+    { "id": "notification", "type": "backend", "label": "Notification", "sublabel": "terminal + review", "pos": [940, 290], "size": [168, 60] },
+    { "id": "fraud", "type": "backend", "label": "Fraud Worker", "sublabel": "LangGraph scoring", "pos": [940, 500], "size": [172, 60] },
+
+    { "id": "rail", "type": "external", "label": "Stub Payment Rail", "sublabel": "local settlement", "pos": [1180, 120], "size": [160, 60] },
+    { "id": "timescale", "type": "database", "label": "TimescaleDB", "sublabel": "fraud audit store", "pos": [1180, 500], "size": [160, 60] }
+  ],
+  "connections": [
+    { "id": "client-web", "from": "client", "to": "web", "label": "chat UI" },
+    { "id": "web-chat", "from": "web", "to": "chat", "label": "proxy" },
+    { "id": "chat-llm", "from": "chat", "to": "llm", "label": "OpenAI-style SSE" },
+
+    { "id": "client-gateway", "from": "client", "to": "gateway", "label": "REST • JWT", "variant": "emphasis", "labelDy": -38 },
+
+    { "id": "gw-wallet", "from": "gateway", "to": "wallet", "label": "gRPC" },
+    { "id": "gw-ledger", "from": "gateway", "to": "ledger", "label": "gRPC" },
+    { "id": "gw-verification", "from": "gateway", "to": "verification", "label": "gRPC" },
+    { "id": "gw-saga", "from": "gateway", "to": "saga", "label": "gRPC" },
+
+    { "id": "wallet-pg", "from": "wallet", "to": "postgres", "fromSide": "left", "toSide": "top" },
+    { "id": "ledger-pg", "from": "ledger", "to": "postgres", "fromSide": "left", "toSide": "top" },
+    { "id": "verification-pg", "from": "verification", "to": "postgres", "fromSide": "left", "toSide": "top" },
+    { "id": "saga-pg", "from": "saga", "to": "postgres", "fromSide": "left", "toSide": "right" },
+
+    { "id": "wallet-kafka", "from": "wallet", "to": "kafka", "label": "outbox events" },
+    { "id": "verification-kafka", "from": "verification", "to": "kafka", "label": "user.verified" },
+    { "id": "saga-kafka", "from": "saga", "to": "kafka", "label": "tx events" },
+
+    { "id": "kafka-processor", "from": "kafka", "to": "processor", "label": "payment.execute" },
+    { "id": "processor-kafka", "from": "processor", "to": "kafka", "label": "result" },
+    { "id": "processor-rail", "from": "processor", "to": "rail", "label": "settle" },
+
+    { "id": "kafka-notification", "from": "kafka", "to": "notification", "label": "terminal + review" },
+
+    { "id": "kafka-fraud", "from": "kafka", "to": "fraud", "label": "fraud.score.requested" },
+    { "id": "fraud-kafka", "from": "fraud", "to": "kafka", "label": "fraud.flagged / error" },
+    { "id": "fraud-ledger", "from": "fraud", "to": "ledger", "label": "gRPC enrich", "labelAt": [648, 336] },
+    { "id": "fraud-verification", "from": "fraud", "to": "verification", "label": "gRPC enrich", "labelAt": [648, 474] },
+    { "id": "fraud-llm", "from": "fraud", "to": "llm", "label": "sanitized prompt" },
+    { "id": "fraud-timescale", "from": "fraud", "to": "timescale", "label": "audit" }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "Payment core", "items": ["Gateway authenticates REST and routes to Wallet, Ledger, Verification, Saga over gRPC", "Verification-gated, idempotent sagas with compensation drive async payments over Kafka", "Each Go service owns a schema in the shared PostgreSQL"] },
+    { "dot": "violet", "title": "Fraud & audit", "items": ["Worker enriches via Ledger + Verification gRPC and scores through the shared LLM adapter", "Prompts are sanitized and verdicts validated before use", "Flagged payments move to FRAUD_REVIEW; audits land in TimescaleDB"] },
+    { "dot": "amber", "title": "Chat & cross-cutting", "items": ["Next.js UI streams chat through FastAPI and the same app.llm adapter", "All services export OTLP traces to Jaeger and Prometheus metrics to Grafana", "Per-topic Kafka dead-letter topics; HS256 or RS256 JWT verification"] }
+  ]
+}

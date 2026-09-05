@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EnjoyThings VPC Explorer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --ground:#F6F7F9; --surface:#FFFFFF; --surface-2:#EEF1F5; --ink:#1A2230; --muted:#5A6577;
+  --border:#E1E6EE; --border-strong:#CDD5E1;
+  --accent:#EC7211; --accent-ink:#B4560B;
+  --public:#0E7C86; --public-bg:#E1F2F3;
+  --app:#4F46E5; --app-bg:#EAE9FC;
+  --data:#B45309; --data-bg:#F7ECDC;
+  --ingress:#127C4A; --ingress-bg:#E3F1E9;
+  --egress:#1D4ED8; --egress-bg:#E6ECFD;
+  --shadow:0 1px 2px rgba(20,30,50,.06),0 4px 16px rgba(20,30,50,.06);
+  --shadow-sel:0 0 0 2px var(--accent),0 6px 20px rgba(236,114,17,.18);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ground:#0E1420; --surface:#161F2E; --surface-2:#1E2A3B; --ink:#E7ECF3; --muted:#96A3B8;
+  --border:#27344A; --border-strong:#35455F;
+  --accent:#FF9A3D; --accent-ink:#FFBC7E;
+  --public:#54D2DC; --public-bg:#0D2A2E;
+  --app:#A4ABFF; --app-bg:#1B1E3B;
+  --data:#F0A855; --data-bg:#33240E;
+  --ingress:#5FCB90; --ingress-bg:#112719;
+  --egress:#83A6FF; --egress-bg:#141F3A;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 20px rgba(0,0,0,.32);
+  --shadow-sel:0 0 0 2px var(--accent),0 6px 20px rgba(255,154,61,.22);
+}}
+:root[data-theme="dark"]{
+  --ground:#0E1420; --surface:#161F2E; --surface-2:#1E2A3B; --ink:#E7ECF3; --muted:#96A3B8;
+  --border:#27344A; --border-strong:#35455F;
+  --accent:#FF9A3D; --accent-ink:#FFBC7E;
+  --public:#54D2DC; --public-bg:#0D2A2E;
+  --app:#A4ABFF; --app-bg:#1B1E3B;
+  --data:#F0A855; --data-bg:#33240E;
+  --ingress:#5FCB90; --ingress-bg:#112719;
+  --egress:#83A6FF; --egress-bg:#141F3A;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 20px rgba(0,0,0,.32);
+  --shadow-sel:0 0 0 2px var(--accent),0 6px 20px rgba(255,154,61,.22);
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--ground);color:var(--ink);
+  font-family:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  line-height:1.5;font-size:15px}
+.mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+h1,h2,h3{margin:0;text-wrap:balance;line-height:1.2}
+a{color:var(--accent-ink)}
+.wrap{max-width:1280px;margin:0 auto;padding:0 24px}
+
+/* header */
+header{border-bottom:1px solid var(--border);background:var(--surface);position:sticky;top:0;z-index:20}
+.head{display:flex;align-items:center;gap:16px;padding:16px 24px;max-width:1280px;margin:0 auto}
+.brand{display:flex;flex-direction:column;gap:2px;margin-right:auto}
+.brand h1{font-size:19px;font-weight:600;letter-spacing:-.01em}
+.brand p{margin:0;color:var(--muted);font-size:12.5px}
+.region-pill{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:500;
+  padding:6px 11px;border:1px solid var(--border-strong);border-radius:999px;background:var(--surface-2)}
+.region-pill .dot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.tbtn{border:1px solid var(--border-strong);background:var(--surface-2);color:var(--ink);
+  border-radius:8px;padding:8px 12px;font:inherit;font-size:13px;cursor:pointer;display:inline-flex;gap:7px;align-items:center}
+.tbtn:hover{border-color:var(--accent)}
+.tbtn:focus-visible,.chip:focus-visible,.leg-item:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* intro */
+.intro{padding:28px 0 8px}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-ink);font-weight:600}
+.intro h2{font-size:26px;font-weight:700;letter-spacing:-.02em;margin:8px 0 10px;max-width:22ch}
+.lede{color:var(--muted);max-width:64ch;font-size:15.5px}
+.concepts{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:22px}
+.concept{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 17px}
+.concept h3{font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.concept .k{font-family:"IBM Plex Mono",monospace;font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:5px}
+.concept p{margin:0;color:var(--muted);font-size:13px}
+.callout{margin-top:16px;display:flex;gap:13px;align-items:flex-start;background:var(--data-bg);
+  border:1px solid color-mix(in srgb,var(--data) 30%,transparent);border-radius:12px;padding:14px 16px}
+.callout .badge{flex:none;font-family:"IBM Plex Mono",monospace;font-size:10.5px;font-weight:700;color:var(--data);
+  border:1px solid var(--data);border-radius:6px;padding:3px 7px;margin-top:1px}
+.callout p{margin:0;font-size:13.5px}
+.callout strong{color:var(--data)}
+
+/* legend */
+.legend{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;margin:26px 0 6px}
+.leg-item{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);
+  background:none;border:0;padding:4px 2px;cursor:pointer;font:inherit;font-size:12.5px}
+.leg-item .sw{width:13px;height:13px;border-radius:4px;border:1.5px solid}
+.leg-item.on{color:var(--ink);font-weight:600}
+.leg-sep{width:1px;height:16px;background:var(--border-strong)}
+
+/* main layout */
+.stage{display:grid;grid-template-columns:1fr 380px;gap:22px;align-items:start;padding:14px 0 40px}
+@media (max-width:980px){.stage{grid-template-columns:1fr}.concepts{grid-template-columns:1fr}}
+
+/* diagram */
+.net{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px;box-shadow:var(--shadow);overflow-x:auto}
+.internet{display:flex;justify-content:center;margin-bottom:6px}
+.cloud-node{display:inline-flex;flex-direction:column;align-items:center;gap:1px;font-size:12px;color:var(--muted);
+  border:1px dashed var(--border-strong);border-radius:10px;padding:8px 16px;background:var(--surface-2)}
+.cloud-node b{color:var(--ink);font-size:12.5px;font-weight:600}
+.link{display:flex;justify-content:center;color:var(--muted);font-size:10px;line-height:1}
+.link .l{width:1px;height:14px;background:var(--border-strong)}
+.vpc{border:1.5px solid var(--border-strong);border-radius:14px;padding:12px 12px 14px;position:relative;min-width:640px}
+.vpc-tag{position:absolute;top:-10px;left:14px;background:var(--surface);padding:0 8px;font-size:11px;font-weight:600;color:var(--ink)}
+.vpc-tag .mono{color:var(--muted);font-weight:500}
+.az-head{display:grid;grid-template-columns:132px repeat(3,1fr);gap:10px;margin:6px 0 8px}
+.az-head .azl{grid-column:auto;text-align:center;font-size:11px;font-weight:600;color:var(--muted);
+  background:var(--surface-2);border:1px solid var(--border);border-radius:7px;padding:5px 4px}
+.az-head .azl .mono{display:block;font-weight:500;font-size:9.5px;opacity:.8}
+.tier{display:grid;grid-template-columns:132px repeat(3,1fr);gap:10px;margin-bottom:10px;align-items:stretch}
+.tier-label{display:flex;flex-direction:column;justify-content:center;gap:3px;padding:8px 10px;border-radius:9px;
+  border:1px solid;font-size:12px;font-weight:600}
+.tier-label .rt{font-family:"IBM Plex Mono",monospace;font-size:9.5px;font-weight:500;opacity:.85}
+.tier[data-tier="public"] .tier-label{color:var(--public);background:var(--public-bg);border-color:color-mix(in srgb,var(--public) 30%,transparent)}
+.tier[data-tier="app"] .tier-label{color:var(--app);background:var(--app-bg);border-color:color-mix(in srgb,var(--app) 30%,transparent)}
+.tier[data-tier="data"] .tier-label{color:var(--data);background:var(--data-bg);border-color:color-mix(in srgb,var(--data) 30%,transparent)}
+.cell{display:flex;flex-direction:column;gap:8px}
+.subnet{border:1px dashed var(--border-strong);border-radius:9px;padding:7px;display:flex;flex-direction:column;gap:7px;min-height:100%;background:color-mix(in srgb,var(--surface-2) 40%,transparent)}
+.subnet .cidr{font-family:"IBM Plex Mono",monospace;font-size:9px;color:var(--muted);text-align:center}
+.span3{grid-column:2 / -1}
+.appwrap{grid-column:2 / -1;border:1px dashed color-mix(in srgb,var(--app) 45%,transparent);border-radius:10px;
+  padding:9px 10px 10px;background:color-mix(in srgb,var(--app-bg) 55%,transparent)}
+.appwrap .note{font-size:10.5px;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.appgrid{display:flex;flex-wrap:wrap;gap:8px}
+
+/* chips */
+.chip{font:inherit;text-align:left;cursor:pointer;border-radius:9px;padding:8px 10px;background:var(--surface);
+  border:1px solid var(--border-strong);display:flex;flex-direction:column;gap:2px;transition:transform .08s,box-shadow .12s,border-color .12s;min-width:0}
+.chip:hover{transform:translateY(-1px);box-shadow:var(--shadow);border-color:var(--accent)}
+.chip.sel{box-shadow:var(--shadow-sel);border-color:var(--accent)}
+.chip .cn{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip .cm{font-family:"IBM Plex Mono",monospace;font-size:9.5px;color:var(--muted)}
+.chip .cs{font-size:10px;color:var(--muted)}
+.chip.tag-public{border-top:3px solid var(--public)}
+.chip.tag-app{border-top:3px solid var(--app)}
+.chip.tag-data{border-top:3px solid var(--data)}
+.chip.gw{border-top:3px solid var(--accent)}
+.chip.wide{flex:1 1 150px}
+.chip.dim{opacity:.32;filter:saturate(.5)}
+.alb{align-items:center;text-align:center;background:var(--public-bg);border-color:color-mix(in srgb,var(--public) 40%,transparent)}
+.endpoints{grid-column:2 / -1;display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:10.5px;color:var(--muted);
+  border:1px dashed var(--border);border-radius:9px;padding:8px 10px;background:color-mix(in srgb,var(--surface-2) 50%,transparent)}
+.vpce{font-family:"IBM Plex Mono",monospace;font-size:9.5px;background:var(--surface);border:1px solid var(--border-strong);border-radius:6px;padding:2px 6px}
+
+/* detail panel */
+.panel{position:sticky;top:82px;background:var(--surface);border:1px solid var(--border);border-radius:16px;
+  box-shadow:var(--shadow);overflow:hidden}
+.p-head{padding:16px 18px 14px;border-bottom:1px solid var(--border)}
+.p-tier{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:600;font-family:"IBM Plex Mono",monospace;
+  text-transform:uppercase;letter-spacing:.06em;padding:3px 8px;border-radius:6px;margin-bottom:9px}
+.pt-public{color:var(--public);background:var(--public-bg)}
+.pt-app{color:var(--app);background:var(--app-bg)}
+.pt-data{color:var(--data);background:var(--data-bg)}
+.pt-edge{color:var(--accent-ink);background:var(--data-bg)}
+.p-head h2{font-size:18px;font-weight:700;letter-spacing:-.01em}
+.p-svc{margin-top:3px;color:var(--muted);font-size:12.5px}
+.p-body{padding:16px 18px 20px;max-height:none}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:16px}
+.fact{background:var(--surface);padding:9px 11px}
+.fact .fl{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600}
+.fact .fv{font-family:"IBM Plex Mono",monospace;font-size:12px;margin-top:2px;word-break:break-word}
+.fact.full{grid-column:1 / -1}
+.sec-h{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;margin:16px 0 8px;display:flex;align-items:center;gap:8px}
+.sec-h .sgname{font-family:"IBM Plex Mono",monospace;text-transform:none;letter-spacing:0;color:var(--ink);font-size:11.5px;
+  background:var(--surface-2);border:1px solid var(--border);border-radius:5px;padding:1px 6px}
+.rule{display:flex;gap:9px;align-items:baseline;padding:6px 0;border-bottom:1px dashed var(--border)}
+.rule:last-child{border-bottom:0}
+.dir{flex:none;font-family:"IBM Plex Mono",monospace;font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:5px;width:52px;text-align:center}
+.dir.in{color:var(--ingress);background:var(--ingress-bg)}
+.dir.out{color:var(--egress);background:var(--egress-bg)}
+.rule .rp{font-family:"IBM Plex Mono",monospace;font-size:11.5px;font-weight:600;flex:none;min-width:64px}
+.rule .rt{font-size:12px;color:var(--muted)}
+.subsvc{width:100%;border-collapse:collapse;margin:2px 0 6px;font-size:12px}
+.subsvc th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;padding:5px 8px;border-bottom:1px solid var(--border)}
+.subsvc td{padding:6px 8px;border-bottom:1px dashed var(--border)}
+.subsvc td.m{font-family:"IBM Plex Mono",monospace;font-size:11px}
+.subsvc tr:last-child td{border-bottom:0}
+.why{background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:12px 13px;margin-top:14px}
+.why h4{font-size:12px;font-weight:600;margin:0 0 5px;display:flex;align-items:center;gap:7px}
+.why p{margin:0;font-size:12.8px;color:var(--muted)}
+.why p+p{margin-top:7px}
+.hint{font-size:12px;color:var(--muted);text-align:center;padding:6px 0 2px}
+
+/* well-architected */
+.wa{padding:34px 0 20px;border-top:1px solid var(--border);margin-top:8px}
+.wa h2{font-size:21px;font-weight:700;letter-spacing:-.01em;margin-bottom:4px}
+.wa .lede{margin-bottom:20px}
+.pillars{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+@media (max-width:860px){.pillars{grid-template-columns:1fr}}
+.pillar{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 17px;border-left:3px solid var(--accent)}
+.pillar h3{font-size:14px;font-weight:600;margin-bottom:8px}
+.pillar ul{margin:0;padding-left:16px;color:var(--muted);font-size:12.8px}
+.pillar li{margin:4px 0}
+.pillar li b{color:var(--ink);font-weight:600}
+footer{color:var(--muted);font-size:12px;padding:26px 0 44px;border-top:1px solid var(--border);margin-top:20px}
+footer .mono{font-size:11px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <div class="head">
+    <div class="brand">
+      <h1>EnjoyThings on AWS — VPC Explorer</h1>
+      <p>Click any box to see its instance type, subnet, availability zone, and security-group rules.</p>
+    </div>
+    <span class="region-pill"><span class="dot"></span><span class="mono">ap-southeast-1</span> · 3 AZs</span>
+    <button class="tbtn" id="theme" aria-label="Toggle color theme"><span id="theme-ico">◐</span><span id="theme-txt">Theme</span></button>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="intro">
+    <div class="eyebrow">Deployment topology</div>
+    <h2>One custom VPC, three availability zones, three subnet tiers.</h2>
+    <p class="lede">This is the same app you saw in the overview — a Next.js frontend, Python FastAPI + LangGraph, and Go microservices — placed into a production-shaped AWS network. Everything below is laid out the way AWS draws it: <b>zones across the top</b>, <b>network tiers down the side</b>. Start with the concepts, then click a service.</p>
+
+    <div class="concepts">
+      <div class="concept">
+        <h3><span class="k" style="color:var(--accent-ink);background:var(--data-bg)">Region → AZ</span> Where it physically runs</h3>
+        <p>An <b>Availability Zone</b> is one or more isolated data centers with independent power and network. We use three (<span class="mono">1a / 1b / 1c</span>) so one zone failing never takes the app down.</p>
+      </div>
+      <div class="concept">
+        <h3><span class="k" style="color:var(--app);background:var(--app-bg)">Subnet tier</span> A slice of the network</h3>
+        <p>A <b>subnet</b> is a range of IPs that lives in exactly one AZ. We group them by job: <b>public</b> (reachable from the internet), <b>private-app</b> (compute), <b>private-data</b> (databases) — repeated in every AZ.</p>
+      </div>
+      <div class="concept">
+        <h3><span class="k" style="color:var(--ingress);background:var(--ingress-bg)">Security group</span> A per-resource firewall</h3>
+        <p>A <b>security group</b> is a stateful allow-list wrapped around a resource. It names exactly who may connect and on which port. We give each service its own, so the ledger can't be reached by anything except the services that need it.</p>
+      </div>
+    </div>
+
+    <div class="callout">
+      <span class="badge">Your question</span>
+      <p><strong>“Do we just use the default VPC?”</strong> — No. The default VPC puts every resource in <em>public</em> subnets in a flat network. Instead we build a <strong>custom VPC</strong> and split it into public / private-app / private-data subnets spread over 3 AZs. Databases get <strong>no route to the internet at all</strong>; only the load balancer is public. That separation is the whole point of the design.</p>
+    </div>
+
+    <div class="legend" id="legend" role="group" aria-label="Filter by tier">
+      <span style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em">Highlight:</span>
+      <button class="leg-item on" data-tier="all"><span class="sw" style="background:var(--muted);border-color:var(--muted)"></span>All</button>
+      <button class="leg-item" data-tier="public"><span class="sw" style="background:var(--public-bg);border-color:var(--public)"></span>Public</button>
+      <button class="leg-item" data-tier="app"><span class="sw" style="background:var(--app-bg);border-color:var(--app)"></span>Private-app (EKS)</button>
+      <button class="leg-item" data-tier="data"><span class="sw" style="background:var(--data-bg);border-color:var(--data)"></span>Private-data</button>
+      <span class="leg-sep"></span>
+      <span class="leg-item" style="cursor:default"><span class="dir in" style="width:auto;padding:2px 6px">IN</span>ingress</span>
+      <span class="leg-item" style="cursor:default"><span class="dir out" style="width:auto;padding:2px 6px">OUT</span>egress</span>
+    </div>
+  </section>
+
+  <div class="stage">
+    <div class="net" id="net">
+      <div class="internet">
+        <div class="cloud-node"><b>Users → CloudFront → Cognito</b><span>edge: WAF · TLS · CDN · JWT issuer</span></div>
+      </div>
+      <div class="link"><span class="l"></span></div>
+
+      <div class="vpc">
+        <div class="vpc-tag">AWS VPC &nbsp;<span class="mono">10.0.0.0/16</span></div>
+
+        <div class="az-head">
+          <div></div>
+          <div class="azl">Zone A<span class="mono">ap-southeast-1a</span></div>
+          <div class="azl">Zone B<span class="mono">ap-southeast-1b</span></div>
+          <div class="azl">Zone C<span class="mono">ap-southeast-1c</span></div>
+        </div>
+
+        <!-- PUBLIC -->
+        <div class="tier" data-tier="public">
+          <div class="tier-label">Public subnets<span class="rt">/24 · 0.0.0.0/0 → IGW</span></div>
+          <button class="chip alb span3 tag-public" data-id="alb">
+            <span class="cn">Application Load Balancer</span>
+            <span class="cm">spans 1a · 1b · 1c</span>
+            <span class="cs">public entry · TLS termination</span>
+          </button>
+          <button class="chip tag-public" data-id="nat"><span class="cn">NAT · 1a</span><span class="cm">10.0.0.0/24</span></button>
+          <button class="chip tag-public" data-id="nat"><span class="cn">NAT · 1b</span><span class="cm">10.0.1.0/24</span></button>
+          <button class="chip tag-public" data-id="nat"><span class="cn">NAT · 1c</span><span class="cm">10.0.2.0/24</span></button>
+        </div>
+
+        <!-- APP -->
+        <div class="tier" data-tier="app">
+          <div class="tier-label">Private-app subnets<span class="rt">/20 · 0.0.0.0/0 → NAT</span></div>
+          <div class="appwrap">
+            <div class="note">◆ Amazon EKS · managed node group <span class="mono">m7g.large ×3–6</span> · pods spread across all 3 AZs (topology spread constraints)</div>
+            <div class="appgrid">
+              <button class="chip wide tag-app gw" data-id="web"><span class="cn">Next.js Web</span><span class="cm">SSR · :3000</span><span class="cs">frontend pod</span></button>
+              <button class="chip wide tag-app" data-id="chat"><span class="cn">FastAPI Chat</span><span class="cm">SSE · :8000</span><span class="cs">python pod</span></button>
+              <button class="chip wide tag-app gw" data-id="gateway"><span class="cn">API Gateway</span><span class="cm">REST/JWT · :8080</span><span class="cs">go pod</span></button>
+              <button class="chip wide tag-app" data-id="core"><span class="cn">Payment Core ▸</span><span class="cm">4 gRPC services</span><span class="cs">wallet·ledger·verify·saga</span></button>
+              <button class="chip wide tag-app" data-id="processor"><span class="cn">Payment Processor</span><span class="cm">+ stub rail</span><span class="cs">go pod</span></button>
+              <button class="chip wide tag-app" data-id="notification"><span class="cn">Notification</span><span class="cm">consumer</span><span class="cs">go pod</span></button>
+              <button class="chip wide tag-app" data-id="fraud"><span class="cn">Fraud Worker</span><span class="cm">LangGraph</span><span class="cs">python · KEDA-scaled</span></button>
+            </div>
+          </div>
+        </div>
+
+        <!-- DATA -->
+        <div class="tier" data-tier="data">
+          <div class="tier-label">Private-data subnets<span class="rt">/24 · no internet route</span></div>
+          <div class="cell">
+            <div class="subnet"><span class="cidr">10.0.64.0/24 · 1a</span>
+              <button class="chip tag-data" data-id="aurora"><span class="cn">Aurora — writer</span><span class="cm">Serverless v2</span></button>
+              <button class="chip tag-data" data-id="msk"><span class="cn">MSK broker</span><span class="cm">:9098 IAM/TLS</span></button>
+              <button class="chip tag-data" data-id="timescale"><span class="cn">TimescaleDB — primary</span><span class="cm">db.m6g.large</span></button>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="subnet"><span class="cidr">10.0.65.0/24 · 1b</span>
+              <button class="chip tag-data" data-id="aurora"><span class="cn">Aurora — reader</span><span class="cm">auto-failover</span></button>
+              <button class="chip tag-data" data-id="msk"><span class="cn">MSK broker</span><span class="cm">RF = 3</span></button>
+              <button class="chip tag-data" data-id="timescale"><span class="cn">TimescaleDB — standby</span><span class="cm">Multi-AZ</span></button>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="subnet"><span class="cidr">10.0.66.0/24 · 1c</span>
+              <button class="chip tag-data" data-id="msk"><span class="cn">MSK broker</span><span class="cm">3rd replica</span></button>
+              <button class="chip tag-data" data-id="bedrock"><span class="cn">Bedrock endpoint</span><span class="cm">bedrock-runtime</span></button>
+            </div>
+          </div>
+          <div class="endpoints">
+            <b style="color:var(--ink);font-weight:600">VPC endpoints (private):</b>
+            <span class="vpce">s3 (gateway)</span><span class="vpce">ecr.api</span><span class="vpce">ecr.dkr</span><span class="vpce">secretsmanager</span><span class="vpce">bedrock-runtime</span><span class="vpce">sts</span><span class="vpce">logs</span>
+            <span>— keep AWS-service traffic off the internet &amp; cut NAT cost.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="panel" id="panel" aria-live="polite">
+      <!-- filled by JS -->
+    </aside>
+  </div>
+
+  <section class="wa">
+    <div class="eyebrow">Why it's shaped this way</div>
+    <h2>The Well-Architected trade-offs</h2>
+    <p class="lede">AWS's Well-Architected Framework is five lenses for judging a design. Here's how each one shows up in the choices above — the reasoning a beginner is usually missing.</p>
+    <div class="pillars">
+      <div class="pillar"><h3>🛡️ Security</h3><ul>
+        <li><b>Private by default</b> — only the ALB is public; data subnets have no internet route.</li>
+        <li><b>Least-privilege SGs</b> — each service SG names its exact callers &amp; ports.</li>
+        <li><b>IRSA + Secrets Manager</b> — pods get scoped IAM roles, no long-lived keys; <span class="mono">.env</span> never committed.</li>
+        <li><b>KMS + TLS</b> — encrypted at rest and in transit; WAF/Shield at the edge.</li>
+      </ul></div>
+      <div class="pillar"><h3>🔁 Reliability</h3><ul>
+        <li><b>3 AZs</b> — subnets, nodes, and brokers are replicated per zone.</li>
+        <li><b>Multi-AZ failover</b> — Aurora reader &amp; RDS standby promote automatically.</li>
+        <li><b>MSK RF=3</b> + per-topic <b>DLQ</b> so a poison record never blocks a partition.</li>
+        <li><b>HPA + KEDA</b> — pods scale on CPU; the fraud worker scales on Kafka lag.</li>
+      </ul></div>
+      <div class="pillar"><h3>⚡ Performance</h3><ul>
+        <li><b>Graviton</b> (<span class="mono">m7g</span>/<span class="mono">m6g</span>) — better price/performance per vCPU.</li>
+        <li><b>CloudFront</b> caches static/ISR at the edge, near users.</li>
+        <li><b>Serverless data</b> — Aurora v2 &amp; MSK Serverless track load automatically.</li>
+        <li><b>Right-sized requests</b> — pods request only what they use, so nodes pack densely.</li>
+      </ul></div>
+      <div class="pillar"><h3>💰 Cost</h3><ul>
+        <li><b>Pay-per-use data tiers</b> — no idle broker/DB capacity in dev.</li>
+        <li><b>VPC endpoints</b> + S3 gateway (free) slash NAT data-processing charges.</li>
+        <li><b>Spot nodes</b> for stateless pods; on-demand for stateful.</li>
+        <li><b>1 NAT for dev</b>, per-AZ NAT only in prod where HA is worth it.</li>
+      </ul></div>
+      <div class="pillar"><h3>🛠️ Operational excellence</h3><ul>
+        <li><b>Infra as code</b> — VPC, EKS, and data tiers in Terraform / <span class="mono">eksctl</span>.</li>
+        <li><b>GitOps</b> — your existing GitHub Actions deploys via an OIDC role to ECR/EKS.</li>
+        <li><b>One observability plane</b> — OTLP → AMP + Managed Grafana + X-Ray (ADOT).</li>
+      </ul></div>
+      <div class="pillar"><h3>🌱 Sustainability</h3><ul>
+        <li><b>Graviton</b> draws less power for the same work.</li>
+        <li><b>Serverless &amp; autoscaling</b> release capacity when idle instead of running hot 24/7.</li>
+        <li><b>Consolidated regions</b> — keep data &amp; compute co-located to avoid cross-region transfer.</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <footer>
+    <p>Reference deployment for the EnjoyThings platform · region <span class="mono">ap-southeast-1</span> (swap for your own). Instance types and CIDRs are sensible starting points, not a bill of materials — right-size against real load. Pairs with <span class="mono">docs/aws-deployment.md</span> and the overview diagram <span class="mono">docs/aws-infra.html</span>.</p>
+  </footer>
+</main>
+
+<script>
+const components = {
+  alb: {tier:"edge", ptier:"pt-edge", name:"Application Load Balancer", svc:"Elastic Load Balancing (ALB)",
+    facts:{Type:"Managed L7 load balancer", Scaling:"Auto (no instances)", Subnet:"Public · 3 AZs", Ports:"443 in · 3000/8000/8080 out"},
+    sg:"sg-alb",
+    rules:[["in","443","from CloudFront prefix list (origin-facing) only"],["out","3000","to sg-web (SSR)"],["out","8000","to sg-chat (SSE)"],["out","8080","to sg-gateway (REST)"]],
+    what:"The single public front door. It terminates TLS and routes each path to the right pod: <span class='mono'>/</span> → web, <span class='mono'>/api</span> → gateway, chat SSE → FastAPI.",
+    why:"Living in <b>public</b> subnets across all 3 AZs, it's the only thing exposed to the internet. Locking ingress to the CloudFront prefix list means users can't bypass the CDN/WAF and hit the ALB directly."},
+
+  nat: {tier:"public", ptier:"pt-public", name:"NAT Gateway", svc:"Managed NAT (one per AZ)",
+    facts:{Type:"Managed, per-AZ", Subnet:"Public · 1a/1b/1c", Purpose:"Outbound-only internet", Cost:"per-GB processed"},
+    sg:"— (NAT has no SG; controlled by route tables)",
+    rules:[["out","443","private-app pods → internet (package pulls, external APIs)"]],
+    what:"Lets private pods make <b>outbound</b> calls (e.g. OS/package updates) without being reachable from the internet.",
+    why:"Private-app subnets route <span class='mono'>0.0.0.0/0</span> to the NAT, not to the internet gateway — so pods can reach out, but nothing can reach in. One NAT per AZ avoids a cross-zone dependency (prod); a single shared NAT is fine for dev to save cost."},
+
+  web: {tier:"app", ptier:"pt-app", name:"Next.js Web", svc:"EKS pod (frontend)",
+    facts:{"Instance":"pod on m7g.large node", "Requests":"250m CPU / 512Mi", "Limits":"500m / 1Gi", "Replicas":"2 (HPA on CPU)", "Subnet":"private-app · all AZs", "Port":"3000"},
+    sg:"sg-web",
+    rules:[["in","3000","from sg-alb"],["out","8000","to sg-chat (proxy)"],["out","443","to sg-vpce (endpoints) / NAT"]],
+    what:"Serves the Next.js SSR + streaming chat UI. Static and ISR assets are offloaded to S3 + CloudFront; this pod only renders dynamic pages.",
+    why:"A frontend pod is light and stateless, so it gets small requests and scales horizontally. It sits in private-app — users never reach it directly, only through the ALB."},
+
+  chat: {tier:"app", ptier:"pt-app", name:"FastAPI Chat", svc:"EKS pod (Python)",
+    facts:{"Instance":"pod on m7g.large node", "Requests":"250m CPU / 512Mi", "Limits":"500m / 1Gi", "Replicas":"2", "Subnet":"private-app · all AZs", "Port":"8000 (SSE)"},
+    sg:"sg-chat",
+    rules:[["in","8000","from sg-web"],["out","443","to sg-vpce → Bedrock runtime"]],
+    what:"The <span class='mono'>app/</span> FastAPI service. Streams chat completions over Server-Sent Events using the shared <span class='mono'>app.llm</span> adapter.",
+    why:"SSE holds connections open, so replicas matter more than raw CPU. Its only outbound dependency is the Bedrock VPC endpoint, so its egress rule is a single 443 — a tight blast radius."},
+
+  gateway: {tier:"app", ptier:"pt-app", name:"API Gateway", svc:"EKS pod (Go)",
+    facts:{"Instance":"pod on m7g.large node", "Requests":"500m CPU / 512Mi", "Limits":"1 CPU / 1Gi", "Replicas":"3 (HPA)", "Subnet":"private-app · all AZs", "Port":"8080"},
+    sg:"sg-gateway",
+    rules:[["in","8080","from sg-alb"],["out","8081-8084","to sg-core (gRPC)"],["out","443","to sg-vpce → Cognito JWKS / Secrets Manager"]],
+    what:"The REST edge for the Go services. Verifies the RS256 JWT (Cognito JWKS), then fans out to Wallet / Ledger / Verification / Saga over gRPC.",
+    why:"It's the busiest hop (every API call passes through), so it gets more replicas and CPU. It's the <b>only</b> pod allowed to open the core's gRPC ports — the core is never exposed to the ALB."},
+
+  core: {tier:"app", ptier:"pt-app", name:"Payment Core", svc:"EKS · 4 Go microservices",
+    facts:{"Instance":"pods on m7g.large nodes", "Subnet":"private-app · all AZs", "Protocol":"gRPC (internal only)", "Data store":"Aurora PostgreSQL"},
+    sub:[["Wallet","250m / 512Mi","2","8081","balances + outbox"],["Ledger","250m / 512Mi","2","8082","append-only entries"],["Verification","250m / 512Mi","2","8083","KYC decisions"],["Saga","500m / 1Gi","2","8084","orchestration + compensation"]],
+    sg:"sg-core",
+    rules:[["in","8081-8084","from sg-gateway (requests)"],["in","8081-8084","from sg-fraud (enrichment)"],["out","5432","to sg-aurora"],["out","9098","to sg-msk (outbox events)"],["out","443","to sg-vpce"]],
+    what:"The four Go services that hold the money logic. Each owns its schema in Aurora and publishes events through the outbox pattern to MSK.",
+    why:"They're grouped because they share one SG and one data tier and only ever talk gRPC internally. Saga carries the most state (it tracks compensation), so it gets the larger request. Nothing outside sg-gateway and sg-fraud can reach these ports — the ledger is unreachable from the internet or even from the frontend."},
+
+  processor: {tier:"app", ptier:"pt-app", name:"Payment Processor", svc:"EKS pod (Go) + stub rail",
+    facts:{"Instance":"pod on m7g.large node", "Requests":"500m / 512Mi", "Limits":"1 / 1Gi", "Replicas":"2", "Subnet":"private-app · all AZs", "Consumes":"payment.execute"},
+    sg:"sg-processor",
+    rules:[["in","—","(consumer — no inbound app port)"],["out","9098","to sg-msk (consume + publish result)"],["out","8090","to stub-payment-rail pod"],["out","443","to sg-vpce"]],
+    what:"Idempotently executes payments off the <span class='mono'>payment.execute</span> topic, settles via the stub rail, and publishes the result event back to MSK.",
+    why:"A Kafka consumer needs no inbound port at all — it pulls work, so its SG is almost entirely egress. Idempotency means duplicate deliveries (which Kafka allows) are safe."},
+
+  notification: {tier:"app", ptier:"pt-app", name:"Notification", svc:"EKS pod (Go)",
+    facts:{"Instance":"pod on m7g.large node", "Requests":"100m / 256Mi", "Limits":"250m / 512Mi", "Replicas":"2", "Subnet":"private-app · all AZs", "Consumes":"terminal + review"},
+    sg:"sg-notification",
+    rules:[["in","—","(consumer only)"],["out","9098","to sg-msk"],["out","443","to sg-vpce (email/SNS if added)"]],
+    what:"Consumes terminal payment states and fraud-review events and sends the corresponding notifications.",
+    why:"Very light work, so it gets the smallest footprint on the cluster. Like all consumers, it has no inbound rule — a nice security property."},
+
+  fraud: {tier:"app", ptier:"pt-app", name:"Fraud Worker", svc:"EKS pod (Python · LangGraph)",
+    facts:{"Instance":"pod on m7g.large node", "Requests":"500m / 1Gi", "Limits":"1 / 2Gi", "Replicas":"2 → 8 (KEDA)", "Subnet":"private-app · all AZs", "Consumes":"fraud.score.requested"},
+    sg:"sg-fraud",
+    rules:[["in","—","(consumer only)"],["out","9098","to sg-msk"],["out","8081-8084","to sg-core (gRPC enrich)"],["out","5432","to sg-timescale (audit)"],["out","443","to sg-vpce → Bedrock"]],
+    what:"The LangGraph scorer: consumes score requests, enriches over gRPC (ledger + verification), scores through Bedrock, and writes an audit row to TimescaleDB. Prompts are sanitized and verdicts validated.",
+    why:"Its load is spiky — it follows payment volume — so <b>KEDA scales it on MSK consumer lag</b>, not CPU. It gets more memory (LLM context) and the widest egress list, since it touches the core, Bedrock, and its own audit store."},
+
+  aurora: {tier:"data", ptier:"pt-data", name:"Aurora PostgreSQL", svc:"Amazon Aurora (Serverless v2)",
+    facts:{"Instance":"Serverless v2 · 0.5–4 ACU", "Alt":"db.r6g.large (provisioned)", "Topology":"writer 1a + reader 1b", "Subnet":"private-data", "Port":"5432", "Failover":"automatic (~30s)"},
+    sg:"sg-aurora",
+    rules:[["in","5432","from sg-core only"]],
+    what:"The transactional database. Each Go service owns its own schema here; the reader endpoint absorbs read-heavy queries.",
+    why:"Serverless v2 auto-scales capacity (ACUs) with load, so you don't guess an instance size up front — great while traffic is unknown. Its SG allows <b>exactly one</b> caller (sg-core) on 5432; nothing else in the VPC can even open a connection."},
+
+  timescale: {tier:"data", ptier:"pt-data", name:"RDS · TimescaleDB", svc:"Amazon RDS for PostgreSQL + Timescale ext.",
+    facts:{"Instance":"db.m6g.large (2 vCPU / 8Gi)", "Dev":"db.t4g.medium", "Storage":"gp3, Multi-AZ", "Topology":"primary 1a + standby 1b", "Port":"5432"},
+    sg:"sg-timescale",
+    rules:[["in","5432","from sg-fraud only"]],
+    what:"The fraud audit store. Timescale hypertables make time-series audit queries fast and cheap to retain.",
+    why:"Aurora doesn't support the Timescale extension, so the audit trail lives on plain RDS instead — isolated from the transactional path so heavy audit queries never slow down payments. Only the fraud worker may reach it."},
+
+  msk: {tier:"data", ptier:"pt-data", name:"Amazon MSK", svc:"Managed Streaming for Apache Kafka",
+    facts:{"Instance":"MSK Serverless", "Alt":"kafka.m7g.large ×3", "Brokers":"1 per AZ · RF = 3", "Subnet":"private-data", "Port":"9098 (IAM) / 9094 (TLS)", "Extras":"per-topic DLQ"},
+    sg:"sg-msk",
+    rules:[["in","9098","from sg-core"],["in","9098","from sg-processor"],["in","9098","from sg-notification"],["in","9098","from sg-fraud"]],
+    what:"The event backbone: outbox events, the saga flow, <span class='mono'>fraud.score.requested</span>, and per-topic dead-letter queues for poison records.",
+    why:"MSK is managed Apache Kafka, so your existing producers/consumers work unchanged. A replication factor of 3 (one broker per AZ) means the log survives a full zone outage. IAM auth (9098) lets pods authenticate with their IRSA role instead of a shared password."},
+
+  bedrock: {tier:"data", ptier:"pt-data", name:"Amazon Bedrock", svc:"Bedrock (via bedrock-runtime VPC endpoint)",
+    facts:{"Instance":"Fully managed (no instances)", "Access":"Interface VPC endpoint", "Subnet":"reachable from private-app", "Auth":"IAM (IRSA)"},
+    sg:"sg-vpce",
+    rules:[["in","443","from sg-chat"],["in","443","from sg-fraud"]],
+    what:"The managed LLM behind the <span class='mono'>app.llm</span> adapter — used by both the chat service and the fraud scorer.",
+    why:"Reaching Bedrock through a <b>VPC endpoint</b> keeps model traffic (including sanitized fraud prompts) inside AWS's network — it never crosses the public internet — and consolidates access under IAM instead of an external API key."},
+};
+
+const tierName = {edge:"Edge / public", public:"Public subnet", app:"Private-app · EKS", data:"Private-data"};
+const panel = document.getElementById("panel");
+let current = null;
+
+function esc(s){return s;} // data is trusted, authored inline
+
+function render(id){
+  const c = components[id];
+  if(!c) return;
+  current = id;
+  document.querySelectorAll(".chip").forEach(el=>el.classList.toggle("sel", el.dataset.id===id));
+
+  let facts = Object.entries(c.facts).map(([k,v])=>
+    `<div class="fact"><div class="fl">${k}</div><div class="fv">${v}</div></div>`).join("");
+
+  let sub = "";
+  if(c.sub){
+    sub = `<div class="sec-h">Services inside — instance sizing</div>
+    <table class="subsvc"><thead><tr><th>Service</th><th>Requests</th><th>Rep.</th><th>gRPC</th><th>Role</th></tr></thead><tbody>`+
+    c.sub.map(r=>`<tr><td><b>${r[0]}</b></td><td class="m">${r[1]}</td><td class="m">${r[2]}</td><td class="m">:${r[3]}</td><td style="color:var(--muted)">${r[4]}</td></tr>`).join("")+
+    `</tbody></table>`;
+  }
+
+  let rules = c.rules.map(r=>{
+    const d = r[0]==="in" ? `<span class="dir in">IN</span>` : (r[0]==="out"?`<span class="dir out">OUT</span>`:`<span class="dir" style="background:var(--surface-2);color:var(--muted)">·</span>`);
+    return `<div class="rule">${d}<span class="rp">${r[1]}</span><span class="rt">${r[2]}</span></div>`;
+  }).join("");
+
+  panel.innerHTML = `
+    <div class="p-head">
+      <span class="p-tier ${c.ptier}">${tierName[c.tier]||c.tier}</span>
+      <h2>${c.name}</h2>
+      <div class="p-svc">${c.svc}</div>
+    </div>
+    <div class="p-body">
+      <div class="facts">${facts}</div>
+      ${sub}
+      <div class="sec-h">Security group <span class="sgname">${c.sg}</span></div>
+      ${rules}
+      <div class="why">
+        <h4>◆ What it does</h4><p>${c.what}</p>
+      </div>
+      <div class="why" style="background:var(--data-bg);border-color:color-mix(in srgb,var(--accent) 22%,transparent)">
+        <h4 style="color:var(--accent-ink)">✦ Why this choice</h4><p>${c.why}</p>
+      </div>
+    </div>`;
+}
+
+document.querySelectorAll(".chip").forEach(el=>{
+  el.addEventListener("click", ()=>render(el.dataset.id));
+});
+
+// tier highlight
+document.querySelectorAll("#legend .leg-item[data-tier]").forEach(b=>{
+  b.addEventListener("click", ()=>{
+    document.querySelectorAll("#legend .leg-item[data-tier]").forEach(x=>x.classList.remove("on"));
+    b.classList.add("on");
+    const t = b.dataset.tier;
+    document.querySelectorAll(".chip").forEach(ch=>{
+      const ct = ch.classList.contains("tag-public")?"public":ch.classList.contains("tag-app")?"app":ch.classList.contains("tag-data")?"data":"edge";
+      ch.classList.toggle("dim", t!=="all" && ct!==t && !(t==="public" && ch.classList.contains("alb")));
+    });
+  });
+});
+
+// theme toggle
+const root=document.documentElement, tb=document.getElementById("theme"),
+  tico=document.getElementById("theme-ico"), ttxt=document.getElementById("theme-txt");
+function applyTheme(m){
+  if(m==="system"){root.removeAttribute("data-theme");tico.textContent="◐";ttxt.textContent="Auto";}
+  else{root.setAttribute("data-theme",m);tico.textContent=m==="dark"?"☾":"☀";ttxt.textContent=m==="dark"?"Dark":"Light";}
+}
+let mode="system"; try{mode=localStorage.getItem("aws-explorer-theme")||"system";}catch(e){}
+applyTheme(mode);
+tb.addEventListener("click",()=>{
+  mode = mode==="system"?"light":mode==="light"?"dark":"system";
+  applyTheme(mode); try{localStorage.setItem("aws-explorer-theme",mode);}catch(e){}
+});
+
+// open on Payment Core so the drill-down is visible at rest
+render("core");
+</script>
+</body>
+</html>
