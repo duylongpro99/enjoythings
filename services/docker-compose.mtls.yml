@@ -1,0 +1,64 @@
+# Overlay that turns on internal-gRPC mutual TLS for the local stack.
+#
+# Generate the certificates first, then bring the stack up with both files:
+#
+#   make certs        # or: ./devtools/gen-certs.sh
+#   docker compose -f docker-compose.yml -f docker-compose.mtls.yml up
+#
+# Each service mounts the shared ./certs directory read-only and is pointed at
+# its own leaf certificate plus the shared CA. Without this overlay the base
+# compose file runs insecure, exactly as before.
+services:
+  gateway:
+    environment:
+      GRPC_TLS_ENABLED: "true"
+      GRPC_TLS_CERT_FILE: /certs/gateway.crt
+      GRPC_TLS_KEY_FILE: /certs/gateway.key
+      GRPC_TLS_CA_FILE: /certs/ca.crt
+    volumes:
+      - ./certs:/certs:ro
+
+  wallet:
+    environment:
+      GRPC_TLS_ENABLED: "true"
+      GRPC_TLS_CERT_FILE: /certs/wallet.crt
+      GRPC_TLS_KEY_FILE: /certs/wallet.key
+      GRPC_TLS_CA_FILE: /certs/ca.crt
+    volumes:
+      - ./certs:/certs:ro
+
+  ledger:
+    environment:
+      GRPC_TLS_ENABLED: "true"
+      GRPC_TLS_CERT_FILE: /certs/ledger.crt
+      GRPC_TLS_KEY_FILE: /certs/ledger.key
+      GRPC_TLS_CA_FILE: /certs/ca.crt
+    volumes:
+      - ./certs:/certs:ro
+
+  verification:
+    environment:
+      GRPC_TLS_ENABLED: "true"
+      GRPC_TLS_CERT_FILE: /certs/verification.crt
+      GRPC_TLS_KEY_FILE: /certs/verification.key
+      GRPC_TLS_CA_FILE: /certs/ca.crt
+    volumes:
+      - ./certs:/certs:ro
+
+  saga-orchestrator:
+    environment:
+      GRPC_TLS_ENABLED: "true"
+      GRPC_TLS_CERT_FILE: /certs/saga-orchestrator.crt
+      GRPC_TLS_KEY_FILE: /certs/saga-orchestrator.key
+      GRPC_TLS_CA_FILE: /certs/ca.crt
+    volumes:
+      - ./certs:/certs:ro
+
+  fraud-worker:
+    environment:
+      FRAUD_GRPC_TLS_ENABLED: "true"
+      FRAUD_GRPC_TLS_CERT_FILE: /certs/fraud-worker.crt
+      FRAUD_GRPC_TLS_KEY_FILE: /certs/fraud-worker.key
+      FRAUD_GRPC_TLS_CA_FILE: /certs/ca.crt
+    volumes:
+      - ./certs:/certs:ro

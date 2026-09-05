@@ -15,6 +15,7 @@ import (
 	verificationv1 "enjoythings/services/gen/verification/v1"
 	"enjoythings/services/internal/config"
 	healthhandler "enjoythings/services/internal/handler"
+	"enjoythings/services/internal/mtls"
 	"enjoythings/services/internal/outbox"
 	"enjoythings/services/internal/repo"
 	"enjoythings/services/internal/telemetry"
@@ -85,7 +86,11 @@ func run() error {
 		verification.Config{Mode: cfg.VerificationMode},
 		nil,
 	)
-	grpcServer := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()), grpc.UnaryInterceptor(telemetry.ServiceMetrics("verification").UnaryServerInterceptor()))
+	serverCreds, err := mtls.ServerCredentials(cfg.MTLS())
+	if err != nil {
+		return err
+	}
+	grpcServer := grpc.NewServer(grpc.Creds(serverCreds), grpc.StatsHandler(otelgrpc.NewServerHandler()), grpc.UnaryInterceptor(telemetry.ServiceMetrics("verification").UnaryServerInterceptor()))
 	verificationv1.RegisterVerificationServiceServer(grpcServer, verificationgrpc.NewServer(service))
 	httpServer := healthServer(cfg.HTTPAddr, db)
 

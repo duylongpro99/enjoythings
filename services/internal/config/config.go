@@ -7,7 +7,21 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"enjoythings/services/internal/mtls"
 )
+
+// MTLS maps the resolved transport-security fields onto the mtls package's
+// config, so each service builds its credentials from one accessor rather than
+// repeating the field mapping in every main.
+func (c Config) MTLS() mtls.Config {
+	return mtls.Config{
+		Enabled:  c.MTLSEnabled,
+		CertFile: c.TLSCertFile,
+		KeyFile:  c.TLSKeyFile,
+		CAFile:   c.TLSCAFile,
+	}
+}
 
 const (
 	defaultAppEnv                      = "local"
@@ -51,6 +65,10 @@ type Config struct {
 	JWTSecret                   string
 	JWTAlgorithm                string
 	JWTPublicKeyPEM             string
+	MTLSEnabled                 bool
+	TLSCertFile                 string
+	TLSKeyFile                  string
+	TLSCAFile                   string
 	KafkaBrokers                string
 	WalletOutboxTopic           string
 	LedgerConsumerTopic         string
@@ -140,6 +158,9 @@ func LoadWalletFromLookup(lookup func(string) (string, bool)) (Config, error) {
 		cfg.WalletOutboxBatchSize = value
 	}
 
+	if err := loadMTLS(lookup, &cfg); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
 }
 
@@ -159,6 +180,9 @@ func LoadLedgerFromLookup(lookup func(string) (string, bool)) (Config, error) {
 			return Config{}, fmt.Errorf("LEDGER_CONSUMER_ENABLED must be a boolean")
 		}
 		cfg.LedgerConsumerEnabled = value
+	}
+	if err := loadMTLS(lookup, &cfg); err != nil {
+		return Config{}, err
 	}
 	return cfg, nil
 }
@@ -197,6 +221,9 @@ func LoadSagaFromLookup(lookup func(string) (string, bool)) (Config, error) {
 			return Config{}, fmt.Errorf("SAGA_OUTBOX_BATCH_SIZE must be a positive integer")
 		}
 		cfg.WalletOutboxBatchSize = value
+	}
+	if err := loadMTLS(lookup, &cfg); err != nil {
+		return Config{}, err
 	}
 	return cfg, nil
 }
@@ -275,6 +302,9 @@ func LoadVerificationFromLookup(lookup func(string) (string, bool)) (Config, err
 		}
 		cfg.WalletOutboxBatchSize = value
 	}
+	if err := loadMTLS(lookup, &cfg); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
 }
 
@@ -310,6 +340,9 @@ func LoadGatewayFromLookup(lookup func(string) (string, bool)) (Config, error) {
 		cfg.RateLimitRefillEvery = value
 	}
 
+	if err := loadMTLS(lookup, &cfg); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
 }
 
@@ -356,6 +389,30 @@ func rsaPublicKeyPEM(lookup func(string) (string, bool)) (string, error) {
 		return "", errors.New("JWT_PUBLIC_KEY_PEM or JWT_PUBLIC_KEY_FILE is required for RS256")
 	}
 	return pem, nil
+}
+
+// loadMTLS resolves internal-gRPC transport security. It stays off unless
+// GRPC_TLS_ENABLED is set true, so local development and the existing suites
+// need nothing; once on, all three file paths are required together — a partial
+// configuration is a misconfiguration, not a silent fallback to insecure.
+func loadMTLS(lookup func(string) (string, bool), cfg *Config) error {
+	if raw, ok := lookup("GRPC_TLS_ENABLED"); ok && raw != "" {
+		enabled, err := strconv.ParseBool(raw)
+		if err != nil {
+			return fmt.Errorf("GRPC_TLS_ENABLED must be a boolean")
+		}
+		cfg.MTLSEnabled = enabled
+	}
+	if !cfg.MTLSEnabled {
+		return nil
+	}
+	cfg.TLSCertFile = strings.TrimSpace(valueOrDefault(lookup, "GRPC_TLS_CERT_FILE", ""))
+	cfg.TLSKeyFile = strings.TrimSpace(valueOrDefault(lookup, "GRPC_TLS_KEY_FILE", ""))
+	cfg.TLSCAFile = strings.TrimSpace(valueOrDefault(lookup, "GRPC_TLS_CA_FILE", ""))
+	if cfg.TLSCertFile == "" || cfg.TLSKeyFile == "" || cfg.TLSCAFile == "" {
+		return errors.New("GRPC_TLS_CERT_FILE, GRPC_TLS_KEY_FILE, and GRPC_TLS_CA_FILE are required when GRPC_TLS_ENABLED is true")
+	}
+	return nil
 }
 
 func loadBase(lookup func(string) (string, bool), defaultGRPC string) (Config, error) {

@@ -111,6 +111,33 @@ Postgres migrations run during database-backed service startup. The repository
 migrations are idempotent and protected by a Postgres advisory lock, so multiple
 services can start together and safely serialize migration execution.
 
+### 5a. Optional: Enable Internal mTLS
+
+Internal gRPC is insecure by default. To require mutual TLS between services,
+generate a local CA and per-service certificates, load them into a Secret, and
+install with `mtls.enabled=true`.
+
+```sh
+make certs   # writes services/certs/{ca.crt,<service>.crt,<service>.key}
+
+kubectl create secret generic enjoythings-mtls \
+  --namespace enjoythings \
+  --from-file=ca.crt=certs/ca.crt \
+  $(for s in gateway wallet ledger verification saga-orchestrator fraud-worker; do \
+      echo --from-file=$s.crt=certs/$s.crt --from-file=$s.key=certs/$s.key; done)
+
+helm upgrade --install enjoythings charts/enjoythings \
+  --namespace enjoythings \
+  -f charts/enjoythings/values-local.yaml \
+  --set mtls.enabled=true \
+  --wait --timeout 10m
+```
+
+The Secret name must match `mtls.secretName` (default `enjoythings-mtls`). Each
+gRPC server and client then mounts it at `/certs` and is pointed at its own leaf
+plus the shared CA. A pod that cannot present a certificate signed by that CA is
+refused at the handshake — confirm with `kubectl logs` that peers connect.
+
 ## 6. Inspect Workloads
 
 ```sh

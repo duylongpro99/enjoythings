@@ -7,6 +7,10 @@
 *.crt
 *.p12
 *.pfx
+*.srl
+# Locally generated mTLS material (services/devtools/gen-certs.sh)
+certs/
+services/certs/
 
 # Python
 .venv/

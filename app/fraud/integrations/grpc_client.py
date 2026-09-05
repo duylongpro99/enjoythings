@@ -142,12 +142,23 @@ def _enrichment_error(exc: Exception) -> EnrichmentError:
 
 
 def build_grpc_fraud_data_client(
-    ledger_addr: str, verification_addr: str
+    ledger_addr: str,
+    verification_addr: str,
+    *,
+    tls_enabled: bool = False,
+    cert_file: str = "",
+    key_file: str = "",
+    ca_file: str = "",
 ) -> tuple[GrpcFraudDataClient, tuple[Any, Any]]:
     import grpc
 
-    ledger_channel = grpc.insecure_channel(ledger_addr)
-    verification_channel = grpc.insecure_channel(verification_addr)
+    if tls_enabled:
+        credentials = _channel_credentials(cert_file, key_file, ca_file)
+        ledger_channel = grpc.secure_channel(ledger_addr, credentials)
+        verification_channel = grpc.secure_channel(verification_addr, credentials)
+    else:
+        ledger_channel = grpc.insecure_channel(ledger_addr)
+        verification_channel = grpc.insecure_channel(verification_addr)
     client = GrpcFraudDataClient(
         ledger_stub=ledger_pb2_grpc.LedgerServiceStub(ledger_channel),
         verification_stub=verification_pb2_grpc.VerificationServiceStub(
@@ -155,3 +166,26 @@ def build_grpc_fraud_data_client(
         ),
     )
     return client, (ledger_channel, verification_channel)
+
+
+def _channel_credentials(cert_file: str, key_file: str, ca_file: str) -> Any:
+    """Build mutual-TLS channel credentials: the worker presents its own leaf
+    certificate and verifies the server against the shared CA. The three paths
+    are required together, matching the Go services' contract."""
+    import grpc
+
+    if not (cert_file and key_file and ca_file):
+        raise ValueError(
+            "fraud gRPC TLS requires cert, key, and CA files when enabled"
+        )
+    with open(ca_file, "rb") as handle:
+        root_certificates = handle.read()
+    with open(cert_file, "rb") as handle:
+        certificate_chain = handle.read()
+    with open(key_file, "rb") as handle:
+        private_key = handle.read()
+    return grpc.ssl_channel_credentials(
+        root_certificates=root_certificates,
+        private_key=private_key,
+        certificate_chain=certificate_chain,
+    )

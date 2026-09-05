@@ -18,6 +18,7 @@ import (
 	healthhandler "enjoythings/services/internal/handler"
 	"enjoythings/services/internal/ledgerconsumer"
 	"enjoythings/services/internal/ledgergrpc"
+	"enjoythings/services/internal/mtls"
 	"enjoythings/services/internal/repo"
 	"enjoythings/services/internal/telemetry"
 	"enjoythings/services/internal/wallet"
@@ -79,7 +80,11 @@ func run() error {
 	}
 	defer func() { _ = listener.Close() }()
 
-	grpcServer := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()), grpc.UnaryInterceptor(telemetry.ServiceMetrics("ledger").UnaryServerInterceptor()))
+	serverCreds, err := mtls.ServerCredentials(cfg.MTLS())
+	if err != nil {
+		return err
+	}
+	grpcServer := grpc.NewServer(grpc.Creds(serverCreds), grpc.StatsHandler(otelgrpc.NewServerHandler()), grpc.UnaryInterceptor(telemetry.ServiceMetrics("ledger").UnaryServerInterceptor()))
 	ledgerv1.RegisterLedgerServiceServer(grpcServer, ledgergrpc.NewServer(newLedgerApp(db)))
 	httpServer := healthServer(cfg.HTTPAddr, db)
 

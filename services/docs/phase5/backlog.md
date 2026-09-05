@@ -11,20 +11,21 @@ schedule it can be made from this file alone.
 | Sagas stuck in `FRAUD_REVIEW` | `ResumeFraudReview` / `RejectFraudReview` on the orchestrator, `POST /v1/payments/{id}/fraud-review/{resume,reject}` on the gateway |
 | Poison Kafka records committed and lost | `internal/deadletter` and per-topic `<topic>.dlq` topics, Go and Python consumers |
 | HS256-only token verification | `JWT_ALG=RS256` with `JWT_PUBLIC_KEY_PEM` or `JWT_PUBLIC_KEY_FILE` |
+| Internal gRPC on the trusted-network assumption | `GRPC_TLS_ENABLED` (`FRAUD_GRPC_TLS_ENABLED` for the worker) behind `internal/mtls`; certs from `make certs`; see `docs/design-notes/phase5-mtls.md` |
 | No automated checks | `.github/workflows/ci.yml` runs the Go, Python, and web suites |
 | Python had no linter or type checker | `ruff` and `mypy` configured in `pyproject.toml`, both clean |
 | `web/` had no tests and floating dependencies | Vitest suite for the chat route, versions pinned to the lockfile |
 
 ## Still open
 
-### mTLS or workload identity between services
+### Workload identity and certificate rotation
 
-Internal gRPC still relies on the trusted-network assumption stated in
-`docs/phase4/specs/01-fraud-contracts-and-events.md`. Closing it means a local
-CA and per-service certificates, transport credentials on every Go server and
-client, `grpc.ssl_channel_credentials` in the Python worker, and certificate
-material wired through Compose, the Helm chart, and the Kind guide. RS256 does
-not cover this: it authenticates end users, not services.
+mTLS now authenticates services to each other, but the certificates are issued
+by a local script and distributed by hand (a mounted Secret in Kubernetes, a
+bind mount in Compose). There is no rotation, no short-lived credentials, and no
+workload-identity provider — cert-manager, SPIFFE, or a mesh — issuing and
+rotating them automatically. A leaf expires on its `CERT_DAYS` horizon and must
+be reissued and the pods restarted.
 
 ### Operator review UI
 

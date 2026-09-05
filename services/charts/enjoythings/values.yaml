@@ -98,6 +98,22 @@ config:
   llmProvidersJson: '{"providers":[{"id":"local","driver_type":"openai_compatible","base_url":"http://host.docker.internal:11434/v1","api_key_env":"LOCAL_LLM_API_KEY","model":"llama3.1","timeout_seconds":30}]}'
   llmDefaultProvider: local
 
+# Internal-gRPC mutual TLS. Off by default: the services run insecure, exactly
+# as before. When enabled, every gRPC server and client mounts `secretName` at
+# `mountPath` and is pointed at its own leaf certificate plus the shared CA. The
+# secret is created out of band (see services/k8s/kind/README or the design
+# note) and must hold ca.crt and a <service>.crt / <service>.key for each of the
+# servers plus the clients listed below.
+mtls:
+  enabled: false
+  secretName: enjoythings-mtls
+  mountPath: /certs
+  # gRPC clients that have no gRPC server port of their own but still need an
+  # identity to dial with. Servers are detected automatically by their grpcPort.
+  clients:
+    - gateway
+    - fraud-worker
+
 applications:
   gateway:
     image: enjoythings/gateway:local
