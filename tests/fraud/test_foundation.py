@@ -58,6 +58,31 @@ def test_config_requires_environment_only_database_and_non_empty_grpc_addresses(
         FraudConfig.from_env(environ)
 
 
+def test_grpc_tls_defaults_off_and_requires_all_files_when_enabled() -> None:
+    base = {"FRAUD_DATABASE_URL": "postgres://fraud-db"}
+
+    disabled = FraudConfig.from_env(base)
+    assert disabled.grpc_tls_enabled is False
+
+    with pytest.raises(FraudConfigError, match="FRAUD_GRPC_TLS_CERT_FILE"):
+        FraudConfig.from_env({**base, "FRAUD_GRPC_TLS_ENABLED": "true"})
+
+    enabled = FraudConfig.from_env(
+        {
+            **base,
+            "FRAUD_GRPC_TLS_ENABLED": "true",
+            "FRAUD_GRPC_TLS_CERT_FILE": "/certs/fraud-worker.crt",
+            "FRAUD_GRPC_TLS_KEY_FILE": "/certs/fraud-worker.key",
+            "FRAUD_GRPC_TLS_CA_FILE": "/certs/ca.crt",
+        }
+    )
+    assert enabled.grpc_tls_enabled is True
+    assert enabled.grpc_tls_ca_file == "/certs/ca.crt"
+
+    with pytest.raises(FraudConfigError, match="numeric settings"):
+        FraudConfig.from_env({**base, "FRAUD_GRPC_TLS_ENABLED": "maybe"})
+
+
 def test_session_store_port_includes_idempotent_event_append_and_completion() -> None:
     assert hasattr(FraudSessionStore, "claim_session")
     assert hasattr(FraudSessionStore, "append_event")

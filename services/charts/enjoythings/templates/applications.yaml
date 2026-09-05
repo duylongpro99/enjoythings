@@ -1,4 +1,6 @@
 {{- range $name, $app := .Values.applications }}
+{{- $mtls := and $.Values.mtls.enabled (or $app.grpcPort (has $name $.Values.mtls.clients)) }}
+{{- $mtlsPrefix := ternary "FRAUD_GRPC_TLS" "GRPC_TLS" (eq $name "fraud-worker") }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -53,6 +55,22 @@ spec:
             - name: {{ $key }}
               value: {{ $value | quote }}
             {{- end }}
+            {{- if $mtls }}
+            - name: {{ $mtlsPrefix }}_ENABLED
+              value: "true"
+            - name: {{ $mtlsPrefix }}_CERT_FILE
+              value: {{ printf "%s/%s.crt" $.Values.mtls.mountPath $name | quote }}
+            - name: {{ $mtlsPrefix }}_KEY_FILE
+              value: {{ printf "%s/%s.key" $.Values.mtls.mountPath $name | quote }}
+            - name: {{ $mtlsPrefix }}_CA_FILE
+              value: {{ printf "%s/ca.crt" $.Values.mtls.mountPath | quote }}
+            {{- end }}
+          {{- if $mtls }}
+          volumeMounts:
+            - name: mtls-certs
+              mountPath: {{ $.Values.mtls.mountPath }}
+              readOnly: true
+          {{- end }}
           readinessProbe:
             httpGet:
               path: {{ default "/readyz" $app.readinessPath }}
@@ -75,5 +93,11 @@ spec:
                 command: ["/bin/sh", "-c", "sleep 5"]
           resources:
             {{- toYaml $.Values.applicationResources | nindent 12 }}
+      {{- if $mtls }}
+      volumes:
+        - name: mtls-certs
+          secret:
+            secretName: {{ $.Values.mtls.secretName }}
+      {{- end }}
 ---
 {{- end }}

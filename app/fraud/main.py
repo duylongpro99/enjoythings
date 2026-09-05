@@ -41,7 +41,12 @@ async def build_runtime(environ=None) -> WorkerRuntime:
     pool = await asyncpg.create_pool(config.database_url)
     store = PostgresFraudSessionStore(pool, lease_owner=str(uuid4()))
     data, grpc_channels = build_grpc_fraud_data_client(
-        config.ledger_grpc_addr, config.verification_grpc_addr
+        config.ledger_grpc_addr,
+        config.verification_grpc_addr,
+        tls_enabled=config.grpc_tls_enabled,
+        cert_file=config.grpc_tls_cert_file,
+        key_file=config.grpc_tls_key_file,
+        ca_file=config.grpc_tls_ca_file,
     )
     producer = AIOKafkaProducer(bootstrap_servers=config.kafka_bootstrap_servers)
     consumer = AIOKafkaConsumer(

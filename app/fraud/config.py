@@ -7,6 +7,19 @@ class FraudConfigError(ValueError):
     pass
 
 
+_TRUE_VALUES = {"1", "true", "yes", "on"}
+_FALSE_VALUES = {"0", "false", "no", "off", ""}
+
+
+def _parse_bool(raw: str) -> bool:
+    value = raw.strip().lower()
+    if value in _TRUE_VALUES:
+        return True
+    if value in _FALSE_VALUES:
+        return False
+    raise ValueError(f"invalid boolean: {raw!r}")
+
+
 @dataclass(frozen=True)
 class FraudConfig:
     score_threshold: float = 0.75
@@ -21,6 +34,10 @@ class FraudConfig:
     database_url: str = ""
     ledger_grpc_addr: str = "127.0.0.1:9091"
     verification_grpc_addr: str = "127.0.0.1:9094"
+    grpc_tls_enabled: bool = False
+    grpc_tls_cert_file: str = ""
+    grpc_tls_key_file: str = ""
+    grpc_tls_ca_file: str = ""
     sensitive_keys: tuple[str, ...] = (
         "user_id",
         "from_wallet_id",
@@ -53,6 +70,12 @@ class FraudConfig:
                 verification_grpc_addr=source.get(
                     "VERIFICATION_GRPC_ADDR", "127.0.0.1:9094"
                 ).strip(),
+                grpc_tls_enabled=_parse_bool(
+                    source.get("FRAUD_GRPC_TLS_ENABLED", "false")
+                ),
+                grpc_tls_cert_file=source.get("FRAUD_GRPC_TLS_CERT_FILE", "").strip(),
+                grpc_tls_key_file=source.get("FRAUD_GRPC_TLS_KEY_FILE", "").strip(),
+                grpc_tls_ca_file=source.get("FRAUD_GRPC_TLS_CA_FILE", "").strip(),
             )
         except ValueError as exc:
             raise FraudConfigError("fraud numeric settings must be valid numbers") from exc
@@ -80,3 +103,12 @@ class FraudConfig:
             raise FraudConfigError("LEDGER_GRPC_ADDR must be non-empty")
         if not self.verification_grpc_addr:
             raise FraudConfigError("VERIFICATION_GRPC_ADDR must be non-empty")
+        if self.grpc_tls_enabled and not (
+            self.grpc_tls_cert_file
+            and self.grpc_tls_key_file
+            and self.grpc_tls_ca_file
+        ):
+            raise FraudConfigError(
+                "FRAUD_GRPC_TLS_CERT_FILE, FRAUD_GRPC_TLS_KEY_FILE, and "
+                "FRAUD_GRPC_TLS_CA_FILE are required when FRAUD_GRPC_TLS_ENABLED is true"
+            )

@@ -343,8 +343,25 @@ The API loads configuration from environment variables at startup.
 | `LEDGER_CONSUMER_GROUP_ID` | No for `ledger` | `ledger-service` |
 | `LEDGER_CONSUMER_ENABLED` | No for `ledger` | `true` |
 | `DB_MAX_CONNS` | No | `10` |
+| `GRPC_TLS_ENABLED` | No | `false` |
+| `GRPC_TLS_CERT_FILE` / `GRPC_TLS_KEY_FILE` / `GRPC_TLS_CA_FILE` | Yes when `GRPC_TLS_ENABLED=true` | none |
 
 Missing required values or invalid `DB_MAX_CONNS` values fail startup.
+
+### Internal mTLS
+
+Internal gRPC runs insecure by default. Set `GRPC_TLS_ENABLED=true` (the fraud
+worker uses `FRAUD_GRPC_TLS_ENABLED`) to require mutual TLS between services;
+when on, the cert, key, and CA paths are all required and validated at startup.
+Generate local development material with `make certs` (or
+`./devtools/gen-certs.sh`) and bring the Compose stack up with the overlay:
+
+```sh
+make certs
+docker compose -f docker-compose.yml -f docker-compose.mtls.yml up -d --build
+```
+
+See `docs/design-notes/phase5-mtls.md` for the design and `docs/phase3/kubernetes-local-guide.md` §5a for Kubernetes.
 
 ## Phase 4 observability
 
