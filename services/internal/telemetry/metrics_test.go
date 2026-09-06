@@ -31,6 +31,18 @@ func TestMetricsHandlerExposesBoundedHTTPMetrics(t *testing.T) {
 	}
 }
 
+func TestMetricsCountFraudAuditRowsDeleted(t *testing.T) {
+	metrics := NewMetrics("saga-orchestrator", prometheus.NewRegistry())
+	metrics.RecordFraudAuditDeleted(7)
+	metrics.RecordFraudAuditDeleted(0)
+
+	response := httptest.NewRecorder()
+	metrics.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if !strings.Contains(response.Body.String(), "saga_fraud_audit_rows_deleted_total 7") {
+		t.Fatalf("metrics body missing audit deletion counter:\n%s", response.Body.String())
+	}
+}
+
 func TestMetricsRejectUnknownKafkaTopics(t *testing.T) {
 	metrics := NewMetrics("saga-orchestrator", prometheus.NewRegistry())
 	if metrics.RecordKafka("private.topic", "produced") {

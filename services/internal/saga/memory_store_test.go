@@ -4,6 +4,8 @@ import (
 	"cmp"
 	"context"
 	"slices"
+	"sort"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -140,4 +142,30 @@ func (store *memoryStore) RecordFraudAudit(_ context.Context, audit FraudAuditRe
 	}
 	store.audits[audit.EventID] = audit
 	return nil
+}
+
+func (store *memoryStore) DeleteFraudAuditBefore(_ context.Context, before time.Time, limit int) (int64, error) {
+	expired := make([]FraudAuditRecord, 0, len(store.audits))
+	for _, audit := range store.audits {
+		if !audit.CreatedAt.Before(before) {
+			continue
+		}
+		if saga, ok := store.byPaymentID[audit.PaymentID]; ok && saga.State != StateCompleted && saga.State != StateFailed {
+			continue
+		}
+		expired = append(expired, audit)
+	}
+	sort.Slice(expired, func(i, j int) bool {
+		if !expired[i].CreatedAt.Equal(expired[j].CreatedAt) {
+			return expired[i].CreatedAt.Before(expired[j].CreatedAt)
+		}
+		return expired[i].EventID < expired[j].EventID
+	})
+	if len(expired) > limit {
+		expired = expired[:limit]
+	}
+	for _, audit := range expired {
+		delete(store.audits, audit.EventID)
+	}
+	return int64(len(expired)), nil
 }

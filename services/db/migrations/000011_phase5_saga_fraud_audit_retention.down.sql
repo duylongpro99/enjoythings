@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS saga_fraud_audit_records_created_at_idx;

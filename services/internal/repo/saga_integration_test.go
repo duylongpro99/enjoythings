@@ -261,6 +261,68 @@ func TestSagaStoreListsFraudReviewQueueAndAuditTrail(t *testing.T) {
 	}
 }
 
+func TestSagaStoreDeletesExpiredFraudAuditOnlyForTerminalOrMissingSagas(t *testing.T) {
+	ctx := context.Background()
+	db := newIntegrationDB(t, ctx)
+	store := db.SagaStore()
+	now := time.Now().UTC()
+	old := now.Add(-72 * time.Hour)
+
+	completed, err := store.Create(ctx, sagaFixture(saga.StateCompleted))
+	if err != nil {
+		t.Fatalf("Create completed saga: %v", err)
+	}
+	review, err := store.Create(ctx, sagaFixture(saga.StateFraudReview))
+	if err != nil {
+		t.Fatalf("Create review saga: %v", err)
+	}
+	for _, audit := range []saga.FraudAuditRecord{
+		{EventID: "old-completed", PaymentID: completed.PaymentID, Kind: saga.FraudAuditKindTransition, CreatedAt: old},
+		{EventID: "old-orphan", PaymentID: uuid.NewString(), Kind: saga.FraudAuditKindOrphan, CreatedAt: old},
+		{EventID: "old-review", PaymentID: review.PaymentID, Kind: saga.FraudAuditKindDeferredTerminal, CreatedAt: old},
+		{EventID: "fresh-completed", PaymentID: completed.PaymentID, Kind: saga.FraudAuditKindTransition, CreatedAt: now},
+	} {
+		if err := store.RecordFraudAudit(ctx, audit); err != nil {
+			t.Fatalf("RecordFraudAudit %s: %v", audit.EventID, err)
+		}
+	}
+
+	deleted, err := store.DeleteFraudAuditBefore(ctx, now.Add(-24*time.Hour), 1)
+	if err != nil {
+		t.Fatalf("DeleteFraudAuditBefore (batch of 1): %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("deleted = %d, want the batch limit of 1", deleted)
+	}
+	deleted, err = store.DeleteFraudAuditBefore(ctx, now.Add(-24*time.Hour), 100)
+	if err != nil {
+		t.Fatalf("DeleteFraudAuditBefore: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("deleted = %d, want the remaining 1 expired row", deleted)
+	}
+
+	rows, err := db.pool.Query(ctx, `
+SELECT event_id FROM saga_fraud_audit_records
+WHERE event_id IN ('old-completed', 'old-orphan', 'old-review', 'fresh-completed')
+ORDER BY event_id`)
+	if err != nil {
+		t.Fatalf("query fraud audit: %v", err)
+	}
+	defer rows.Close()
+	var remaining []string
+	for rows.Next() {
+		var eventID string
+		if err := rows.Scan(&eventID); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		remaining = append(remaining, eventID)
+	}
+	if len(remaining) != 2 || remaining[0] != "fresh-completed" || remaining[1] != "old-review" {
+		t.Fatalf("remaining audit rows = %v, want [fresh-completed old-review]", remaining)
+	}
+}
+
 func sagaFixture(state string) saga.Saga {
 	return saga.Saga{
 		PaymentID:      uuid.NewString(),

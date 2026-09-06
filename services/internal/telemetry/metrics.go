@@ -45,6 +45,7 @@ type Metrics struct {
 	sagaEvents   *prometheus.CounterVec
 	sagaStates   *prometheus.CounterVec
 	dbLatency    *prometheus.HistogramVec
+	auditDeleted prometheus.Counter
 }
 
 func NewMetrics(service string, registerer prometheus.Registerer) *Metrics {
@@ -59,8 +60,9 @@ func NewMetrics(service string, registerer prometheus.Registerer) *Metrics {
 		sagaEvents:   prometheus.NewCounterVec(prometheus.CounterOpts{Name: "saga_events_total", Help: "Saga failures, compensations, and fraud reviews."}, []string{"event"}),
 		sagaStates:   prometheus.NewCounterVec(prometheus.CounterOpts{Name: "saga_state_transitions_total", Help: "Saga transitions into bounded states."}, []string{"state"}),
 		dbLatency:    prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "service_database_operation_duration_seconds", Help: "Database operation latency.", Buckets: prometheus.DefBuckets}, []string{"service", "operation", "outcome"}),
+		auditDeleted: prometheus.NewCounter(prometheus.CounterOpts{Name: "saga_fraud_audit_rows_deleted_total", Help: "Saga fraud audit rows removed by the retention sweeper."}),
 	}
-	for _, collector := range []prometheus.Collector{metrics.httpRequests, metrics.httpLatency, metrics.grpcRequests, metrics.grpcLatency, metrics.kafkaRecords, metrics.sagaDuration, metrics.sagaEvents, metrics.sagaStates, metrics.dbLatency} {
+	for _, collector := range []prometheus.Collector{metrics.httpRequests, metrics.httpLatency, metrics.grpcRequests, metrics.grpcLatency, metrics.kafkaRecords, metrics.sagaDuration, metrics.sagaEvents, metrics.sagaStates, metrics.dbLatency, metrics.auditDeleted} {
 		registerer.MustRegister(collector)
 	}
 	if gatherer, ok := registerer.(prometheus.Gatherer); ok {
@@ -122,6 +124,12 @@ func (metrics *Metrics) RecordSaga(event string, duration time.Duration) bool {
 		return true
 	}
 	return false
+}
+
+func (metrics *Metrics) RecordFraudAuditDeleted(rows int64) {
+	if rows > 0 {
+		metrics.auditDeleted.Add(float64(rows))
+	}
 }
 
 func (metrics *Metrics) RecordDB(operation, outcome string, duration time.Duration) bool {
