@@ -8,10 +8,6 @@ import (
 	"time"
 )
 
-type clockAt struct{ now time.Time }
-
-func (clock clockAt) Now() time.Time { return clock.now }
-
 func TestFraudAuditSweeperDeletesExpiredRowsOfTerminalAndOrphanSagasOnly(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
