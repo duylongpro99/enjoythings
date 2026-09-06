@@ -1,6 +1,7 @@
 import asyncio
 import inspect
 from collections.abc import Awaitable, Callable
+from contextlib import suppress
 
 
 class WorkerHealth:
@@ -41,13 +42,22 @@ class WorkerHealth:
 
 class WorkerRuntime:
     def __init__(
-        self, *, runner, database, grpc_clients=(), producer=None, health=None, tracing_shutdown=None
+        self,
+        *,
+        runner,
+        database,
+        grpc_clients=(),
+        producer=None,
+        health=None,
+        tracing_shutdown=None,
+        retention=None,
     ) -> None:
         self._runner = runner
         self._database = database
         self._grpc_clients = tuple(grpc_clients)
         self._producer = producer
         self._tracing_shutdown = tracing_shutdown
+        self._retention = retention
         self.health = health
         self._run_task: asyncio.Task | None = None
         self._live = False
@@ -55,12 +65,21 @@ class WorkerRuntime:
     async def run(self) -> None:
         self._run_task = asyncio.current_task()
         self._live = True
+        # The retention sweeper lives and dies with the consumer loop: it is a
+        # background chore, never a reason to keep the worker alive.
+        sweep_task = (
+            asyncio.create_task(self._retention.run()) if self._retention is not None else None
+        )
         try:
             await self._runner.run()
         except asyncio.CancelledError:
             pass
         finally:
             self._live = False
+            if sweep_task is not None:
+                sweep_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await sweep_task
 
     async def shutdown(self, *, timeout_seconds: float = 30.0) -> None:
         await self._runner.shutdown()

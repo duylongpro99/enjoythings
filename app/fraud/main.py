@@ -17,6 +17,7 @@ from app.fraud.integrations.kafka import (
     KafkaWorkerRunner,
 )
 from app.fraud.repo.postgres import PostgresFraudSessionStore
+from app.fraud.retention import AuditRetentionSweeper
 from app.fraud.runtime import WorkerHealth, WorkerRuntime, provider_configuration_ready
 from app.fraud.service import FraudScoringService
 from app.fraud.tracing import init_tracing
@@ -68,12 +69,16 @@ async def build_runtime(environ=None) -> WorkerRuntime:
     runner = KafkaWorkerRunner(
         consumer_adapter, worker, KafkaDeadLetterPublisher(producer)
     )
+    retention = None
+    if config.audit_retention_days > 0:
+        retention = AuditRetentionSweeper(store, retention_days=config.audit_retention_days)
     runtime = WorkerRuntime(
         runner=runner,
         database=store,
         grpc_clients=grpc_channels,
         producer=producer,
         tracing_shutdown=shutdown_tracing,
+        retention=retention,
     )
     runtime.health = WorkerHealth(
         kafka_check=consumer_adapter.connectivity_ready,

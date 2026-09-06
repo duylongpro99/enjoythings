@@ -38,6 +38,9 @@ class FraudConfig:
     grpc_tls_cert_file: str = ""
     grpc_tls_key_file: str = ""
     grpc_tls_ca_file: str = ""
+    # Days a completed fraud session is kept before the retention sweeper
+    # deletes it. Zero, the default, keeps every row forever.
+    audit_retention_days: int = 0
     sensitive_keys: tuple[str, ...] = (
         "user_id",
         "from_wallet_id",
@@ -76,6 +79,7 @@ class FraudConfig:
                 grpc_tls_cert_file=source.get("FRAUD_GRPC_TLS_CERT_FILE", "").strip(),
                 grpc_tls_key_file=source.get("FRAUD_GRPC_TLS_KEY_FILE", "").strip(),
                 grpc_tls_ca_file=source.get("FRAUD_GRPC_TLS_CA_FILE", "").strip(),
+                audit_retention_days=int(source.get("FRAUD_AUDIT_RETENTION_DAYS", "0")),
             )
         except ValueError as exc:
             raise FraudConfigError("fraud numeric settings must be valid numbers") from exc
@@ -103,6 +107,10 @@ class FraudConfig:
             raise FraudConfigError("LEDGER_GRPC_ADDR must be non-empty")
         if not self.verification_grpc_addr:
             raise FraudConfigError("VERIFICATION_GRPC_ADDR must be non-empty")
+        if self.audit_retention_days < 0:
+            raise FraudConfigError(
+                "FRAUD_AUDIT_RETENTION_DAYS must be zero (keep forever) or positive"
+            )
         if self.grpc_tls_enabled and not (
             self.grpc_tls_cert_file
             and self.grpc_tls_key_file
