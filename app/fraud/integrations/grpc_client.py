@@ -171,7 +171,12 @@ def build_grpc_fraud_data_client(
 def _channel_credentials(cert_file: str, key_file: str, ca_file: str) -> Any:
     """Build mutual-TLS channel credentials: the worker presents its own leaf
     certificate and verifies the server against the shared CA. The three paths
-    are required together, matching the Go services' contract."""
+    are required together, matching the Go services' contract.
+
+    The files are read once, when the channel is created. grpc-python has no
+    client-side reload hook (only servers get dynamic credentials), so unlike
+    the Go services a renewed certificate takes effect on the next process
+    start; see services/docs/design-notes/phase5-cert-rotation.md."""
     import grpc
 
     if not (cert_file and key_file and ca_file):
