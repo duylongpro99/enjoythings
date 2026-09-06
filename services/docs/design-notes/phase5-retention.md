@@ -27,7 +27,7 @@ operability note points at for manual re-drive when a resume fails midway — an
 a saga can sit in `FRAUD_REVIEW` for longer than any retention window because
 automatic rejection is still out of scope. Rows for `COMPLETED` and `FAILED`
 sagas, and orphan rows whose payment never had a saga, age out normally.
-Migration `000011` adds the `created_at` index the cutoff scan needs. Deleted
+Migration `000012` adds the `created_at` index the cutoff scan needs. Deleted
 rows are counted in `saga_fraud_audit_rows_deleted_total`.
 
 The fraud worker reads `FRAUD_AUDIT_RETENTION_DAYS`; zero keeps everything.
