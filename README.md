@@ -336,6 +336,15 @@ curl -X POST "$GATEWAY/v1/payments/$PAYMENT_ID/fraud-review/reject" \
   -d '{"reason":"confirmed fraud"}'
 ```
 
+### Review Deadline
+
+Set `SAGA_FRAUD_REVIEW_TTL` on the saga orchestrator to a duration such as `24h`
+and a reaper sweeps every `SAGA_FRAUD_REVIEW_REAPER_INTERVAL` (default `1m`),
+rejecting any review older than the TTL through the same path as a manual
+rejection. The audit record names the actor `system:fraud-review-reaper`, and
+the `fraud_review_expired` saga event counts each one. Leave the TTL unset to
+keep reviews open until an operator decides them.
+
 ## Dead-Letter Topics
 
 Every consumer publishes a record it cannot parse to `<topic>.dlq` before it
@@ -343,6 +352,28 @@ commits the offset, so a broker outage retries the record instead of dropping
 it. The payload carries the raw key and value, the source topic, partition and
 offset, the decode error, and the failure time. Compose and the Helm chart
 provision one dead-letter topic per consumed topic.
+
+`dlq-redrive` works through a dead-letter topic in order. It reads with its own
+consumer group, so a record stays pending until a decision commits it.
+
+```bash
+cd services
+# Show what is waiting on payment.completed.dlq without deciding anything.
+go run ./cmd/dlq-redrive list --topic payment.completed
+
+# Put the next pending record back on payment.completed.
+go run ./cmd/dlq-redrive redrive --topic payment.completed --max 1
+
+# Replay the next record with a corrected value instead of the poison bytes.
+go run ./cmd/dlq-redrive redrive --topic payment.completed --max 1 --value-file fixed.json
+
+# Drop the next pending record. Without --max, decisions apply to every pending record.
+go run ./cmd/dlq-redrive discard --topic payment.completed --max 1
+```
+
+Brokers come from `--brokers` or `KAFKA_BROKERS`. Each replayed record carries an
+`x-dead-letter-redrive` header naming the dead-letter topic, partition, and offset
+it came from.
 
 ## Token Verification
 
@@ -367,6 +398,8 @@ read.
   Phase 4 implementation contracts
 - [`services/docs/design-notes/phase5-operability-debt.md`](services/docs/design-notes/phase5-operability-debt.md):
   fraud review exit, dead letters, and RS256
+- [`services/docs/design-notes/phase5-review-reaper-and-redrive.md`](services/docs/design-notes/phase5-review-reaper-and-redrive.md):
+  fraud review deadline and dead-letter redrive
 - [`services/docs/phase5/backlog.md`](services/docs/phase5/backlog.md):
   what is still deliberately deferred
 
