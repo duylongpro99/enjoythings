@@ -107,6 +107,10 @@ func run() error {
 		slog.Default(),
 	)
 	go publisher.Run(ctx)
+	if cfg.FraudReviewTTL > 0 {
+		slog.Info("fraud review reaper enabled", "ttl", cfg.FraudReviewTTL, "interval", cfg.FraudReviewReaperInterval)
+		go orchestrator.RunReviewReaper(ctx, cfg.FraudReviewReaperInterval, cfg.FraudReviewTTL, slog.Default())
+	}
 
 	var consumer *sagaconsumer.KafkaConsumer
 	if cfg.SagaConsumerEnabled {

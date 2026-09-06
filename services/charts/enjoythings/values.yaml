@@ -85,6 +85,10 @@ config:
   sagaConsumerGroupId: saga-orchestrator
   sagaOutboxPollInterval: 100ms
   sagaOutboxBatchSize: "100"
+  # Empty keeps fraud reviews open until an operator decides them; a duration
+  # such as 24h auto-rejects older reviews.
+  sagaFraudReviewTtl: ""
+  sagaFraudReviewReaperInterval: 1m
   paymentProcessorConsumerGroup: payment-processor
   paymentRailUrl: http://stub-payment-rail:18090
   paymentRailTimeout: 2s
