@@ -1,0 +1,22 @@
+#!/bin/sh
+# Undo every injection recorded in $DRILL_REVERT_LOG, newest first.
+set -eu
+. "$(dirname -- "$0")/lib.sh"
+
+REVERT_LOG="${DRILL_REVERT_LOG:-$DRILLS_DIR/.revert}"
+[ -f "$REVERT_LOG" ] || { log "nothing to revert"; exit 0; }
+
+# Reverting must not record new revert lines, so point inject at a scratch log.
+scratch="$REVERT_LOG.reverting"
+reversed="$REVERT_LOG.reversed"
+sed '1!G;h;$!d' "$REVERT_LOG" > "$reversed"
+: > "$scratch"
+status=0
+while IFS= read -r line || [ -n "$line" ]; do
+	[ -n "$line" ] || continue
+	# shellcheck disable=SC2086
+	DRILL_REVERT_LOG="$scratch" "$ADAPTER_DIR/inject" $line || status=1
+done < "$reversed"
+rm -f "$scratch" "$reversed"
+[ "$status" -eq 0 ] && rm -f "$REVERT_LOG"
+exit "$status"

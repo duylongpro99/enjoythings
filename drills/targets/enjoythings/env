@@ -1,0 +1,10 @@
+#!/bin/sh
+# Print the host-side environment probes need, as shell exports. `drill` evals
+# this before running a scenario probe so probes see the same ports Compose
+# published.
+set -eu
+. "$(dirname -- "$0")/lib.sh"
+
+printf 'export GATEWAY_URL=%s\n' "$GATEWAY_URL"
+printf 'export DATABASE_URL=%s\n' "$DATABASE_URL"
+printf 'export JWT_SECRET=%s\n' "$JWT_SECRET"

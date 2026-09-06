@@ -1,0 +1,34 @@
+#!/bin/sh
+# Print what the engineer is allowed to look at. Nothing here reaches past the
+# observability the system exposes in production.
+set -eu
+. "$(dirname -- "$0")/lib.sh"
+
+cat <<EOF
+Observability for target enjoythings
+
+  Traces      http://localhost:16686            (Jaeger)
+  Metrics     http://localhost:9095             (Prometheus; job "loadgen" is the drill traffic)
+  Dashboards  http://localhost:3001             (Grafana: System Overview, Saga Health, Fraud Agent)
+  Gateway     http://localhost:8080/healthz  /readyz  /metrics
+
+Per-service health and metrics (host ports)
+  wallet 8081  ledger 8082  saga-orchestrator 8084  payment-processor 8085
+  verification 8086  notification 8087  fraud-worker 9101/metrics  loadgen 8090/metrics
+
+Logs
+  cd services && docker compose logs -f <component>
+  cd services && docker compose ps
+
+Traffic (as an authenticated user)
+  export GATEWAY_URL=$GATEWAY_URL
+  token: go -C services run ./cmd/devtoken -user-id \$(uuidgen)
+  GET  \$GATEWAY_URL/v1/payments/<payment_id>
+  GET  \$GATEWAY_URL/v1/fraud-reviews
+
+Useful queries
+  rate(loadgen_requests_total[1m])
+  histogram_quantile(0.95, sum by (le) (rate(loadgen_payment_settle_seconds_bucket[1m])))
+  loadgen_inflight_payments
+  up
+EOF

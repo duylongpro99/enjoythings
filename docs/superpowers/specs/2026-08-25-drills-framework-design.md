@@ -364,6 +364,17 @@ framework halves — `bin`, `roles`, `commands`, `scenarios` — extract cleanly
 
 ## 13. Open questions
 
+**Settled 2026-09-06** (plan: `docs/superpowers/plans/2026-09-06-drills-framework-slice1.md`):
+
+| # | Decision |
+| --- | --- |
+| 1 | Target-specific scenarios. `scenario.yaml` keeps `components` reserved for a future role mapping. |
+| 2 | Author drafts the rubric; a human merges. The PR is the review. |
+| 3 | Constant rate only. Bursts and diurnal shapes wait for a scenario that needs them. |
+| 4 | Single engineer. No participants list in the run record. |
+
+The original questions, for the reasoning behind each:
+
 1. **Scenario portability across targets.** A scenario names components
    (`wallet`, `kafka`). Either scenarios are target-specific, or they name
    *roles* (`ledger-of-record`, `event-bus`) that each target maps. The second is

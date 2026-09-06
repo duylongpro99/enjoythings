@@ -1,0 +1,14 @@
+#!/bin/sh
+# Return to pristine without a rebuild: drop state volumes and restart from the
+# cached images. Also clears any env overrides left by inject.
+set -eu
+. "$(dirname -- "$0")/lib.sh"
+
+compose_with_loadgen down -v --remove-orphans
+rm -rf "$OVERRIDES_DIR"
+if ! compose up -d; then
+	log "compose gave up on a slow dependency; waiting on health, then starting the rest"
+	"$ADAPTER_DIR/health"
+	compose up -d
+fi
+exec "$ADAPTER_DIR/health"

@@ -1,0 +1,6 @@
+#!/bin/sh
+# Symptom present: a fresh transfer is accepted but still PAYMENT_PROCESSING
+# after 15 seconds. Black-box: gateway only, as a user would see it.
+set -eu
+cd "$(dirname -- "$0")/../../../.."
+exec go -C services run ./devtools/drillprobe -want PAYMENT_PROCESSING -after 15s -count 1

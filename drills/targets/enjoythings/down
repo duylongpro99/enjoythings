@@ -1,0 +1,7 @@
+#!/bin/sh
+# Tear the platform down, including volumes and the traffic generator.
+set -eu
+. "$(dirname -- "$0")/lib.sh"
+
+compose_with_loadgen down -v --remove-orphans
+rm -rf "$OVERRIDES_DIR"
