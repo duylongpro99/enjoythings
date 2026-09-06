@@ -442,6 +442,17 @@ Kubernetes, `mtls.certManager.enabled=true` has cert-manager issue and renew a
 
 See `docs/design-notes/phase5-mtls.md` and `docs/design-notes/phase5-cert-rotation.md` for the design and `docs/phase3/kubernetes-local-guide.md` §5a for Kubernetes.
 
+### Retention
+
+Audit data is kept forever unless retention is turned on. Set
+`SAGA_FRAUD_AUDIT_RETENTION` (a Go duration, e.g. `2160h`) on the saga
+orchestrator to sweep fraud audit rows of finished sagas older than the window;
+rows for sagas still in flight are always kept. Set
+`FRAUD_AUDIT_RETENTION_DAYS` on the fraud worker to sweep completed fraud
+sessions. Dead-letter topics are created with `retention.ms` from
+`KAFKA_DLQ_RETENTION_MS` (Compose) or `kafka.dlqRetentionMs` (Helm), 30 days
+by default. See `docs/design-notes/phase5-retention.md`.
+
 ## Phase 4 observability
 
 Create a local `.env` from the repository `.env.example`, replace every
