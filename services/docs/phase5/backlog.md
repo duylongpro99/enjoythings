@@ -17,6 +17,8 @@ schedule it can be made from this file alone.
 | Python had no linter or type checker | `ruff` and `mypy` configured in `pyproject.toml`, both clean |
 | `web/` had no tests and floating dependencies | Vitest suite for the chat route, versions pinned to the lockfile |
 | Operator review UI | `ListFraudReviews` / `GetFraudReview` on the orchestrator, `GET /v1/fraud-reviews` and `GET /v1/fraud-reviews/{payment_id}` on the gateway, `/admin/fraud-reviews` in `web/`; see `docs/design-notes/phase5-operator-review-ui.md` |
+| Reviews with no deadline | `ExpireFraudReviews` on the orchestrator, swept by `RunReviewReaper` when `SAGA_FRAUD_REVIEW_TTL` is set; see `docs/design-notes/phase5-review-reaper-and-redrive.md` |
+| Dead letters nobody consumed | `cmd/dlq-redrive` with `list`, `redrive`, and `discard` over `internal/deadletter.Decode`/`Replay` |
 
 ## Still open
 
@@ -39,21 +41,6 @@ the `fraud_session_id` the page displays. Reading them would mean the
 orchestrator opening a second database or the gateway calling a new Python
 endpoint. There is also no reviewer assignment: nothing on the saga row models
 an assignee, and adding one is a write path with its own audit semantics.
-
-### Automatic rejection after a review deadline
-
-`docs/phase4/specs/00-phase4-scope-and-decisions.md` lists 24-hour automatic
-rejection as out of scope, and it still is. A reaper over sagas in
-`FRAUD_REVIEW` past a configured TTL would reuse `RejectFraudReview` with a
-system actor, which is why the decision takes an actor ID rather than assuming
-a human.
-
-### Dead-letter redrive
-
-Poison records are parked on `<topic>.dlq` with everything needed to replay
-them, but nothing consumes those topics. A redrive tool would read a dead-letter
-record, let an operator correct or discard it, and produce it back to the source
-topic.
 
 ### Compliance retention
 
