@@ -424,6 +424,16 @@ func (store *sagaStore) ListNonTerminal(context.Context) ([]saga.Saga, error) {
 	return result, nil
 }
 
+func (store *sagaStore) ListFraudReview(context.Context) ([]saga.Saga, error) {
+	var result []saga.Saga
+	for _, current := range store.byPaymentID {
+		if current.State == saga.StateFraudReview {
+			result = append(result, current)
+		}
+	}
+	return result, nil
+}
+
 func (store *sagaStore) Update(_ context.Context, current saga.Saga) (saga.Saga, error) {
 	if _, ok := store.byPaymentID[current.PaymentID]; !ok {
 		return saga.Saga{}, saga.ErrNotFound

@@ -399,6 +399,18 @@ func (store *sagaMemoryStore) ListNonTerminal(context.Context) ([]saga.Saga, err
 	return result, nil
 }
 
+func (store *sagaMemoryStore) ListFraudReview(context.Context) ([]saga.Saga, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	var result []saga.Saga
+	for _, current := range store.items {
+		if current.State == saga.StateFraudReview {
+			result = append(result, current)
+		}
+	}
+	return result, nil
+}
+
 func (store *sagaMemoryStore) Update(_ context.Context, current saga.Saga) (saga.Saga, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -737,4 +749,25 @@ func (client directSagaClient) GetPayment(ctx context.Context, paymentID, traceI
 	}
 	message := resp.GetSaga()
 	return saga.Saga{PaymentID: message.GetPaymentId(), State: message.GetStatus()}, nil
+}
+
+func (client directSagaClient) ListFraudReviews(ctx context.Context, traceID string) ([]saga.Saga, error) {
+	resp, err := client.server.ListFraudReviews(ctx, &sagav1.ListFraudReviewsRequest{TraceId: traceID})
+	if err != nil {
+		return nil, err
+	}
+	sagas := make([]saga.Saga, 0, len(resp.GetSagas()))
+	for _, message := range resp.GetSagas() {
+		sagas = append(sagas, saga.Saga{PaymentID: message.GetPaymentId(), State: message.GetStatus()})
+	}
+	return sagas, nil
+}
+
+func (client directSagaClient) GetFraudReview(ctx context.Context, paymentID, traceID string) (saga.FraudReview, error) {
+	resp, err := client.server.GetFraudReview(ctx, &sagav1.GetFraudReviewRequest{PaymentId: paymentID, TraceId: traceID})
+	if err != nil {
+		return saga.FraudReview{}, err
+	}
+	message := resp.GetSaga()
+	return saga.FraudReview{Saga: saga.Saga{PaymentID: message.GetPaymentId(), State: message.GetStatus()}}, nil
 }

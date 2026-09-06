@@ -17,6 +17,8 @@ type PaymentClient interface {
 	GetPayment(context.Context, string, string) (saga.Saga, error)
 	ResumeFraudReview(context.Context, saga.FraudReviewDecision) (saga.Saga, error)
 	RejectFraudReview(context.Context, saga.FraudReviewDecision) (saga.Saga, error)
+	ListFraudReviews(context.Context, string) ([]saga.Saga, error)
+	GetFraudReview(context.Context, string, string) (saga.FraudReview, error)
 }
 
 // RoleAdmin may resolve a fraud review. Ordinary callers cannot: releasing a

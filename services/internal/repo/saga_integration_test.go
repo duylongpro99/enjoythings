@@ -3,7 +3,9 @@ package repo
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	"enjoythings/services/internal/outbox"
 	"enjoythings/services/internal/saga"
@@ -199,6 +201,63 @@ WHERE event_id = $1`, audit.EventID).Scan(&gotEventID, &gotPaymentID, &gotKind, 
 	}
 	if gotEventID != audit.EventID || gotPaymentID != audit.PaymentID || gotKind != audit.Kind || gotState != audit.SagaState || gotDetails != audit.DetailsJSON {
 		t.Fatalf("fraud audit row = %s/%s/%s/%s/%s, want %+v", gotEventID, gotPaymentID, gotKind, gotState, gotDetails, audit)
+	}
+}
+
+func TestSagaStoreListsFraudReviewQueueAndAuditTrail(t *testing.T) {
+	ctx := context.Background()
+	db := newIntegrationDB(t, ctx)
+	store := db.SagaStore()
+
+	flaggedAt := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	newer := sagaFixture(saga.StateFraudReview)
+	newer.FraudFlaggedAt = flaggedAt
+	older := sagaFixture(saga.StateFraudReview)
+	older.FraudFlaggedAt = flaggedAt.Add(-time.Hour)
+	for _, fixture := range []saga.Saga{newer, older, sagaFixture(saga.StatePaymentProcessing)} {
+		if _, err := store.Create(ctx, fixture); err != nil {
+			t.Fatalf("Create %s saga: %v", fixture.State, err)
+		}
+	}
+
+	queue, err := store.ListFraudReview(ctx)
+	if err != nil {
+		t.Fatalf("ListFraudReview: %v", err)
+	}
+	if len(queue) != 2 || queue[0].PaymentID != older.PaymentID || queue[1].PaymentID != newer.PaymentID {
+		t.Fatalf("queue = %+v, want [%s %s] longest-held first", queue, older.PaymentID, newer.PaymentID)
+	}
+
+	kinds := []string{saga.FraudAuditKindTransition, saga.FraudAuditKindDeferredTerminal, saga.FraudAuditKindReviewResumed}
+	for i, kind := range kinds {
+		if err := store.RecordFraudAudit(ctx, saga.FraudAuditRecord{
+			EventID:     fmt.Sprintf("%s:%d", newer.PaymentID, i),
+			PaymentID:   newer.PaymentID,
+			Kind:        kind,
+			SagaState:   saga.StateFraudReview,
+			DetailsJSON: `{}`,
+			CreatedAt:   flaggedAt.Add(time.Duration(i) * time.Minute),
+		}); err != nil {
+			t.Fatalf("RecordFraudAudit %s: %v", kind, err)
+		}
+	}
+	if err := store.RecordFraudAudit(ctx, saga.FraudAuditRecord{
+		EventID: older.PaymentID + ":0", PaymentID: older.PaymentID, Kind: saga.FraudAuditKindTransition, CreatedAt: flaggedAt,
+	}); err != nil {
+		t.Fatalf("RecordFraudAudit for other payment: %v", err)
+	}
+
+	trail, err := store.ListFraudAudit(ctx, newer.PaymentID)
+	if err != nil {
+		t.Fatalf("ListFraudAudit: %v", err)
+	}
+	if len(trail) != len(kinds) {
+		t.Fatalf("trail = %+v, want %d records for the payment only", trail, len(kinds))
+	}
+	for i, record := range trail {
+		if record.Kind != kinds[i] || record.PaymentID != newer.PaymentID || !record.CreatedAt.Equal(flaggedAt.Add(time.Duration(i)*time.Minute)) {
+			t.Fatalf("trail[%d] = %+v, want %s in creation order", i, record, kinds[i])
+		}
 	}
 }
 

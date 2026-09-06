@@ -96,7 +96,7 @@ WHERE payment_id = $1`, paymentID))
 }
 
 func (store *PostgresStore) ListNonTerminal(ctx context.Context) ([]Saga, error) {
-	rows, err := store.pool.Query(ctx, `
+	return store.listSagas(ctx, `
 SELECT id::text, payment_id, idempotency_key, user_id, from_wallet_id, to_wallet_id,
   amount_cents, currency, state, last_error, trace_id, wallet_debit_id,
   ledger_reservation_id, transfer_id, failure_code, fraud_session_id, fraud_action,
@@ -104,6 +104,24 @@ SELECT id::text, payment_id, idempotency_key, user_id, from_wallet_id, to_wallet
 FROM sagas
 WHERE state NOT IN ('COMPLETED', 'FAILED')
 ORDER BY updated_at, id`)
+}
+
+// ListFraudReview is the operator queue: every saga held in FRAUD_REVIEW,
+// longest-held first. FRAUD_REVIEW is a non-terminal state, so the partial
+// index behind ListNonTerminal serves this query too.
+func (store *PostgresStore) ListFraudReview(ctx context.Context) ([]Saga, error) {
+	return store.listSagas(ctx, `
+SELECT id::text, payment_id, idempotency_key, user_id, from_wallet_id, to_wallet_id,
+  amount_cents, currency, state, last_error, trace_id, wallet_debit_id,
+  ledger_reservation_id, transfer_id, failure_code, fraud_session_id, fraud_action,
+  fraud_risk_score, fraud_reason, fraud_flagged_at, deferred_payment_json, created_at, updated_at
+FROM sagas
+WHERE state = 'FRAUD_REVIEW'
+ORDER BY fraud_flagged_at, id`)
+}
+
+func (store *PostgresStore) listSagas(ctx context.Context, query string) ([]Saga, error) {
+	rows, err := store.pool.Query(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -187,6 +205,33 @@ VALUES ($1, $2, $3, $4, $5)`,
 
 func (store *PostgresStore) RecordFraudAudit(ctx context.Context, audit FraudAuditRecord) error {
 	return insertFraudAudit(ctx, store.pool, audit)
+}
+
+// ListFraudAudit returns every fraud audit record written for a payment, oldest
+// first, so a review reads in the order it happened.
+func (store *PostgresStore) ListFraudAudit(ctx context.Context, paymentID string) ([]FraudAuditRecord, error) {
+	rows, err := store.pool.Query(ctx, `
+SELECT event_id, payment_id, kind, saga_state, details_json, created_at
+FROM saga_fraud_audit_records
+WHERE payment_id = $1
+ORDER BY created_at, id`, paymentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var audits []FraudAuditRecord
+	for rows.Next() {
+		var audit FraudAuditRecord
+		if err := rows.Scan(&audit.EventID, &audit.PaymentID, &audit.Kind, &audit.SagaState, &audit.DetailsJSON, &audit.CreatedAt); err != nil {
+			return nil, err
+		}
+		audits = append(audits, audit)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return audits, nil
 }
 
 func updateSaga(ctx context.Context, db pgDB, saga Saga) (Saga, error) {

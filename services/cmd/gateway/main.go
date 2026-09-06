@@ -90,6 +90,8 @@ func run() error {
 	routes.Handle("/v1/wallets/", gatewayhandler.NewWallets(walletClient))
 	routes.Handle("/v1/transfers", gatewayhandler.NewPayments(sagaClient))
 	routes.Handle("/v1/payments/", gatewayhandler.NewPayments(sagaClient))
+	routes.Handle("/v1/fraud-reviews", gatewayhandler.NewFraudReviews(sagaClient))
+	routes.Handle("/v1/fraud-reviews/", gatewayhandler.NewFraudReviews(sagaClient))
 	routes.Handle("/v1/ledger/", gatewayhandler.NewLedger(ledgerClient))
 	routes.Handle("/v1/verification/submit", gatewayhandler.NewVerification(verificationClient))
 	routes.Handle("/v1/verification/status", gatewayhandler.NewVerification(verificationClient))

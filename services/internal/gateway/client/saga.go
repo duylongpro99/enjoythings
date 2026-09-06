@@ -76,16 +76,52 @@ func (client *SagaClient) RejectFraudReview(ctx context.Context, decision saga.F
 	return sagaFromMessage(resp.GetSaga()), nil
 }
 
+func (client *SagaClient) ListFraudReviews(ctx context.Context, traceID string) ([]saga.Saga, error) {
+	resp, err := client.client.ListFraudReviews(ctx, &sagav1.ListFraudReviewsRequest{TraceId: traceID})
+	if err != nil {
+		return nil, err
+	}
+	sagas := make([]saga.Saga, 0, len(resp.GetSagas()))
+	for _, message := range resp.GetSagas() {
+		sagas = append(sagas, sagaFromMessage(message))
+	}
+	return sagas, nil
+}
+
+func (client *SagaClient) GetFraudReview(ctx context.Context, paymentID, traceID string) (saga.FraudReview, error) {
+	resp, err := client.client.GetFraudReview(ctx, &sagav1.GetFraudReviewRequest{
+		PaymentId: paymentID,
+		TraceId:   traceID,
+	})
+	if err != nil {
+		return saga.FraudReview{}, err
+	}
+	review := saga.FraudReview{
+		Saga:  sagaFromMessage(resp.GetSaga()),
+		Audit: make([]saga.FraudAuditRecord, 0, len(resp.GetAudit())),
+	}
+	for _, message := range resp.GetAudit() {
+		review.Audit = append(review.Audit, auditFromMessage(message))
+	}
+	return review, nil
+}
+
 func sagaFromMessage(message *sagav1.PaymentSaga) saga.Saga {
 	current := saga.Saga{
-		PaymentID:    message.GetPaymentId(),
-		State:        message.GetStatus(),
-		FromWalletID: message.GetFromWalletId(),
-		ToWalletID:   message.GetToWalletId(),
-		AmountCents:  message.GetAmountCents(),
-		Currency:     message.GetCurrency(),
-		FailureCode:  message.GetFailureCode(),
-		LastError:    message.GetFailureMessage(),
+		PaymentID:           message.GetPaymentId(),
+		State:               message.GetStatus(),
+		UserID:              message.GetUserId(),
+		FromWalletID:        message.GetFromWalletId(),
+		ToWalletID:          message.GetToWalletId(),
+		AmountCents:         message.GetAmountCents(),
+		Currency:            message.GetCurrency(),
+		FailureCode:         message.GetFailureCode(),
+		LastError:           message.GetFailureMessage(),
+		FraudSessionID:      message.GetFraudSessionId(),
+		FraudAction:         message.GetFraudAction(),
+		FraudRiskScore:      message.GetFraudRiskScore(),
+		FraudReason:         message.GetFraudReason(),
+		DeferredPaymentJSON: message.GetDeferredPaymentJson(),
 	}
 	if message.GetCreatedAt() != nil {
 		current.CreatedAt = message.GetCreatedAt().AsTime()
@@ -93,5 +129,22 @@ func sagaFromMessage(message *sagav1.PaymentSaga) saga.Saga {
 	if message.GetUpdatedAt() != nil {
 		current.UpdatedAt = message.GetUpdatedAt().AsTime()
 	}
+	if message.GetFraudFlaggedAt() != nil {
+		current.FraudFlaggedAt = message.GetFraudFlaggedAt().AsTime()
+	}
 	return current
+}
+
+func auditFromMessage(message *sagav1.FraudAuditRecord) saga.FraudAuditRecord {
+	record := saga.FraudAuditRecord{
+		EventID:     message.GetEventId(),
+		PaymentID:   message.GetPaymentId(),
+		Kind:        message.GetKind(),
+		SagaState:   message.GetSagaState(),
+		DetailsJSON: message.GetDetailsJson(),
+	}
+	if message.GetCreatedAt() != nil {
+		record.CreatedAt = message.GetCreatedAt().AsTime()
+	}
+	return record
 }
