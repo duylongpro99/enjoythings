@@ -1,5 +1,6 @@
 import json
 from dataclasses import asdict
+from datetime import datetime
 from typing import Any, cast
 from uuid import uuid4
 
@@ -147,6 +148,28 @@ class PostgresFraudSessionStore:
             self._lease_owner,
         )
 
+    async def delete_completed_before(self, cutoff: datetime, limit: int) -> int:
+        """Delete at most `limit` sessions completed before `cutoff`.
+
+        Sessions that never completed are kept whatever their age: an
+        unfinished session is a claim another worker may still take over when
+        the request is redelivered, and deleting it would reset that dedup.
+        """
+        result = await self._pool.execute(
+            """
+            DELETE FROM fraud_sessions
+            WHERE session_id IN (
+              SELECT session_id FROM fraud_sessions
+              WHERE completed_at IS NOT NULL AND completed_at < $1
+              ORDER BY completed_at
+              LIMIT $2
+            )
+            """,
+            cutoff,
+            limit,
+        )
+        return _affected_rows(result)
+
     async def database_ready(self) -> bool:
         try:
             return await self._pool.fetchval("SELECT 1") == 1
@@ -187,6 +210,14 @@ class PostgresFraudSessionStore:
             output_event_type=row.get("output_event_type") or "",
             output_published=bool(row.get("output_published")),
         )
+
+
+def _affected_rows(status: object) -> int:
+    """Read the row count out of an asyncpg command tag such as ``DELETE 3``."""
+    if not isinstance(status, str):
+        return 0
+    _, _, count = status.rpartition(" ")
+    return int(count) if count.isdigit() else 0
 
 
 def _json_value(value: Any) -> dict[str, Any]:
