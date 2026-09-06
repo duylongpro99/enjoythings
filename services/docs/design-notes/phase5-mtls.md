@@ -44,8 +44,7 @@ exists where an operator has explicitly turned it on — the safe default is the
 insecure one. Certificate distribution is deliberately left to the operator: the
 chart mounts an existing `Secret` rather than templating PEM through values,
 because cert material does not belong in a values file and real deployments
-issue it through cert-manager or a CA the chart should not assume. There is no
-rotation story yet — a leaf expires on its `CERT_DAYS` horizon and is reissued
-by rerunning the generator and restarting pods; automatic rotation is out of
-scope. The credentials pin TLS 1.3, which is safe for an all-first-party mesh
-and avoids negotiating anything weaker.
+issue it through cert-manager or a CA the chart should not assume. Rotation and
+in-cluster issuance were left out of this step and landed later in Phase 5 —
+see `phase5-cert-rotation.md`. The credentials pin TLS 1.3, which is safe for an
+all-first-party mesh and avoids negotiating anything weaker.
