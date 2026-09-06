@@ -433,7 +433,14 @@ make certs
 docker compose -f docker-compose.yml -f docker-compose.mtls.yml up -d --build
 ```
 
-See `docs/design-notes/phase5-mtls.md` for the design and `docs/phase3/kubernetes-local-guide.md` §5a for Kubernetes.
+The Go services re-read their certificate, key, and CA before every handshake,
+so re-running `make certs` against a running stack (or a cert-manager renewal
+rewriting a mounted Secret) rotates them without a restart. The Python fraud
+worker reads its files once and needs a restart within the renewal window. In
+Kubernetes, `mtls.certManager.enabled=true` has cert-manager issue and renew a
+`Certificate` per service instead of mounting a hand-built Secret.
+
+See `docs/design-notes/phase5-mtls.md` and `docs/design-notes/phase5-cert-rotation.md` for the design and `docs/phase3/kubernetes-local-guide.md` §5a for Kubernetes.
 
 ## Phase 4 observability
 

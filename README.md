@@ -378,6 +378,7 @@ read.
   the configured LLM provider.
 - Local JWT, database, Grafana, Kafka, and gRPC settings are not production
   security guidance.
-- Internal gRPC between services still relies on the trusted-network
-  assumption. mTLS and workload identity are tracked in
+- Internal gRPC runs insecure unless `GRPC_TLS_ENABLED` turns on mTLS;
+  certificates rotate without a restart and, in Kubernetes, can be issued by
+  cert-manager. SPIFFE or mesh-issued identity is tracked in
   [`services/docs/phase5/backlog.md`](services/docs/phase5/backlog.md).
