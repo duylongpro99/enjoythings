@@ -138,6 +138,28 @@ gRPC server and client then mounts it at `/certs` and is pointed at its own leaf
 plus the shared CA. A pod that cannot present a certificate signed by that CA is
 refused at the handshake — confirm with `kubectl logs` that peers connect.
 
+With [cert-manager](https://cert-manager.io) installed, skip the
+`kubectl create secret` step and let the chart issue the certificates:
+
+```sh
+helm upgrade --install enjoythings charts/enjoythings \
+  --namespace enjoythings \
+  -f charts/enjoythings/values-local.yaml \
+  --set mtls.enabled=true \
+  --set mtls.certManager.enabled=true \
+  --set mtls.certManager.bootstrapCA.enabled=true \
+  --wait --timeout 10m
+```
+
+This renders a `Certificate` per gRPC server and client (SANs are the service
+DNS names), a self-signed bootstrap CA, and mounts each `<service>-mtls` Secret
+in place of the shared one. cert-manager renews leaves at
+`mtls.certManager.renewBefore`; the Go services reload them on the next
+handshake, and the fraud worker needs
+`kubectl rollout restart deployment/fraud-worker -n enjoythings` within that
+window. Point `mtls.certManager.issuerRef` at your own Issuer instead of the
+bootstrap CA for anything beyond a local cluster.
+
 ## 6. Inspect Workloads
 
 ```sh

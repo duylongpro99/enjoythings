@@ -1,6 +1,9 @@
 {{- range $name, $app := .Values.applications }}
 {{- $mtls := and $.Values.mtls.enabled (or $app.grpcPort (has $name $.Values.mtls.clients)) }}
 {{- $mtlsPrefix := ternary "FRAUD_GRPC_TLS" "GRPC_TLS" (eq $name "fraud-worker") }}
+{{- $certManager := and $mtls $.Values.mtls.certManager.enabled }}
+{{- /* cert-manager Secrets hold tls.crt/tls.key; the hand-built Secret holds <service>.crt/.key. */}}
+{{- $leaf := ternary "tls" $name $certManager }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -59,9 +62,9 @@ spec:
             - name: {{ $mtlsPrefix }}_ENABLED
               value: "true"
             - name: {{ $mtlsPrefix }}_CERT_FILE
-              value: {{ printf "%s/%s.crt" $.Values.mtls.mountPath $name | quote }}
+              value: {{ printf "%s/%s.crt" $.Values.mtls.mountPath $leaf | quote }}
             - name: {{ $mtlsPrefix }}_KEY_FILE
-              value: {{ printf "%s/%s.key" $.Values.mtls.mountPath $name | quote }}
+              value: {{ printf "%s/%s.key" $.Values.mtls.mountPath $leaf | quote }}
             - name: {{ $mtlsPrefix }}_CA_FILE
               value: {{ printf "%s/ca.crt" $.Values.mtls.mountPath | quote }}
             {{- end }}
@@ -97,7 +100,7 @@ spec:
       volumes:
         - name: mtls-certs
           secret:
-            secretName: {{ $.Values.mtls.secretName }}
+            secretName: {{ ternary (include "enjoythings.certSecretName" $name) $.Values.mtls.secretName $certManager }}
       {{- end }}
 ---
 {{- end }}

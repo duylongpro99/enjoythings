@@ -28,3 +28,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "enjoythings.secretName" -}}
 {{ include "enjoythings.fullname" . }}-secret
 {{- end -}}
+
+{{- /* Secret written by the cert-manager Certificate for one service; takes the service name. */ -}}
+{{- define "enjoythings.certSecretName" -}}
+{{ . }}-mtls
+{{- end -}}
