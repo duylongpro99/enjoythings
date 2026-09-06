@@ -73,6 +73,10 @@ type fakeSagaServiceClient struct {
 	resumeRequest  *sagav1.ResumeFraudReviewRequest
 	rejectRequest  *sagav1.RejectFraudReviewRequest
 	reviewResponse *sagav1.FraudReviewResponse
+	listRequest    *sagav1.ListFraudReviewsRequest
+	listResponse   *sagav1.ListFraudReviewsResponse
+	reviewRequest  *sagav1.GetFraudReviewRequest
+	detailResponse *sagav1.GetFraudReviewResponse
 	err            error
 }
 

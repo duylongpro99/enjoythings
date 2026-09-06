@@ -109,6 +109,12 @@ type fakePaymentClient struct {
 	decided      string
 	reviewed     saga.Saga
 	reviewErr    error
+
+	queue           []saga.Saga
+	listTraceID     string
+	review          saga.FraudReview
+	reviewPaymentID string
+	reviewTraceID   string
 }
 
 func (client *fakePaymentClient) ResumeFraudReview(_ context.Context, decision saga.FraudReviewDecision) (saga.Saga, error) {

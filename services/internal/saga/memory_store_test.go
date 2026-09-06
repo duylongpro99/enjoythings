@@ -1,7 +1,9 @@
 package saga
 
 import (
+	"cmp"
 	"context"
+	"slices"
 
 	"github.com/google/uuid"
 )
@@ -66,6 +68,32 @@ func (store *memoryStore) ListNonTerminal(context.Context) ([]Saga, error) {
 		}
 	}
 	return sagas, nil
+}
+
+func (store *memoryStore) ListFraudReview(context.Context) ([]Saga, error) {
+	var sagas []Saga
+	for _, saga := range store.byPaymentID {
+		if saga.State == StateFraudReview {
+			sagas = append(sagas, saga)
+		}
+	}
+	slices.SortFunc(sagas, func(left, right Saga) int {
+		return cmp.Or(left.FraudFlaggedAt.Compare(right.FraudFlaggedAt), cmp.Compare(left.ID, right.ID))
+	})
+	return sagas, nil
+}
+
+func (store *memoryStore) ListFraudAudit(_ context.Context, paymentID string) ([]FraudAuditRecord, error) {
+	var audits []FraudAuditRecord
+	for _, audit := range store.audits {
+		if audit.PaymentID == paymentID {
+			audits = append(audits, audit)
+		}
+	}
+	slices.SortFunc(audits, func(left, right FraudAuditRecord) int {
+		return cmp.Or(left.CreatedAt.Compare(right.CreatedAt), cmp.Compare(left.EventID, right.EventID))
+	})
+	return audits, nil
 }
 
 func (store *memoryStore) Update(_ context.Context, saga Saga) (Saga, error) {

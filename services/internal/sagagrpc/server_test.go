@@ -120,6 +120,10 @@ type fakeApp struct {
 	decided    string
 	reviewed   saga.Saga
 	reviewErr  error
+
+	queue           []saga.Saga
+	review          saga.FraudReview
+	reviewPaymentID string
 }
 
 func (app *fakeApp) ResumeFraudReview(_ context.Context, decision saga.FraudReviewDecision) (saga.Saga, error) {

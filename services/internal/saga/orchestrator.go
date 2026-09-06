@@ -17,6 +17,7 @@ type Store interface {
 	Create(context.Context, Saga) (Saga, error)
 	GetByPaymentID(context.Context, string) (Saga, error)
 	ListNonTerminal(context.Context) ([]Saga, error)
+	ListFraudReview(context.Context) ([]Saga, error)
 	Update(context.Context, Saga) (Saga, error)
 }
 
@@ -51,6 +52,10 @@ type atomicOutboxStore interface {
 
 type auditStore interface {
 	RecordFraudAudit(context.Context, FraudAuditRecord) error
+}
+
+type auditTrailStore interface {
+	ListFraudAudit(context.Context, string) ([]FraudAuditRecord, error)
 }
 
 type auditUpdateStore interface {

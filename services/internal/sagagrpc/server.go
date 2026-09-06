@@ -18,6 +18,8 @@ type App interface {
 	ResumeNonTerminal(context.Context) error
 	ResumeFraudReview(context.Context, saga.FraudReviewDecision) (saga.Saga, error)
 	RejectFraudReview(context.Context, saga.FraudReviewDecision) (saga.Saga, error)
+	ListFraudReviews(context.Context) ([]saga.Saga, error)
+	GetFraudReview(context.Context, string) (saga.FraudReview, error)
 }
 
 type Server struct {
@@ -95,6 +97,36 @@ func (server *Server) RejectFraudReview(ctx context.Context, req *sagav1.RejectF
 	return &sagav1.FraudReviewResponse{Saga: sagaMessage(current)}, nil
 }
 
+func (server *Server) ListFraudReviews(ctx context.Context, _ *sagav1.ListFraudReviewsRequest) (*sagav1.ListFraudReviewsResponse, error) {
+	sagas, err := server.app.ListFraudReviews(ctx)
+	if err != nil {
+		return nil, statusFromSaga(err)
+	}
+	resp := &sagav1.ListFraudReviewsResponse{Sagas: make([]*sagav1.PaymentSaga, 0, len(sagas))}
+	for _, current := range sagas {
+		resp.Sagas = append(resp.Sagas, sagaMessage(current))
+	}
+	return resp, nil
+}
+
+func (server *Server) GetFraudReview(ctx context.Context, req *sagav1.GetFraudReviewRequest) (*sagav1.GetFraudReviewResponse, error) {
+	if req == nil || req.GetPaymentId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "payment_id is required")
+	}
+	review, err := server.app.GetFraudReview(ctx, req.GetPaymentId())
+	if err != nil {
+		return nil, statusFromSaga(err)
+	}
+	resp := &sagav1.GetFraudReviewResponse{
+		Saga:  sagaMessage(review.Saga),
+		Audit: make([]*sagav1.FraudAuditRecord, 0, len(review.Audit)),
+	}
+	for _, record := range review.Audit {
+		resp.Audit = append(resp.Audit, auditMessage(record))
+	}
+	return resp, nil
+}
+
 // reviewDecision requires an actor: a review exit is a human decision, and an
 // audit record without one cannot be traced back to anybody.
 func reviewDecision(paymentID, actorID, reason, traceID string) (saga.FraudReviewDecision, error) {
@@ -125,16 +157,39 @@ func statusFromSaga(err error) error {
 }
 
 func sagaMessage(current saga.Saga) *sagav1.PaymentSaga {
-	return &sagav1.PaymentSaga{
-		PaymentId:      current.PaymentID,
-		Status:         current.State,
-		FromWalletId:   current.FromWalletID,
-		ToWalletId:     current.ToWalletID,
-		AmountCents:    current.AmountCents,
-		Currency:       current.Currency,
-		FailureCode:    current.FailureCode,
-		FailureMessage: current.LastError,
-		CreatedAt:      timestamppb.New(current.CreatedAt),
-		UpdatedAt:      timestamppb.New(current.UpdatedAt),
+	message := &sagav1.PaymentSaga{
+		PaymentId:           current.PaymentID,
+		Status:              current.State,
+		FromWalletId:        current.FromWalletID,
+		ToWalletId:          current.ToWalletID,
+		AmountCents:         current.AmountCents,
+		Currency:            current.Currency,
+		FailureCode:         current.FailureCode,
+		FailureMessage:      current.LastError,
+		CreatedAt:           timestamppb.New(current.CreatedAt),
+		UpdatedAt:           timestamppb.New(current.UpdatedAt),
+		UserId:              current.UserID,
+		FraudSessionId:      current.FraudSessionID,
+		FraudAction:         current.FraudAction,
+		FraudRiskScore:      current.FraudRiskScore,
+		FraudReason:         current.FraudReason,
+		DeferredPaymentJson: current.DeferredPaymentJSON,
+	}
+	// Unlike created_at, a flagged-at time is absent until the fraud worker
+	// flags the payment; a zero time on the wire would read as year one.
+	if !current.FraudFlaggedAt.IsZero() {
+		message.FraudFlaggedAt = timestamppb.New(current.FraudFlaggedAt)
+	}
+	return message
+}
+
+func auditMessage(record saga.FraudAuditRecord) *sagav1.FraudAuditRecord {
+	return &sagav1.FraudAuditRecord{
+		EventId:     record.EventID,
+		PaymentId:   record.PaymentID,
+		Kind:        record.Kind,
+		SagaState:   record.SagaState,
+		DetailsJson: record.DetailsJSON,
+		CreatedAt:   timestamppb.New(record.CreatedAt),
 	}
 }

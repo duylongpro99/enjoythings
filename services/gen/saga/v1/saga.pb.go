@@ -466,6 +466,282 @@ func (x *FraudReviewResponse) GetSaga() *PaymentSaga {
 	return nil
 }
 
+type ListFraudReviewsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TraceId       string                 `protobuf:"bytes,1,opt,name=trace_id,json=traceId,proto3" json:"trace_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListFraudReviewsRequest) Reset() {
+	*x = ListFraudReviewsRequest{}
+	mi := &file_saga_v1_saga_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListFraudReviewsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListFraudReviewsRequest) ProtoMessage() {}
+
+func (x *ListFraudReviewsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_saga_v1_saga_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListFraudReviewsRequest.ProtoReflect.Descriptor instead.
+func (*ListFraudReviewsRequest) Descriptor() ([]byte, []int) {
+	return file_saga_v1_saga_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ListFraudReviewsRequest) GetTraceId() string {
+	if x != nil {
+		return x.TraceId
+	}
+	return ""
+}
+
+type ListFraudReviewsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Sagas         []*PaymentSaga         `protobuf:"bytes,1,rep,name=sagas,proto3" json:"sagas,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListFraudReviewsResponse) Reset() {
+	*x = ListFraudReviewsResponse{}
+	mi := &file_saga_v1_saga_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListFraudReviewsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListFraudReviewsResponse) ProtoMessage() {}
+
+func (x *ListFraudReviewsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_saga_v1_saga_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListFraudReviewsResponse.ProtoReflect.Descriptor instead.
+func (*ListFraudReviewsResponse) Descriptor() ([]byte, []int) {
+	return file_saga_v1_saga_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *ListFraudReviewsResponse) GetSagas() []*PaymentSaga {
+	if x != nil {
+		return x.Sagas
+	}
+	return nil
+}
+
+type GetFraudReviewRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PaymentId     string                 `protobuf:"bytes,1,opt,name=payment_id,json=paymentId,proto3" json:"payment_id,omitempty"`
+	TraceId       string                 `protobuf:"bytes,2,opt,name=trace_id,json=traceId,proto3" json:"trace_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetFraudReviewRequest) Reset() {
+	*x = GetFraudReviewRequest{}
+	mi := &file_saga_v1_saga_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetFraudReviewRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetFraudReviewRequest) ProtoMessage() {}
+
+func (x *GetFraudReviewRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_saga_v1_saga_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetFraudReviewRequest.ProtoReflect.Descriptor instead.
+func (*GetFraudReviewRequest) Descriptor() ([]byte, []int) {
+	return file_saga_v1_saga_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *GetFraudReviewRequest) GetPaymentId() string {
+	if x != nil {
+		return x.PaymentId
+	}
+	return ""
+}
+
+func (x *GetFraudReviewRequest) GetTraceId() string {
+	if x != nil {
+		return x.TraceId
+	}
+	return ""
+}
+
+type GetFraudReviewResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Saga          *PaymentSaga           `protobuf:"bytes,1,opt,name=saga,proto3" json:"saga,omitempty"`
+	Audit         []*FraudAuditRecord    `protobuf:"bytes,2,rep,name=audit,proto3" json:"audit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetFraudReviewResponse) Reset() {
+	*x = GetFraudReviewResponse{}
+	mi := &file_saga_v1_saga_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetFraudReviewResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetFraudReviewResponse) ProtoMessage() {}
+
+func (x *GetFraudReviewResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_saga_v1_saga_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetFraudReviewResponse.ProtoReflect.Descriptor instead.
+func (*GetFraudReviewResponse) Descriptor() ([]byte, []int) {
+	return file_saga_v1_saga_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *GetFraudReviewResponse) GetSaga() *PaymentSaga {
+	if x != nil {
+		return x.Saga
+	}
+	return nil
+}
+
+func (x *GetFraudReviewResponse) GetAudit() []*FraudAuditRecord {
+	if x != nil {
+		return x.Audit
+	}
+	return nil
+}
+
+type FraudAuditRecord struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	EventId       string                 `protobuf:"bytes,1,opt,name=event_id,json=eventId,proto3" json:"event_id,omitempty"`
+	PaymentId     string                 `protobuf:"bytes,2,opt,name=payment_id,json=paymentId,proto3" json:"payment_id,omitempty"`
+	Kind          string                 `protobuf:"bytes,3,opt,name=kind,proto3" json:"kind,omitempty"`
+	SagaState     string                 `protobuf:"bytes,4,opt,name=saga_state,json=sagaState,proto3" json:"saga_state,omitempty"`
+	DetailsJson   string                 `protobuf:"bytes,5,opt,name=details_json,json=detailsJson,proto3" json:"details_json,omitempty"`
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FraudAuditRecord) Reset() {
+	*x = FraudAuditRecord{}
+	mi := &file_saga_v1_saga_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FraudAuditRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FraudAuditRecord) ProtoMessage() {}
+
+func (x *FraudAuditRecord) ProtoReflect() protoreflect.Message {
+	mi := &file_saga_v1_saga_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FraudAuditRecord.ProtoReflect.Descriptor instead.
+func (*FraudAuditRecord) Descriptor() ([]byte, []int) {
+	return file_saga_v1_saga_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *FraudAuditRecord) GetEventId() string {
+	if x != nil {
+		return x.EventId
+	}
+	return ""
+}
+
+func (x *FraudAuditRecord) GetPaymentId() string {
+	if x != nil {
+		return x.PaymentId
+	}
+	return ""
+}
+
+func (x *FraudAuditRecord) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *FraudAuditRecord) GetSagaState() string {
+	if x != nil {
+		return x.SagaState
+	}
+	return ""
+}
+
+func (x *FraudAuditRecord) GetDetailsJson() string {
+	if x != nil {
+		return x.DetailsJson
+	}
+	return ""
+}
+
+func (x *FraudAuditRecord) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
 type PaymentSaga struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	PaymentId      string                 `protobuf:"bytes,1,opt,name=payment_id,json=paymentId,proto3" json:"payment_id,omitempty"`
@@ -478,13 +754,23 @@ type PaymentSaga struct {
 	FailureMessage string                 `protobuf:"bytes,8,opt,name=failure_message,json=failureMessage,proto3" json:"failure_message,omitempty"`
 	CreatedAt      *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt      *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	UserId         string                 `protobuf:"bytes,11,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	// The verdict that flagged the payment, unset until the fraud worker did.
+	FraudSessionId string                 `protobuf:"bytes,12,opt,name=fraud_session_id,json=fraudSessionId,proto3" json:"fraud_session_id,omitempty"`
+	FraudAction    string                 `protobuf:"bytes,13,opt,name=fraud_action,json=fraudAction,proto3" json:"fraud_action,omitempty"`
+	FraudRiskScore float64                `protobuf:"fixed64,14,opt,name=fraud_risk_score,json=fraudRiskScore,proto3" json:"fraud_risk_score,omitempty"`
+	FraudReason    string                 `protobuf:"bytes,15,opt,name=fraud_reason,json=fraudReason,proto3" json:"fraud_reason,omitempty"`
+	FraudFlaggedAt *timestamppb.Timestamp `protobuf:"bytes,16,opt,name=fraud_flagged_at,json=fraudFlaggedAt,proto3" json:"fraud_flagged_at,omitempty"`
+	// The rail result that arrived during review and waits for a decision, as
+	// the payment processor published it. Empty when none has arrived.
+	DeferredPaymentJson string `protobuf:"bytes,17,opt,name=deferred_payment_json,json=deferredPaymentJson,proto3" json:"deferred_payment_json,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *PaymentSaga) Reset() {
 	*x = PaymentSaga{}
-	mi := &file_saga_v1_saga_proto_msgTypes[7]
+	mi := &file_saga_v1_saga_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -496,7 +782,7 @@ func (x *PaymentSaga) String() string {
 func (*PaymentSaga) ProtoMessage() {}
 
 func (x *PaymentSaga) ProtoReflect() protoreflect.Message {
-	mi := &file_saga_v1_saga_proto_msgTypes[7]
+	mi := &file_saga_v1_saga_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -509,7 +795,7 @@ func (x *PaymentSaga) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PaymentSaga.ProtoReflect.Descriptor instead.
 func (*PaymentSaga) Descriptor() ([]byte, []int) {
-	return file_saga_v1_saga_proto_rawDescGZIP(), []int{7}
+	return file_saga_v1_saga_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *PaymentSaga) GetPaymentId() string {
@@ -582,6 +868,55 @@ func (x *PaymentSaga) GetUpdatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *PaymentSaga) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *PaymentSaga) GetFraudSessionId() string {
+	if x != nil {
+		return x.FraudSessionId
+	}
+	return ""
+}
+
+func (x *PaymentSaga) GetFraudAction() string {
+	if x != nil {
+		return x.FraudAction
+	}
+	return ""
+}
+
+func (x *PaymentSaga) GetFraudRiskScore() float64 {
+	if x != nil {
+		return x.FraudRiskScore
+	}
+	return 0
+}
+
+func (x *PaymentSaga) GetFraudReason() string {
+	if x != nil {
+		return x.FraudReason
+	}
+	return ""
+}
+
+func (x *PaymentSaga) GetFraudFlaggedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.FraudFlaggedAt
+	}
+	return nil
+}
+
+func (x *PaymentSaga) GetDeferredPaymentJson() string {
+	if x != nil {
+		return x.DeferredPaymentJson
+	}
+	return ""
+}
+
 var File_saga_v1_saga_proto protoreflect.FileDescriptor
 
 const file_saga_v1_saga_proto_rawDesc = "" +
@@ -624,7 +959,28 @@ const file_saga_v1_saga_proto_rawDesc = "" +
 	"\x06reason\x18\x03 \x01(\tR\x06reason\x12\x19\n" +
 	"\btrace_id\x18\x04 \x01(\tR\atraceId\"?\n" +
 	"\x13FraudReviewResponse\x12(\n" +
-	"\x04saga\x18\x01 \x01(\v2\x14.saga.v1.PaymentSagaR\x04saga\"\x8d\x03\n" +
+	"\x04saga\x18\x01 \x01(\v2\x14.saga.v1.PaymentSagaR\x04saga\"4\n" +
+	"\x17ListFraudReviewsRequest\x12\x19\n" +
+	"\btrace_id\x18\x01 \x01(\tR\atraceId\"F\n" +
+	"\x18ListFraudReviewsResponse\x12*\n" +
+	"\x05sagas\x18\x01 \x03(\v2\x14.saga.v1.PaymentSagaR\x05sagas\"Q\n" +
+	"\x15GetFraudReviewRequest\x12\x1d\n" +
+	"\n" +
+	"payment_id\x18\x01 \x01(\tR\tpaymentId\x12\x19\n" +
+	"\btrace_id\x18\x02 \x01(\tR\atraceId\"s\n" +
+	"\x16GetFraudReviewResponse\x12(\n" +
+	"\x04saga\x18\x01 \x01(\v2\x14.saga.v1.PaymentSagaR\x04saga\x12/\n" +
+	"\x05audit\x18\x02 \x03(\v2\x19.saga.v1.FraudAuditRecordR\x05audit\"\xdd\x01\n" +
+	"\x10FraudAuditRecord\x12\x19\n" +
+	"\bevent_id\x18\x01 \x01(\tR\aeventId\x12\x1d\n" +
+	"\n" +
+	"payment_id\x18\x02 \x01(\tR\tpaymentId\x12\x12\n" +
+	"\x04kind\x18\x03 \x01(\tR\x04kind\x12\x1d\n" +
+	"\n" +
+	"saga_state\x18\x04 \x01(\tR\tsagaState\x12!\n" +
+	"\fdetails_json\x18\x05 \x01(\tR\vdetailsJson\x129\n" +
+	"\n" +
+	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xba\x05\n" +
 	"\vPaymentSaga\x12\x1d\n" +
 	"\n" +
 	"payment_id\x18\x01 \x01(\tR\tpaymentId\x12\x16\n" +
@@ -640,12 +996,21 @@ const file_saga_v1_saga_proto_rawDesc = "" +
 	"created_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
 	"updated_at\x18\n" +
-	" \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt2\xe5\x02\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x17\n" +
+	"\auser_id\x18\v \x01(\tR\x06userId\x12(\n" +
+	"\x10fraud_session_id\x18\f \x01(\tR\x0efraudSessionId\x12!\n" +
+	"\ffraud_action\x18\r \x01(\tR\vfraudAction\x12(\n" +
+	"\x10fraud_risk_score\x18\x0e \x01(\x01R\x0efraudRiskScore\x12!\n" +
+	"\ffraud_reason\x18\x0f \x01(\tR\vfraudReason\x12D\n" +
+	"\x10fraud_flagged_at\x18\x10 \x01(\v2\x1a.google.protobuf.TimestampR\x0efraudFlaggedAt\x122\n" +
+	"\x15deferred_payment_json\x18\x11 \x01(\tR\x13deferredPaymentJson2\x91\x04\n" +
 	"\vSagaService\x12W\n" +
 	"\x10StartPaymentSaga\x12 .saga.v1.StartPaymentSagaRequest\x1a!.saga.v1.StartPaymentSagaResponse\x12Q\n" +
 	"\x0eGetPaymentSaga\x12\x1e.saga.v1.GetPaymentSagaRequest\x1a\x1f.saga.v1.GetPaymentSagaResponse\x12T\n" +
 	"\x11ResumeFraudReview\x12!.saga.v1.ResumeFraudReviewRequest\x1a\x1c.saga.v1.FraudReviewResponse\x12T\n" +
-	"\x11RejectFraudReview\x12!.saga.v1.RejectFraudReviewRequest\x1a\x1c.saga.v1.FraudReviewResponseB)Z'enjoythings/services/gen/saga/v1;sagav1b\x06proto3"
+	"\x11RejectFraudReview\x12!.saga.v1.RejectFraudReviewRequest\x1a\x1c.saga.v1.FraudReviewResponse\x12W\n" +
+	"\x10ListFraudReviews\x12 .saga.v1.ListFraudReviewsRequest\x1a!.saga.v1.ListFraudReviewsResponse\x12Q\n" +
+	"\x0eGetFraudReview\x12\x1e.saga.v1.GetFraudReviewRequest\x1a\x1f.saga.v1.GetFraudReviewResponseB)Z'enjoythings/services/gen/saga/v1;sagav1b\x06proto3"
 
 var (
 	file_saga_v1_saga_proto_rawDescOnce sync.Once
@@ -659,7 +1024,7 @@ func file_saga_v1_saga_proto_rawDescGZIP() []byte {
 	return file_saga_v1_saga_proto_rawDescData
 }
 
-var file_saga_v1_saga_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_saga_v1_saga_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_saga_v1_saga_proto_goTypes = []any{
 	(*StartPaymentSagaRequest)(nil),  // 0: saga.v1.StartPaymentSagaRequest
 	(*StartPaymentSagaResponse)(nil), // 1: saga.v1.StartPaymentSagaResponse
@@ -668,28 +1033,42 @@ var file_saga_v1_saga_proto_goTypes = []any{
 	(*ResumeFraudReviewRequest)(nil), // 4: saga.v1.ResumeFraudReviewRequest
 	(*RejectFraudReviewRequest)(nil), // 5: saga.v1.RejectFraudReviewRequest
 	(*FraudReviewResponse)(nil),      // 6: saga.v1.FraudReviewResponse
-	(*PaymentSaga)(nil),              // 7: saga.v1.PaymentSaga
-	(*timestamppb.Timestamp)(nil),    // 8: google.protobuf.Timestamp
+	(*ListFraudReviewsRequest)(nil),  // 7: saga.v1.ListFraudReviewsRequest
+	(*ListFraudReviewsResponse)(nil), // 8: saga.v1.ListFraudReviewsResponse
+	(*GetFraudReviewRequest)(nil),    // 9: saga.v1.GetFraudReviewRequest
+	(*GetFraudReviewResponse)(nil),   // 10: saga.v1.GetFraudReviewResponse
+	(*FraudAuditRecord)(nil),         // 11: saga.v1.FraudAuditRecord
+	(*PaymentSaga)(nil),              // 12: saga.v1.PaymentSaga
+	(*timestamppb.Timestamp)(nil),    // 13: google.protobuf.Timestamp
 }
 var file_saga_v1_saga_proto_depIdxs = []int32{
-	8, // 0: saga.v1.StartPaymentSagaResponse.accepted_at:type_name -> google.protobuf.Timestamp
-	7, // 1: saga.v1.GetPaymentSagaResponse.saga:type_name -> saga.v1.PaymentSaga
-	7, // 2: saga.v1.FraudReviewResponse.saga:type_name -> saga.v1.PaymentSaga
-	8, // 3: saga.v1.PaymentSaga.created_at:type_name -> google.protobuf.Timestamp
-	8, // 4: saga.v1.PaymentSaga.updated_at:type_name -> google.protobuf.Timestamp
-	0, // 5: saga.v1.SagaService.StartPaymentSaga:input_type -> saga.v1.StartPaymentSagaRequest
-	2, // 6: saga.v1.SagaService.GetPaymentSaga:input_type -> saga.v1.GetPaymentSagaRequest
-	4, // 7: saga.v1.SagaService.ResumeFraudReview:input_type -> saga.v1.ResumeFraudReviewRequest
-	5, // 8: saga.v1.SagaService.RejectFraudReview:input_type -> saga.v1.RejectFraudReviewRequest
-	1, // 9: saga.v1.SagaService.StartPaymentSaga:output_type -> saga.v1.StartPaymentSagaResponse
-	3, // 10: saga.v1.SagaService.GetPaymentSaga:output_type -> saga.v1.GetPaymentSagaResponse
-	6, // 11: saga.v1.SagaService.ResumeFraudReview:output_type -> saga.v1.FraudReviewResponse
-	6, // 12: saga.v1.SagaService.RejectFraudReview:output_type -> saga.v1.FraudReviewResponse
-	9, // [9:13] is the sub-list for method output_type
-	5, // [5:9] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	13, // 0: saga.v1.StartPaymentSagaResponse.accepted_at:type_name -> google.protobuf.Timestamp
+	12, // 1: saga.v1.GetPaymentSagaResponse.saga:type_name -> saga.v1.PaymentSaga
+	12, // 2: saga.v1.FraudReviewResponse.saga:type_name -> saga.v1.PaymentSaga
+	12, // 3: saga.v1.ListFraudReviewsResponse.sagas:type_name -> saga.v1.PaymentSaga
+	12, // 4: saga.v1.GetFraudReviewResponse.saga:type_name -> saga.v1.PaymentSaga
+	11, // 5: saga.v1.GetFraudReviewResponse.audit:type_name -> saga.v1.FraudAuditRecord
+	13, // 6: saga.v1.FraudAuditRecord.created_at:type_name -> google.protobuf.Timestamp
+	13, // 7: saga.v1.PaymentSaga.created_at:type_name -> google.protobuf.Timestamp
+	13, // 8: saga.v1.PaymentSaga.updated_at:type_name -> google.protobuf.Timestamp
+	13, // 9: saga.v1.PaymentSaga.fraud_flagged_at:type_name -> google.protobuf.Timestamp
+	0,  // 10: saga.v1.SagaService.StartPaymentSaga:input_type -> saga.v1.StartPaymentSagaRequest
+	2,  // 11: saga.v1.SagaService.GetPaymentSaga:input_type -> saga.v1.GetPaymentSagaRequest
+	4,  // 12: saga.v1.SagaService.ResumeFraudReview:input_type -> saga.v1.ResumeFraudReviewRequest
+	5,  // 13: saga.v1.SagaService.RejectFraudReview:input_type -> saga.v1.RejectFraudReviewRequest
+	7,  // 14: saga.v1.SagaService.ListFraudReviews:input_type -> saga.v1.ListFraudReviewsRequest
+	9,  // 15: saga.v1.SagaService.GetFraudReview:input_type -> saga.v1.GetFraudReviewRequest
+	1,  // 16: saga.v1.SagaService.StartPaymentSaga:output_type -> saga.v1.StartPaymentSagaResponse
+	3,  // 17: saga.v1.SagaService.GetPaymentSaga:output_type -> saga.v1.GetPaymentSagaResponse
+	6,  // 18: saga.v1.SagaService.ResumeFraudReview:output_type -> saga.v1.FraudReviewResponse
+	6,  // 19: saga.v1.SagaService.RejectFraudReview:output_type -> saga.v1.FraudReviewResponse
+	8,  // 20: saga.v1.SagaService.ListFraudReviews:output_type -> saga.v1.ListFraudReviewsResponse
+	10, // 21: saga.v1.SagaService.GetFraudReview:output_type -> saga.v1.GetFraudReviewResponse
+	16, // [16:22] is the sub-list for method output_type
+	10, // [10:16] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_saga_v1_saga_proto_init() }
@@ -703,7 +1082,7 @@ func file_saga_v1_saga_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_saga_v1_saga_proto_rawDesc), len(file_saga_v1_saga_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -15,6 +15,7 @@ schedule it can be made from this file alone.
 | No automated checks | `.github/workflows/ci.yml` runs the Go, Python, and web suites |
 | Python had no linter or type checker | `ruff` and `mypy` configured in `pyproject.toml`, both clean |
 | `web/` had no tests and floating dependencies | Vitest suite for the chat route, versions pinned to the lockfile |
+| Operator review UI | `ListFraudReviews` / `GetFraudReview` on the orchestrator, `GET /v1/fraud-reviews` and `GET /v1/fraud-reviews/{payment_id}` on the gateway, `/admin/fraud-reviews` in `web/`; see `docs/design-notes/phase5-operator-review-ui.md` |
 
 ## Still open
 
@@ -27,11 +28,15 @@ workload-identity provider — cert-manager, SPIFFE, or a mesh — issuing and
 rotating them automatically. A leaf expires on its `CERT_DAYS` horizon and must
 be reissued and the pods restarted.
 
-### Operator review UI
+### Reviewer assignment and fraud-worker enrichment
 
-Fraud review decisions are REST calls that require an `admin` role claim. There
-is no queue view, no reviewer assignment, and no way to see the enrichment that
-produced a verdict without querying the fraud audit database directly.
+The review page shows the verdict the saga holds and its audit trail, but not
+the enrichment behind the verdict — velocity metrics, sanitized facts, and the
+raw model response stay in the fraud worker's `fraud_sessions` table, keyed by
+the `fraud_session_id` the page displays. Reading them would mean the
+orchestrator opening a second database or the gateway calling a new Python
+endpoint. There is also no reviewer assignment: nothing on the saga row models
+an assignee, and adding one is a write path with its own audit semantics.
 
 ### Automatic rejection after a review deadline
 

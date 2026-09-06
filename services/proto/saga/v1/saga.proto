@@ -23,6 +23,13 @@ service SagaService {
   // FAILED_PRECONDITION unless the saga is actually under review.
   rpc ResumeFraudReview(ResumeFraudReviewRequest) returns (FraudReviewResponse);
   rpc RejectFraudReview(RejectFraudReviewRequest) returns (FraudReviewResponse);
+
+  // The operator queue: sagas held in FRAUD_REVIEW, longest-held first, and
+  // one payment's saga with its fraud audit trail. The detail is NOT_FOUND
+  // only when the payment has no saga; a review that already ended stays
+  // readable so the trail can explain the decision.
+  rpc ListFraudReviews(ListFraudReviewsRequest) returns (ListFraudReviewsResponse);
+  rpc GetFraudReview(GetFraudReviewRequest) returns (GetFraudReviewResponse);
 }
 
 message StartPaymentSagaRequest {
@@ -70,6 +77,33 @@ message FraudReviewResponse {
   PaymentSaga saga = 1;
 }
 
+message ListFraudReviewsRequest {
+  string trace_id = 1;
+}
+
+message ListFraudReviewsResponse {
+  repeated PaymentSaga sagas = 1;
+}
+
+message GetFraudReviewRequest {
+  string payment_id = 1;
+  string trace_id = 2;
+}
+
+message GetFraudReviewResponse {
+  PaymentSaga saga = 1;
+  repeated FraudAuditRecord audit = 2;
+}
+
+message FraudAuditRecord {
+  string event_id = 1;
+  string payment_id = 2;
+  string kind = 3;
+  string saga_state = 4;
+  string details_json = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
 message PaymentSaga {
   string payment_id = 1;
   string status = 2;
@@ -81,4 +115,16 @@ message PaymentSaga {
   string failure_message = 8;
   google.protobuf.Timestamp created_at = 9;
   google.protobuf.Timestamp updated_at = 10;
+  string user_id = 11;
+
+  // The verdict that flagged the payment, unset until the fraud worker did.
+  string fraud_session_id = 12;
+  string fraud_action = 13;
+  double fraud_risk_score = 14;
+  string fraud_reason = 15;
+  google.protobuf.Timestamp fraud_flagged_at = 16;
+
+  // The rail result that arrived during review and waits for a decision, as
+  // the payment processor published it. Empty when none has arrived.
+  string deferred_payment_json = 17;
 }

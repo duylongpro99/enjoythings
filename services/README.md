@@ -324,6 +324,78 @@ migrate -path db/migrations -database "postgres://enjoythings:enjoythings_dev_pa
 
 The Compose credentials are local development values only. Do not use them as production guidance.
 
+## Fraud Review Decisions
+
+A saga the fraud worker flags stops in `FRAUD_REVIEW` until an administrator decides it. Every route in this section requires a bearer token whose `role` claim is `admin`; mint one for local development with the gateway's `JWT_SECRET`:
+
+```sh
+cd services
+JWT_SECRET=local-dev-jwt-secret-change-me go run ./cmd/devtoken -user-id <uuid> -role admin -ttl 1h
+```
+
+List the review queue, longest-held first:
+
+```sh
+curl -H "Authorization: Bearer $ADMIN_JWT" http://localhost:8080/v1/fraud-reviews
+```
+
+Response `200`:
+
+```json
+{
+  "reviews": [
+    {
+      "payment_id": "11111111-1111-1111-1111-111111111111",
+      "status": "FRAUD_REVIEW",
+      "user_id": "22222222-2222-2222-2222-222222222222",
+      "from_wallet_id": "33333333-3333-3333-3333-333333333333",
+      "to_wallet_id": "44444444-4444-4444-4444-444444444444",
+      "amount_cents": 1250,
+      "currency": "USD",
+      "fraud_session_id": "fraud-session-1",
+      "fraud_action": "block",
+      "fraud_risk_score": 0.95,
+      "fraud_reason": "high velocity",
+      "fraud_flagged_at": "2026-06-04T12:00:00Z",
+      "deferred_result_pending": true,
+      "failure_code": "",
+      "failure_message": "",
+      "created_at": "2026-06-04T11:59:00Z",
+      "updated_at": "2026-06-04T12:00:00Z"
+    }
+  ],
+  "trace_id": "..."
+}
+```
+
+`deferred_result_pending` is true when the payment rail already completed or failed the payment during the hold; resume applies that result immediately.
+
+Read one payment's review with its fraud audit trail:
+
+```sh
+curl -H "Authorization: Bearer $ADMIN_JWT" http://localhost:8080/v1/fraud-reviews/$PAYMENT_ID
+```
+
+Response `200` is `{"review": {...}, "audit": [...], "trace_id": "..."}`, where `review` has the shape above and each `audit` entry carries `event_id`, `kind`, `saga_state`, `details` (the stored JSON, embedded), and `created_at`. Kinds worth knowing: `transition` is the verdict that held the payment, `deferred_terminal` a rail result stored during review, and `review_resumed`/`review_rejected` the decisions, each naming the acting `actor_id`. A decided review stays readable so the trail can explain it; `404` means the payment has no saga.
+
+Decide a review:
+
+```sh
+curl -X POST http://localhost:8080/v1/payments/$PAYMENT_ID/fraud-review/resume \
+  -H "Authorization: Bearer $ADMIN_JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"manual check cleared"}'
+
+curl -X POST http://localhost:8080/v1/payments/$PAYMENT_ID/fraud-review/reject \
+  -H "Authorization: Bearer $ADMIN_JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"confirmed fraud"}'
+```
+
+The body is optional. Resume applies a deferred rail result or returns the saga to `PAYMENT_PROCESSING`; reject refunds the payer through the normal compensation path with failure code `fraud_rejected`. Both answer `422` when the payment is not under review and `403` without the admin role.
+
+The same flow has an operator page: run `web/` (`pnpm dev`) and open `http://localhost:3000/admin/fraud-reviews`. Paste the admin JWT, load the queue, select a payment to see its verdict and audit trail, then resume or reject it with a reason. The page calls the gateway through Next route handlers under `/api/admin/fraud-reviews/*`, which forward the token; point them at the gateway with `GATEWAY_URL` (default `http://127.0.0.1:8080`) in the web process environment. The token is held in page memory only.
+
 ## Configuration
 
 The API loads configuration from environment variables at startup.
