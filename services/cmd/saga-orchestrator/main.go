@@ -112,6 +112,12 @@ func run() error {
 		go orchestrator.RunReviewReaper(ctx, cfg.FraudReviewReaperInterval, cfg.FraudReviewTTL, slog.Default())
 	}
 
+	if cfg.SagaFraudAuditRetention > 0 {
+		sweeper := saga.NewFraudAuditSweeper(db.SagaStore(), saga.FraudAuditSweeperConfig{Retention: cfg.SagaFraudAuditRetention}, nil, slog.Default())
+		slog.Info("saga fraud audit retention enabled", "retention", cfg.SagaFraudAuditRetention)
+		go sweeper.Run(ctx)
+	}
+
 	var consumer *sagaconsumer.KafkaConsumer
 	if cfg.SagaConsumerEnabled {
 		consumer, err = sagaconsumer.NewKafkaConsumer(splitCSV(cfg.KafkaBrokers), cfg.SagaConsumerGroupID, orchestrator, slog.Default())

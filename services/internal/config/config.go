@@ -89,6 +89,9 @@ type Config struct {
 	FraudReviewReaperInterval   time.Duration
 	RateLimitBurst              int
 	RateLimitRefillEvery        time.Duration
+	// SagaFraudAuditRetention bounds how long saga fraud audit rows are kept.
+	// Zero, the default, keeps them forever and leaves the sweeper off.
+	SagaFraudAuditRetention time.Duration
 }
 
 func Load() (Config, error) {
@@ -227,6 +230,13 @@ func LoadSagaFromLookup(lookup func(string) (string, bool)) (Config, error) {
 	}
 	if err := loadFraudReviewReaper(lookup, &cfg); err != nil {
 		return Config{}, err
+	}
+	if raw, ok := lookup("SAGA_FRAUD_AUDIT_RETENTION"); ok && raw != "" {
+		value, err := time.ParseDuration(raw)
+		if err != nil || value < 0 {
+			return Config{}, fmt.Errorf("SAGA_FRAUD_AUDIT_RETENTION must be a non-negative duration (0 keeps rows forever)")
+		}
+		cfg.SagaFraudAuditRetention = value
 	}
 	if err := loadMTLS(lookup, &cfg); err != nil {
 		return Config{}, err

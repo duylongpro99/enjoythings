@@ -234,6 +234,29 @@ ORDER BY created_at, id`, paymentID)
 	return audits, nil
 }
 
+// DeleteFraudAuditBefore removes at most limit audit rows created before the
+// cutoff. Rows for a saga that is still non-terminal are kept whatever their
+// age: a deferred_terminal record is the only copy of a rail result the
+// orchestrator has not applied yet, and a review can outlive any retention
+// window. Orphan rows, whose payment never had a saga, age out normally.
+func (store *PostgresStore) DeleteFraudAuditBefore(ctx context.Context, before time.Time, limit int) (int64, error) {
+	tag, err := store.pool.Exec(ctx, `
+DELETE FROM saga_fraud_audit_records
+WHERE id IN (
+  SELECT audit.id
+  FROM saga_fraud_audit_records audit
+  LEFT JOIN sagas ON sagas.payment_id = audit.payment_id
+  WHERE audit.created_at < $1
+    AND (sagas.id IS NULL OR sagas.state IN ('COMPLETED', 'FAILED'))
+  ORDER BY audit.created_at
+  LIMIT $2
+)`, before, limit)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 func updateSaga(ctx context.Context, db pgDB, saga Saga) (Saga, error) {
 	return scanSaga(db.QueryRow(ctx, `
 UPDATE sagas

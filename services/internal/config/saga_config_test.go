@@ -47,3 +47,56 @@ func TestLoadSagaFromLookupRejectsInvalidReviewReaperSettings(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadSagaFromLookupKeepsFraudAuditForeverByDefault(t *testing.T) {
+	tests := map[string]map[string]string{
+		"unset":    {},
+		"empty":    {"SAGA_FRAUD_AUDIT_RETENTION": ""},
+		"explicit": {"SAGA_FRAUD_AUDIT_RETENTION": "0"},
+	}
+
+	for name, values := range tests {
+		t.Run(name, func(t *testing.T) {
+			values["DATABASE_URL"] = "postgres://user:pass@localhost:5432/app?sslmode=disable"
+			cfg, err := LoadSagaFromLookup(mapLookup(values))
+			if err != nil {
+				t.Fatalf("load saga config: %v", err)
+			}
+			if cfg.SagaFraudAuditRetention != 0 {
+				t.Fatalf("SagaFraudAuditRetention = %s, want 0 (keep forever)", cfg.SagaFraudAuditRetention)
+			}
+		})
+	}
+}
+
+func TestLoadSagaFromLookupParsesFraudAuditRetention(t *testing.T) {
+	cfg, err := LoadSagaFromLookup(mapLookup(map[string]string{
+		"DATABASE_URL":               "postgres://user:pass@localhost:5432/app?sslmode=disable",
+		"SAGA_FRAUD_AUDIT_RETENTION": "2160h",
+	}))
+	if err != nil {
+		t.Fatalf("load saga config: %v", err)
+	}
+	if cfg.SagaFraudAuditRetention != 90*24*time.Hour {
+		t.Fatalf("SagaFraudAuditRetention = %s, want 2160h", cfg.SagaFraudAuditRetention)
+	}
+}
+
+func TestLoadSagaFromLookupRejectsInvalidFraudAuditRetention(t *testing.T) {
+	tests := map[string]string{
+		"not a duration": "30 days",
+		"negative":       "-1h",
+	}
+
+	for name, value := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := LoadSagaFromLookup(mapLookup(map[string]string{
+				"DATABASE_URL":               "postgres://user:pass@localhost:5432/app?sslmode=disable",
+				"SAGA_FRAUD_AUDIT_RETENTION": value,
+			}))
+			if err == nil {
+				t.Fatal("expected invalid SAGA_FRAUD_AUDIT_RETENTION to fail")
+			}
+		})
+	}
+}
