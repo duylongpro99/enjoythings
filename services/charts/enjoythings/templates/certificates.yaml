@@ -1,0 +1,81 @@
+{{- /*
+Workload identity through cert-manager. One Certificate per gRPC server and
+client, carrying the DNS names peers dial as SANs; cert-manager writes each into
+a <service>-mtls Secret that the Deployment mounts in place of the hand-built
+one. Off unless both mtls.enabled and mtls.certManager.enabled are set, and
+requires cert-manager (cert-manager.io/v1) to be installed in the cluster.
+*/}}
+{{- if and .Values.mtls.enabled .Values.mtls.certManager.enabled }}
+{{- $cm := .Values.mtls.certManager }}
+{{- if $cm.bootstrapCA.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "enjoythings.fullname" . }}-selfsigned
+  labels:
+    {{- include "enjoythings.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "enjoythings.fullname" . }}-ca
+  labels:
+    {{- include "enjoythings.labels" . | nindent 4 }}
+spec:
+  isCA: true
+  commonName: {{ include "enjoythings.fullname" . }}-ca
+  secretName: {{ include "enjoythings.fullname" . }}-ca
+  duration: {{ $cm.bootstrapCA.duration }}
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: {{ include "enjoythings.fullname" . }}-selfsigned
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ $cm.issuerRef.name }}
+  labels:
+    {{- include "enjoythings.labels" . | nindent 4 }}
+spec:
+  ca:
+    secretName: {{ include "enjoythings.fullname" . }}-ca
+---
+{{- end }}
+{{- range $name, $app := .Values.applications }}
+{{- if or $app.grpcPort (has $name $.Values.mtls.clients) }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "enjoythings.certSecretName" $name }}
+  labels:
+    {{- include "enjoythings.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  secretName: {{ include "enjoythings.certSecretName" $name }}
+  commonName: {{ $name }}
+  dnsNames:
+    - {{ $name }}
+    - {{ $name }}.{{ $.Release.Namespace }}
+    - {{ $name }}.{{ $.Release.Namespace }}.svc
+    - {{ $name }}.{{ $.Release.Namespace }}.svc.cluster.local
+  duration: {{ $cm.duration }}
+  renewBefore: {{ $cm.renewBefore }}
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+    - client auth
+  privateKey:
+    rotationPolicy: Always
+  issuerRef:
+    {{- toYaml $cm.issuerRef | nindent 4 }}
+---
+{{- end }}
+{{- end }}
+{{- end }}

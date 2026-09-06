@@ -113,6 +113,28 @@ mtls:
   clients:
     - gateway
     - fraud-worker
+  # Workload identity through cert-manager. When enabled, the chart renders one
+  # Certificate per gRPC server and client, with the service's DNS names as
+  # SANs, and each pod mounts its own <service>-mtls Secret instead of the
+  # hand-built one above. cert-manager renews the leaf `renewBefore` expiry and
+  # rewrites the Secret; the Go services pick the new files up on the next
+  # handshake without a restart. The Python fraud worker reads its files once,
+  # so it needs a rollout restart within the renewBefore window — see
+  # docs/design-notes/phase5-cert-rotation.md. Requires cert-manager installed.
+  certManager:
+    enabled: false
+    issuerRef:
+      name: enjoythings-ca
+      kind: Issuer
+      group: cert-manager.io
+    duration: 2160h    # 90 days
+    renewBefore: 720h  # renew with 30 days left
+    # Bootstrap a self-signed CA in the release namespace and an Issuer named
+    # issuerRef.name backed by it, so a local cluster needs nothing beyond
+    # cert-manager itself. Leave off to point issuerRef at a CA you operate.
+    bootstrapCA:
+      enabled: false
+      duration: 87600h  # 10 years
 
 applications:
   gateway:
