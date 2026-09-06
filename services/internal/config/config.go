@@ -49,6 +49,7 @@ const (
 	defaultRateLimitRefillEvery        = time.Second
 	defaultWalletOutboxPollEvery       = 100 * time.Millisecond
 	defaultPaymentRailTimeout          = 2 * time.Second
+	defaultFraudReviewReaperInterval   = time.Minute
 	defaultJWTAlgorithm                = "HS256"
 	jwtAlgorithmRS256                  = "RS256"
 )
@@ -84,6 +85,8 @@ type Config struct {
 	WalletOutboxBatchSize       int
 	WalletOutboxPollInterval    time.Duration
 	PaymentRailTimeout          time.Duration
+	FraudReviewTTL              time.Duration
+	FraudReviewReaperInterval   time.Duration
 	RateLimitBurst              int
 	RateLimitRefillEvery        time.Duration
 }
@@ -222,10 +225,34 @@ func LoadSagaFromLookup(lookup func(string) (string, bool)) (Config, error) {
 		}
 		cfg.WalletOutboxBatchSize = value
 	}
+	if err := loadFraudReviewReaper(lookup, &cfg); err != nil {
+		return Config{}, err
+	}
 	if err := loadMTLS(lookup, &cfg); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// loadFraudReviewReaper reads the review deadline. A zero or unset TTL leaves
+// the reaper off, which keeps a review open until an operator decides it.
+func loadFraudReviewReaper(lookup func(string) (string, bool), cfg *Config) error {
+	cfg.FraudReviewReaperInterval = defaultFraudReviewReaperInterval
+	if raw, ok := lookup("SAGA_FRAUD_REVIEW_TTL"); ok && raw != "" {
+		value, err := time.ParseDuration(raw)
+		if err != nil || value < 0 {
+			return fmt.Errorf("SAGA_FRAUD_REVIEW_TTL must be a non-negative duration")
+		}
+		cfg.FraudReviewTTL = value
+	}
+	if raw, ok := lookup("SAGA_FRAUD_REVIEW_REAPER_INTERVAL"); ok && raw != "" {
+		value, err := time.ParseDuration(raw)
+		if err != nil || value <= 0 {
+			return fmt.Errorf("SAGA_FRAUD_REVIEW_REAPER_INTERVAL must be a positive duration")
+		}
+		cfg.FraudReviewReaperInterval = value
+	}
+	return nil
 }
 
 func LoadPaymentProcessorFromLookup(lookup func(string) (string, bool)) (Config, error) {

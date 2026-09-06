@@ -24,6 +24,8 @@ data:
   SAGA_CONSUMER_GROUP_ID: {{ .Values.config.sagaConsumerGroupId | quote }}
   SAGA_OUTBOX_POLL_INTERVAL: {{ .Values.config.sagaOutboxPollInterval | quote }}
   SAGA_OUTBOX_BATCH_SIZE: {{ .Values.config.sagaOutboxBatchSize | quote }}
+  SAGA_FRAUD_REVIEW_TTL: {{ .Values.config.sagaFraudReviewTtl | quote }}
+  SAGA_FRAUD_REVIEW_REAPER_INTERVAL: {{ .Values.config.sagaFraudReviewReaperInterval | quote }}
   PAYMENT_PROCESSOR_CONSUMER_GROUP: {{ .Values.config.paymentProcessorConsumerGroup | quote }}
   PAYMENT_RAIL_URL: {{ .Values.config.paymentRailUrl | quote }}
   PAYMENT_RAIL_TIMEOUT: {{ .Values.config.paymentRailTimeout | quote }}

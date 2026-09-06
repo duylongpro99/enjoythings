@@ -117,7 +117,7 @@ func (metrics *Metrics) RecordSaga(event string, duration time.Duration) bool {
 		metrics.sagaDuration.WithLabelValues(event).Observe(duration.Seconds())
 		return true
 	}
-	if oneOf(event, "step_failure", "compensation", "fraud_review", "fraud_review_resumed", "fraud_review_rejected") {
+	if oneOf(event, "step_failure", "compensation", "fraud_review", "fraud_review_resumed", "fraud_review_rejected", "fraud_review_expired") {
 		metrics.sagaEvents.WithLabelValues(event).Inc()
 		return true
 	}
