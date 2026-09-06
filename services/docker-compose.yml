@@ -57,16 +57,13 @@ services:
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic fraud.error --partitions 1 --replication-factor 1
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic user.verified --partitions 1 --replication-factor 1
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic user.rejected --partitions 1 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic tx.initiated.dlq --partitions 1 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic payment.completed.dlq --partitions 1 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic payment.failed.dlq --partitions 1 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic fraud.flagged.dlq --partitions 1 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic fraud.score.requested.dlq --partitions 1 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic tx.completed.dlq --partitions 1 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic tx.failed.dlq --partitions 1 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic tx.paused.dlq --partitions 1 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic user.verified.dlq --partitions 1 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic user.rejected.dlq --partitions 1 --replication-factor 1
+        # Dead-letter topics keep parked records long enough to redrive them and
+        # then expire; KAFKA_DLQ_RETENTION_MS defaults to 30 days. The alter
+        # step applies a changed window to topics that already exist.
+        for topic in tx.initiated.dlq payment.completed.dlq payment.failed.dlq fraud.flagged.dlq fraud.score.requested.dlq tx.completed.dlq tx.failed.dlq tx.paused.dlq user.verified.dlq user.rejected.dlq; do
+          /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic "$$topic" --partitions 1 --replication-factor 1 --config retention.ms=${KAFKA_DLQ_RETENTION_MS:-2592000000}
+          /opt/kafka/bin/kafka-configs.sh --bootstrap-server kafka:9092 --alter --entity-type topics --entity-name "$$topic" --add-config retention.ms=${KAFKA_DLQ_RETENTION_MS:-2592000000}
+        done
 
   jaeger:
     image: jaegertracing/all-in-one:1.57
@@ -194,6 +191,7 @@ services:
       SAGA_OUTBOX_BATCH_SIZE: "100"
       SAGA_FRAUD_REVIEW_TTL: "${SAGA_FRAUD_REVIEW_TTL:-}"
       SAGA_FRAUD_REVIEW_REAPER_INTERVAL: 1m
+      SAGA_FRAUD_AUDIT_RETENTION: "${SAGA_FRAUD_AUDIT_RETENTION:-0}"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
     ports:
       - "${SAGA_HTTP_PORT:-8084}:8080"
@@ -341,6 +339,7 @@ services:
       dockerfile: app/fraud/Dockerfile
     environment:
       FRAUD_DATABASE_URL: postgres://${FRAUD_DB_USER}:${FRAUD_DB_PASSWORD}@fraud-timescaledb:5432/${FRAUD_DB_NAME}
+      FRAUD_AUDIT_RETENTION_DAYS: "${FRAUD_AUDIT_RETENTION_DAYS:-0}"
       FRAUD_METRICS_PORT: "9101"
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       LEDGER_GRPC_ADDR: ledger:9091

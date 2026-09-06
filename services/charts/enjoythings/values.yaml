@@ -45,6 +45,10 @@ kafka:
     - tx.paused.dlq
     - user.verified.dlq
     - user.rejected.dlq
+  # retention.ms applied to every `*.dlq` topic above, so parked poison records
+  # stay long enough to redrive and then expire. 30 days. Source topics keep
+  # the broker default.
+  dlqRetentionMs: "2592000000"
 
 fraudTimescaledb:
   enabled: true
@@ -89,6 +93,10 @@ config:
   # such as 24h auto-rejects older reviews.
   sagaFraudReviewTtl: ""
   sagaFraudReviewReaperInterval: 1m
+  # Audit retention. "0" keeps rows forever (the default); a Go duration such
+  # as 2160h (90 days) or a day count turns the sweepers on.
+  sagaFraudAuditRetention: "0"
+  fraudAuditRetentionDays: "0"
   paymentProcessorConsumerGroup: payment-processor
   paymentRailUrl: http://stub-payment-rail:18090
   paymentRailTimeout: 2s

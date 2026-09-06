@@ -33,6 +33,11 @@ spec:
                 sleep 5
               done
               {{- range .Values.kafka.topics }}
+              {{- if hasSuffix ".dlq" . }}
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic {{ . | quote }} --partitions 1 --replication-factor 1 --config retention.ms={{ $.Values.kafka.dlqRetentionMs }}
+              /opt/kafka/bin/kafka-configs.sh --bootstrap-server kafka:9092 --alter --entity-type topics --entity-name {{ . | quote }} --add-config retention.ms={{ $.Values.kafka.dlqRetentionMs }}
+              {{- else }}
               /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic {{ . | quote }} --partitions 1 --replication-factor 1
+              {{- end }}
               {{- end }}
 {{- end }}

@@ -26,6 +26,8 @@ data:
   SAGA_OUTBOX_BATCH_SIZE: {{ .Values.config.sagaOutboxBatchSize | quote }}
   SAGA_FRAUD_REVIEW_TTL: {{ .Values.config.sagaFraudReviewTtl | quote }}
   SAGA_FRAUD_REVIEW_REAPER_INTERVAL: {{ .Values.config.sagaFraudReviewReaperInterval | quote }}
+  SAGA_FRAUD_AUDIT_RETENTION: {{ .Values.config.sagaFraudAuditRetention | quote }}
+  FRAUD_AUDIT_RETENTION_DAYS: {{ .Values.config.fraudAuditRetentionDays | quote }}
   PAYMENT_PROCESSOR_CONSUMER_GROUP: {{ .Values.config.paymentProcessorConsumerGroup | quote }}
   PAYMENT_RAIL_URL: {{ .Values.config.paymentRailUrl | quote }}
   PAYMENT_RAIL_TIMEOUT: {{ .Values.config.paymentRailTimeout | quote }}

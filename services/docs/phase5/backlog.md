@@ -19,6 +19,7 @@ schedule it can be made from this file alone.
 | Operator review UI | `ListFraudReviews` / `GetFraudReview` on the orchestrator, `GET /v1/fraud-reviews` and `GET /v1/fraud-reviews/{payment_id}` on the gateway, `/admin/fraud-reviews` in `web/`; see `docs/design-notes/phase5-operator-review-ui.md` |
 | Reviews with no deadline | `ExpireFraudReviews` on the orchestrator, swept by `RunReviewReaper` when `SAGA_FRAUD_REVIEW_TTL` is set; see `docs/design-notes/phase5-review-reaper-and-redrive.md` |
 | Dead letters nobody consumed | `cmd/dlq-redrive` with `list`, `redrive`, and `discard` over `internal/deadletter.Decode`/`Replay` |
+| Fraud audit rows and dead-letter records kept forever | `SAGA_FRAUD_AUDIT_RETENTION` sweeper on the orchestrator, `FRAUD_AUDIT_RETENTION_DAYS` sweeper in the fraud worker, `retention.ms` on every `*.dlq` topic; all keep-forever by default; see `docs/design-notes/phase5-retention.md` |
 
 ## Still open
 
@@ -42,7 +43,3 @@ orchestrator opening a second database or the gateway calling a new Python
 endpoint. There is also no reviewer assignment: nothing on the saga row models
 an assignee, and adding one is a write path with its own audit semantics.
 
-### Compliance retention
-
-Fraud audit rows and dead-letter records accumulate without a retention policy.
-Real retention windows and deletion are still out of scope.
