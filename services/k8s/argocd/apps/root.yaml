@@ -1,0 +1,37 @@
+# App of apps: one root Application whose "manifests" are other Applications.
+#
+# Argo CD reads every YAML file in `path` (a plain directory, no Helm, no
+# Kustomize) and applies it to the `argocd` namespace. Each file under
+# children/ is an Application, so syncing the root registers every child in one
+# step, and removing a file from children/ prunes that child. The children keep
+# their own sync policies: the root only decides which Applications exist, not
+# when they deploy. Apply once with `kubectl apply -f services/k8s/argocd/apps/root.yaml`.
+# See docs/manifest-tooling-runbook.md.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: enjoythings-root
+  namespace: argocd
+  finalizers:
+    # Deleting the root deletes the children, and their finalizers delete the
+    # workloads. One command tears the whole tree down.
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/duylongpro99/enjoythings.git
+    targetRevision: master
+    path: services/k8s/argocd/apps/children
+    directory:
+      # Only files directly in children/; no subdirectories.
+      recurse: false
+  destination:
+    server: https://kubernetes.default.svc
+    # Applications must live where the Argo CD controller reads them.
+    namespace: argocd
+  syncPolicy:
+    automated:
+      # A child file removed from git means that child Application is deleted.
+      prune: true
+      # A child edited with kubectl or the UI is reverted to what git says.
+      selfHeal: true

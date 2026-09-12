@@ -1,0 +1,49 @@
+# Example values overlay for the EnjoyThings chart (services/charts/enjoythings)
+# that turns trace export on. Copy it, do not edit the chart.
+#
+# Every Go service and the Python fraud worker start an OTLP/HTTP exporter only
+# when OTEL_EXPORTER_OTLP_ENDPOINT is set (services/internal/telemetry/
+# telemetry.go, app/fraud/tracing.py). values.yaml leaves it unset, so today
+# spans are created and thrown away. The chart passes `applications.<name>.env`
+# straight into the container, and Helm deep-merges maps, so this file adds one
+# variable per application without repeating the existing HTTP_ADDR and
+# GRPC_ADDR entries.
+#
+#   cd services
+#   helm upgrade --install enjoythings charts/enjoythings -n enjoythings \
+#     -f charts/enjoythings/values-local.yaml \
+#     -f charts/enjoythings/values-secrets.yaml \
+#     -f ../services/k8s/observability/otel-endpoint-values.example.yaml
+#
+# With Argo CD, add the same block to the values file the Application uses, or
+# list this file under spec.source.helm.valueFiles, and push.
+#
+# The address is the OpenTelemetry Collector Service from
+# otel-collector-values.yaml. The exporters append /v1/traces themselves; the
+# value must be the base URL only, without a path.
+applications:
+  gateway:
+    env:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.monitoring.svc.cluster.local:4318
+  saga-orchestrator:
+    env:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.monitoring.svc.cluster.local:4318
+  wallet:
+    env:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.monitoring.svc.cluster.local:4318
+  ledger:
+    env:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.monitoring.svc.cluster.local:4318
+  payment-processor:
+    env:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.monitoring.svc.cluster.local:4318
+  verification:
+    env:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.monitoring.svc.cluster.local:4318
+  notification:
+    env:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.monitoring.svc.cluster.local:4318
+  fraud-worker:
+    env:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.monitoring.svc.cluster.local:4318
+  # stub-payment-rail does not initialise telemetry, so it is left out.

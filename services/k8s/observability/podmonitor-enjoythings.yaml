@@ -1,0 +1,48 @@
+# One PodMonitor for every EnjoyThings application pod.
+#
+#   kubectl apply -f services/k8s/observability/podmonitor-enjoythings.yaml
+#
+# It lives in the monitoring namespace and reaches into `enjoythings` through
+# namespaceSelector, so the application namespace stays exactly what the Helm
+# chart or Argo CD renders. The Prometheus Operator turns this object into a
+# scrape job; kube-prometheus-stack-values.yaml sets
+# podMonitorSelectorNilUsesHelmValues=false so no extra label is needed here.
+#
+# Why one PodMonitor and not nine: the chart names the HTTP container port
+# `http` on every application, and every application serves /metrics on it
+# (fraud-worker on 9101, the Go services on 8080). A single selector on the
+# release label plus the port name covers them all. postgres, kafka and
+# fraud-timescaledb carry the same release label but have no port named `http`,
+# so they are skipped automatically.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: enjoythings-applications
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: enjoythings
+    app.kubernetes.io/component: observability
+spec:
+  namespaceSelector:
+    matchNames:
+      - enjoythings
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: enjoythings
+    matchExpressions:
+      # stub-payment-rail is annotated for scraping by the chart but does not
+      # mount the metrics handler, so its target would be permanently DOWN.
+      - key: app.kubernetes.io/component
+        operator: NotIn
+        values:
+          - stub-payment-rail
+  podMetricsEndpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
+      relabelings:
+        # Expose the component name as `app` so PromQL, LogQL and the Tempo
+        # service.name all agree on one word for one service.
+        - sourceLabels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+          targetLabel: app

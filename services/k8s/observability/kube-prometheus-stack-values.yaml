@@ -1,0 +1,113 @@
+# Values for prometheus-community/kube-prometheus-stack 90.0.0, release name
+# `monitoring`, namespace `monitoring`. See docs/observability-runbook.md.
+#
+#   helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+#     --version 90.0.0 -n monitoring --create-namespace \
+#     -f services/k8s/observability/kube-prometheus-stack-values.yaml
+
+# kind runs the control plane inside one container and does not expose these
+# components on a scrapeable address. Left on, their targets stay down forever
+# and the bundled alerts for them fire forever.
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+kubeEtcd:
+  enabled: false
+
+prometheus:
+  prometheusSpec:
+    scrapeInterval: 15s
+    evaluationInterval: 15s
+    # A laptop does not need history. Memory use grows with retention.
+    retention: 2d
+    # By default the operator only picks up PodMonitors, ServiceMonitors and
+    # PrometheusRules that carry the label `release: monitoring`. Turning that
+    # off means "any such object in any namespace counts", which is what you
+    # want while learning. The manifests in this directory therefore need no
+    # special label.
+    podMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+alertmanager:
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      group_by: ["namespace", "alertname"]
+      # Short timings so the drill in the runbook shows results in minutes,
+      # not hours. Production values are usually 30s / 5m / 4h.
+      group_wait: 10s
+      group_interval: 1m
+      repeat_interval: 1h
+      receiver: alert-webhook
+    receivers:
+      # Everything, including the always-firing Watchdog heartbeat, goes to the
+      # echo Deployment in alert-webhook.yaml so you can read the payloads with
+      # kubectl logs. Watchdog arriving proves the pipeline works end to end.
+      - name: alert-webhook
+        webhook_configs:
+          - url: http://alert-webhook.monitoring.svc:8080/alerts
+            send_resolved: true
+
+grafana:
+  # Local learning cluster only. Anyone on your laptop can reach the
+  # port-forward, so treat this like the chart's development passwords.
+  adminPassword: enjoythings-local
+  sidecar:
+    dashboards:
+      enabled: true
+      # The sidecar watches ConfigMaps with this label and writes their
+      # contents into Grafana's provisioning directory.
+      label: grafana_dashboard
+      labelValue: "1"
+      # The ConfigMaps built by build-dashboard-configmaps.sh carry this
+      # annotation so the dashboards land in an "EnjoyThings" folder, matching
+      # services/observability/grafana/provisioning/dashboards/dashboards.yml.
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
+        allowUiUpdates: false
+    datasources:
+      enabled: true
+      # The dashboards reference datasource uid `prometheus`, the value set in
+      # services/observability/grafana/provisioning/datasources/prometheus.yml.
+      # These are the chart defaults; they are spelled out so the match is
+      # visible and survives a chart upgrade that changes the default.
+      name: Prometheus
+      uid: prometheus
+      isDefaultDatasource: true
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      uid: loki
+      access: proxy
+      url: http://loki.monitoring.svc:3100
+      isDefault: false
+    - name: Tempo
+      type: tempo
+      uid: tempo
+      access: proxy
+      url: http://tempo.monitoring.svc:3100
+      isDefault: false
+      jsonData:
+        # From a span, jump to the logs of the same pod around the same time.
+        tracesToLogsV2:
+          datasourceUid: loki
+          spanStartTimeShift: "-5m"
+          spanEndTimeShift: "5m"
+          filterByTraceID: false
+          filterBySpanID: false
+          tags:
+            - key: service.name
+              value: app

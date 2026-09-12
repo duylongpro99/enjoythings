@@ -1,0 +1,73 @@
+# Values for open-telemetry/opentelemetry-collector 0.172.1 (collector 0.159),
+# release name `otel-collector`, namespace `monitoring`. One Deployment that
+# receives OTLP from the EnjoyThings services and forwards traces to Tempo.
+#
+#   helm upgrade --install otel-collector open-telemetry/opentelemetry-collector \
+#     --version 0.172.1 -n monitoring \
+#     -f services/k8s/observability/otel-collector-values.yaml
+#
+# The services send to http://otel-collector.monitoring.svc.cluster.local:4318
+# (see otel-endpoint-values.example.yaml). The services could send to Tempo
+# directly; the collector sits in between so batching, retries, sampling and
+# the export destination are operated in one place instead of nine.
+
+mode: deployment
+replicaCount: 1
+# Stable Service name: otel-collector instead of
+# otel-collector-opentelemetry-collector.
+fullnameOverride: otel-collector
+
+image:
+  # The chart requires an explicit repository. The -k8s distribution is the
+  # slim build with the components a Kubernetes install needs.
+  repository: otel/opentelemetry-collector-k8s
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+config:
+  receivers:
+    # `null` removes chart defaults that would otherwise sit unused.
+    jaeger: null
+    zipkin: null
+    prometheus: null
+    otlp:
+      protocols:
+        grpc:
+          endpoint: ${env:MY_POD_IP}:4317
+        http:
+          endpoint: ${env:MY_POD_IP}:4318
+  exporters:
+    otlphttp/tempo:
+      endpoint: http://tempo.monitoring.svc:4318
+      tls:
+        insecure: true
+    # Prints a one-line summary per batch to the collector's own log. Useful
+    # to prove spans are arriving; remove it once you trust the pipeline.
+    debug:
+      verbosity: basic
+  service:
+    pipelines:
+      traces:
+        receivers: [otlp]
+        processors: [memory_limiter, batch]
+        exporters: [otlphttp/tempo, debug]
+      # The services only export traces today.
+      metrics: null
+      logs: null
+
+# Close the ports for the receivers removed above.
+ports:
+  jaeger-compact:
+    enabled: false
+  jaeger-thrift:
+    enabled: false
+  jaeger-grpc:
+    enabled: false
+  zipkin:
+    enabled: false

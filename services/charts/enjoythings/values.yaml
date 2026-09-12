@@ -65,6 +65,11 @@ fraudTimescaledb:
       memory: 1Gi
 
 secrets:
+  # Render the enjoythings-secret Secret from the values below. Set to false
+  # when the Secret is created outside the chart (kubectl, External Secrets,
+  # Sealed Secrets) so credentials never sit in a values file that is committed
+  # for GitOps. See docs/argocd-runbook.md section 5 for the required keys.
+  create: true
   jwtSecret: local-dev-jwt-secret-change-me
   databaseUrl: postgres://enjoythings:enjoythings_dev_password@postgres:5432/enjoythings?sslmode=disable
   fraudDatabaseUrl: postgres://fraud_worker:local-fraud-password@fraud-timescaledb:5432/fraud_audit?sslmode=disable

@@ -1,0 +1,39 @@
+# Values for grafana/tempo 1.24.4 (Tempo 2.9), release name `tempo`, namespace
+# `monitoring`. Single binary, traces on the pod's local disk.
+#
+#   helm upgrade --install tempo grafana/tempo --version 1.24.4 -n monitoring \
+#     -f services/k8s/observability/tempo-values.yaml
+
+tempo:
+  reportingEnabled: false
+  # How long traces are kept. Blocks older than this are deleted.
+  retention: 24h
+  # Setting `receivers` replaces the chart default, which also opens Jaeger,
+  # Zipkin and OpenCensus ports nobody here uses. Only OTLP stays.
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: "0.0.0.0:4317"
+        http:
+          endpoint: "0.0.0.0:4318"
+  # Chart default, spelled out: local disk, no object store.
+  storage:
+    trace:
+      backend: local
+      local:
+        path: /var/tempo/traces
+      wal:
+        path: /var/tempo/wal
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+# emptyDir: traces disappear when the pod restarts, like the data stores in
+# the EnjoyThings chart. Set to true for a PersistentVolumeClaim.
+persistence:
+  enabled: false

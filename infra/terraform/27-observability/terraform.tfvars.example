@@ -1,0 +1,9 @@
+# Copy to terraform.tfvars (git-ignored) and edit. Every variable has a default,
+# so this file is only needed to override one.
+# monitoring_namespace                = "monitoring"
+# kube_prometheus_stack_chart_version = "90.0.0"
+# loki_chart_version                  = "7.3.0"
+# alloy_chart_version                 = "1.12.1"
+# tempo_chart_version                 = "1.24.4"
+# otel_collector_chart_version        = "0.172.1"
+# scrape_mode                         = "podmonitor"

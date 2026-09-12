@@ -1,0 +1,31 @@
+# dev overlay: the base Application, renamed and repointed for a development
+# environment. Build it with `kustomize build services/k8s/kustomize/overlays/dev`.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+
+# `enjoythings` becomes `enjoythings-dev`, so this Application can live in the
+# same Argo CD as the master one without a name clash.
+nameSuffix: -dev
+
+# A label on the Application itself (not on what it deploys), so
+# `argocd app list -l enjoythings.io/environment=dev` finds it.
+labels:
+  - pairs:
+      enjoythings.io/environment: dev
+    includeSelectors: false
+
+patches:
+  # Strategic merge patch: a partial Application whose fields are merged over
+  # the base. Good for scalar fields such as a branch or a namespace.
+  - path: patch-source.yaml
+  # JSON 6902 patch: an explicit list of operations. Needed for lists on a
+  # custom resource, because a merge patch would replace the whole
+  # `helm.parameters` list instead of adding to it.
+  - path: patch-helm-parameters.yaml
+    target:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Application
+      name: enjoythings

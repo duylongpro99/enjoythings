@@ -1,0 +1,27 @@
+# Child 2: the dev Kustomize overlay. Argo CD sees kustomization.yaml in `path`,
+# runs `kustomize build`, and applies the result: one Application named
+# enjoythings-dev in the argocd namespace, which in turn deploys the chart to
+# the enjoythings-dev namespace. Three levels: root -> this -> enjoythings-dev
+# -> workloads.
+#
+# No syncPolicy on purpose. A second full stack is heavy on a laptop, so this
+# child waits for a manual sync (`argocd app sync enjoythings-dev-overlay`).
+# The Application it creates has automated sync, so once you sync this one,
+# the dev stack follows on its own. Create enjoythings-secret in the
+# enjoythings-dev namespace first (Argo CD runbook section 5).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: enjoythings-dev-overlay
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/duylongpro99/enjoythings.git
+    targetRevision: master
+    path: services/k8s/kustomize/overlays/dev
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd

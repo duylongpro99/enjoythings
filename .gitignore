@@ -66,8 +66,23 @@ sessions.db
 # Docker/local runtime
 .tmp/
 tmp/
-
 # Drill lock and injection state (drills/bin/drill)
 drills/.active
 drills/.revert*
 drills/.overrides/
+
+values-secrets.yaml
+
+# Terraform: state holds credentials, .terraform holds downloaded providers.
+# The .terraform.lock.hcl files are committed on purpose.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+terraform.tfvars
+# kind provider writes a standalone kubeconfig named <cluster>-config next to its state
+infra/terraform/**/*-config
+
+# Terragrunt working directories
+.terragrunt-cache/

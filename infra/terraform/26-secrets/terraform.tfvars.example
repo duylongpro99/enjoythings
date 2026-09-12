@@ -1,0 +1,7 @@
+# Copy to terraform.tfvars (git-ignored) and edit. Every variable has a default,
+# so this file is only needed to override one.
+# sealed_secrets_chart_version   = "2.19.3"
+# external_secrets_chart_version = "2.10.0"
+# vault_chart_version            = "0.34.1"
+# install_sealed_secrets         = true
+# install_external_secrets       = true
