@@ -1,0 +1,17 @@
+# Same operations as dev, different values. staging also asks for two wallet
+# replicas so a rolling update never drops to zero.
+- op: add
+  path: /spec/source/helm/parameters/-
+  value:
+    name: global.appEnv
+    value: staging
+- op: add
+  path: /spec/source/helm/parameters/-
+  value:
+    name: applications.gateway.nodePort
+    value: "30082"
+- op: add
+  path: /spec/source/helm/parameters/-
+  value:
+    name: applications.wallet.replicas
+    value: "2"

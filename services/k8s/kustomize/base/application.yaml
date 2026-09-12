@@ -1,0 +1,35 @@
+# Mirror of services/k8s/argocd/application.yaml for use as a Kustomize base.
+#
+# Kustomize refuses to load a file that lives outside the directory holding the
+# kustomization.yaml (its "load restrictor"), so the Application has to be
+# copied here rather than referenced. Every line that is not a comment must stay
+# identical to the original; .github/workflows/manifests.yml fails when the two
+# drift apart. Change the original first, then copy the change here.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: enjoythings
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/duylongpro99/enjoythings.git
+    targetRevision: master
+    path: services/charts/enjoythings
+    helm:
+      valueFiles:
+        - values-local.yaml
+      parameters:
+        - name: secrets.create
+          value: "false"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: enjoythings
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

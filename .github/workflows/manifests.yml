@@ -1,0 +1,136 @@
+name: Manifests
+
+# Renders the Helm chart and the Kustomize overlays, then checks the result
+# before anything reaches a cluster: schema (kubeconform), best practices
+# (kube-linter) and the repository's own rules (conftest). Nothing here talks to
+# Kubernetes; every step works on YAML files. See docs/manifest-tooling-runbook.md.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Pinned tool versions. Bump them here and nowhere else.
+  HELM_VERSION: v4.2.4
+  KUSTOMIZE_VERSION: v5.8.1
+  KUBECONFORM_VERSION: v0.8.0
+  KUBE_LINTER_VERSION: v0.8.3
+  CONFTEST_VERSION: 0.69.0
+  # The Kubernetes version kubeconform validates against. kind v0.33.0's
+  # default node image runs 1.37.0; keep this equal to what the cluster runs.
+  KUBERNETES_VERSION: 1.37.0
+  # kubeconform's built-in schemas cover core kinds only. Custom resources
+  # such as Argo CD Applications come from the community CRDs catalog.
+  CRD_SCHEMAS: https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
+
+jobs:
+  validate:
+    name: Render and validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Install kustomize, kubeconform, kube-linter and conftest
+        run: |
+          set -euo pipefail
+          bin="$RUNNER_TEMP/bin"
+          mkdir -p "$bin"
+          curl -fsSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" | tar -xz -C "$bin" kustomize
+          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" | tar -xz -C "$bin" kubeconform
+          curl -fsSL "https://github.com/stackrox/kube-linter/releases/download/${KUBE_LINTER_VERSION}/kube-linter-linux.tar.gz" | tar -xz -C "$bin" kube-linter
+          curl -fsSL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" | tar -xz -C "$bin" conftest
+          echo "$bin" >> "$GITHUB_PATH"
+
+      - name: Print tool versions
+        run: |
+          helm version --short
+          kustomize version
+          kubeconform -v
+          kube-linter version
+          conftest --version
+
+      - name: Lint the chart
+        run: helm lint services/charts/enjoythings -f services/charts/enjoythings/values-local.yaml
+
+      # Render exactly what Argo CD renders: the local values file and the
+      # Secret switched off, so the output has no credentials in it.
+      - name: Render the chart
+        run: |
+          mkdir -p rendered
+          helm template enjoythings services/charts/enjoythings \
+            -f services/charts/enjoythings/values-local.yaml \
+            --set secrets.create=false \
+            > rendered/chart.yaml
+          grep -c '^kind:' rendered/chart.yaml
+
+      - name: Build the Kustomize overlays
+        run: |
+          kustomize build services/k8s/kustomize/overlays/dev > rendered/argocd-dev.yaml
+          kustomize build services/k8s/kustomize/overlays/staging > rendered/argocd-staging.yaml
+
+      # The Kustomize base and the app-of-apps child are copies of the Argo CD
+      # Application manifest, because neither Kustomize nor an Argo CD directory
+      # source can reach a file outside its own directory. Fail when a copy
+      # drifts from the original, ignoring comment lines.
+      - name: Check that copies of application.yaml match the original
+        run: |
+          set -euo pipefail
+          original=services/k8s/argocd/application.yaml
+          for copy in services/k8s/kustomize/base/application.yaml services/k8s/argocd/apps/children/enjoythings.yaml; do
+            if ! diff <(grep -v '^[[:space:]]*#' "$original") <(grep -v '^[[:space:]]*#' "$copy"); then
+              echo "::error file=$copy::$copy has drifted from $original"
+              exit 1
+            fi
+          done
+
+      - name: kubeconform (schema validation)
+        run: |
+          kubeconform -strict -summary \
+            -kubernetes-version "$KUBERNETES_VERSION" \
+            -schema-location default \
+            -schema-location "$CRD_SCHEMAS" \
+            rendered/chart.yaml \
+            rendered/argocd-dev.yaml \
+            rendered/argocd-staging.yaml \
+            services/k8s/argocd/application.yaml \
+            services/k8s/argocd/apps/root.yaml \
+            services/k8s/argocd/apps/children
+
+      - name: kube-linter (best practices)
+        run: kube-linter lint --config services/k8s/policy/kube-linter.yaml rendered/chart.yaml
+
+      - name: conftest verify (unit tests for the policies)
+        run: conftest verify -p services/k8s/policy
+
+      - name: conftest test (repository policies)
+        run: |
+          conftest test -p services/k8s/policy \
+            rendered/chart.yaml \
+            rendered/argocd-dev.yaml \
+            rendered/argocd-staging.yaml \
+            services/k8s/argocd/application.yaml \
+            services/k8s/argocd/apps/root.yaml \
+            services/k8s/argocd/apps/children
+
+      # Keep the rendered YAML for a week so a failing run can be inspected
+      # without re-rendering locally.
+      - name: Upload rendered manifests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rendered-manifests
+          path: rendered/
+          retention-days: 7

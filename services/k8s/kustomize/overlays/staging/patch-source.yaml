@@ -1,0 +1,13 @@
+# staging tracks a release branch, so a push to master does not reach it until
+# someone merges. The branch has to exist before Argo CD can sync this
+# Application; see the runbook's troubleshooting table for the error otherwise.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: enjoythings
+  namespace: argocd
+spec:
+  source:
+    targetRevision: release-staging
+  destination:
+    namespace: enjoythings-staging

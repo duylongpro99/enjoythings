@@ -1,0 +1,12 @@
+# Only the fields that differ from the base. Argo CD resolves HEAD to the
+# repository's default branch, so dev always tracks the newest commit.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: enjoythings
+  namespace: argocd
+spec:
+  source:
+    targetRevision: HEAD
+  destination:
+    namespace: enjoythings-dev

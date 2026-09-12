@@ -1,0 +1,27 @@
+# kube-linter configuration for the rendered EnjoyThings chart.
+#
+# kube-linter ships a default set of checks (`kube-linter checks list`). The
+# ones excluded below fail on the chart today. Each exclusion says why, so it
+# reads as a to-do list rather than a way to make the linter quiet. Delete a
+# line, run the linter, and you have the exact work needed to re-enable it.
+checks:
+  # Start from the default set; add nothing else automatically.
+  addAllBuiltIn: false
+  doNotAutoAddDefaults: false
+  exclude:
+    # The chart sets no securityContext anywhere. conftest reports the same
+    # gap as a warning (run_as_non_root.rego); re-enable both together once
+    # the pod templates set runAsNonRoot.
+    - run-as-non-root
+    # The Go services need no writable filesystem, but the databases and Kafka
+    # do. Re-enable once the chart sets readOnlyRootFilesystem per container.
+    - no-read-only-root-fs
+    # kafka, fraud-timescaledb and kafka-topic-init declare no resources.
+    # conftest enforces this rule instead (resources.rego) with those three
+    # named as explicit exceptions, so the gap is reviewed rather than hidden.
+    - unset-cpu-requirements
+    - unset-memory-requirements
+    # kafka-topic-init is a Helm hook with hook-delete-policy
+    # before-hook-creation, so Helm (and Argo CD) delete the finished Job
+    # themselves; ttlSecondsAfterFinished would be redundant.
+    - job-ttl-seconds-after-finished

@@ -1,0 +1,67 @@
+# Child 3: kube-prometheus-stack from the prometheus-community Helm repository.
+# Its Prometheus honours the prometheus.io/scrape annotations the chart puts on
+# every pod, so it collects the same metrics the Compose stack shows in
+# Grafana.
+#
+# No syncPolicy on purpose: the stack is several hundred MB of images and about
+# 1 GB of memory, so it is a placeholder until you decide to sync it by hand
+# (`argocd app sync monitoring`). The pinned chart version is the newest at the
+# time of writing; bump it in git, never in the UI.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    # A chart from a Helm repository instead of git: `chart` replaces `path`
+    # and targetRevision is the chart version.
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 90.0.0
+    helm:
+      # Inline values, kept small: a laptop does not need Alertmanager or the
+      # node exporter, and the operator's CRD annotations are too large for
+      # client-side apply, hence ServerSideApply below.
+      valuesObject:
+        alertmanager:
+          enabled: false
+        nodeExporter:
+          enabled: false
+        grafana:
+          adminPassword: admin
+        prometheus:
+          prometheusSpec:
+            # Scrape every pod annotated prometheus.io/scrape=true in any
+            # namespace, not only ServiceMonitors from this release.
+            additionalScrapeConfigs:
+              - job_name: enjoythings-pods
+                kubernetes_sd_configs:
+                  - role: pod
+                relabel_configs:
+                  - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+                    action: keep
+                    regex: "true"
+                  - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+                    action: replace
+                    target_label: __metrics_path__
+                    regex: (.+)
+                  - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+                    action: replace
+                    regex: ([^:]+)(?::\d+)?;(\d+)
+                    replacement: $1:$2
+                    target_label: __address__
+                  - source_labels: [__meta_kubernetes_namespace]
+                    target_label: namespace
+                  - source_labels: [__meta_kubernetes_pod_name]
+                    target_label: pod
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
