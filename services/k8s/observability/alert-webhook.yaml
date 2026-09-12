@@ -1,0 +1,70 @@
+# A webhook receiver for Alertmanager that does nothing but log every request
+# it gets. Alertmanager POSTs a JSON body per notification group; reading the
+# pod log is the fastest way to see exactly what a real receiver (Slack,
+# PagerDuty, Opsgenie) would be sent.
+#
+#   kubectl apply -f services/k8s/observability/alert-webhook.yaml
+#   kubectl logs -n monitoring deployment/alert-webhook -f
+#
+# mendhak/http-https-echo is a small public image that echoes request headers
+# and body to stdout as JSON. Pinned to a release tag, never `latest`.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alert-webhook
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alert-webhook
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: alert-webhook
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: alert-webhook
+        app.kubernetes.io/component: observability
+    spec:
+      containers:
+        - name: echo
+          image: mendhak/http-https-echo:41
+          env:
+            - name: HTTP_PORT
+              value: "8080"
+            # Print the JSON body on one line per request.
+            - name: LOG_WITHOUT_NEWLINE
+              value: "true"
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alert-webhook
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alert-webhook
+    app.kubernetes.io/component: observability
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: alert-webhook
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

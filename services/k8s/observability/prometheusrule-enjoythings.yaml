@@ -1,0 +1,119 @@
+# Alerts for the EnjoyThings platform. Every expression uses a metric the
+# services really export (services/internal/telemetry/metrics.go,
+# app/fraud/metrics.py) or that kube-state-metrics exports for every cluster.
+#
+#   kubectl apply -f services/k8s/observability/prometheusrule-enjoythings.yaml
+#   promtool check rules services/k8s/observability/prometheusrule-enjoythings.yaml
+#
+# There is no Kafka consumer lag metric: the services count records by outcome
+# (service_kafka_records_total) but do not export lag, and the in-chart Kafka
+# broker has no exporter. The KafkaRecordFailures alert below is the closest
+# real signal.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: enjoythings
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: enjoythings
+    app.kubernetes.io/component: observability
+spec:
+  groups:
+    - name: enjoythings.availability
+      rules:
+        - alert: EnjoyThingsDeploymentUnavailable
+          # A Deployment that wants replicas but has none available. The
+          # second clause skips Deployments deliberately scaled to zero, so
+          # `kubectl scale --replicas=0 deployment/postgres` alerts on the
+          # services that depend on postgres, not on postgres itself. That is
+          # the drill in the runbook: the alert names the symptom, and you
+          # find the cause.
+          expr: |
+            kube_deployment_status_replicas_available{namespace="enjoythings"} == 0
+              and on (namespace, deployment)
+            kube_deployment_spec_replicas{namespace="enjoythings"} > 0
+          for: 2m
+          labels:
+            severity: critical
+            team: enjoythings
+          annotations:
+            summary: "{{ $labels.deployment }} has no ready replicas"
+            description: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} has had 0 available replicas for 2 minutes. Readiness probes are failing or pods are not scheduled."
+            runbook: "docs/observability-runbook.md section 8"
+
+        - alert: EnjoyThingsScrapeTargetDown
+          # `up` is written by Prometheus itself for every target. 0 means the
+          # last scrape failed: the pod is gone, or /metrics stopped answering.
+          expr: up{namespace="enjoythings"} == 0
+          for: 3m
+          labels:
+            severity: warning
+            team: enjoythings
+          annotations:
+            summary: "Prometheus cannot scrape {{ $labels.pod }}"
+            description: "Target {{ $labels.namespace }}/{{ $labels.pod }} ({{ $labels.app }}) has failed scrapes for 3 minutes."
+
+    - name: enjoythings.traffic
+      rules:
+        - alert: EnjoyThingsGatewayHigh5xxRatio
+          # Ratio, not count: 3 errors out of 6 requests matters, 3 out of
+          # 6000 does not. The denominator guards against alerting on an idle
+          # gateway because rate() of nothing is 0/0 = NaN, which never
+          # compares true.
+          expr: |
+            sum(rate(service_http_requests_total{service="gateway", status=~"5.."}[5m]))
+              /
+            sum(rate(service_http_requests_total{service="gateway"}[5m]))
+              > 0.05
+          for: 2m
+          labels:
+            severity: warning
+            team: enjoythings
+          annotations:
+            summary: "Gateway is returning 5xx to more than 5% of requests"
+            description: "Over the last 5 minutes {{ $value | humanizePercentage }} of gateway responses were 5xx. Check the saga-orchestrator and its dependencies."
+
+        - alert: EnjoyThingsKafkaRecordFailures
+          # Consumers count every record as consumed, produced, failed or
+          # retried. Sustained failures mean records are going to dead-letter
+          # topics or being retried in a loop.
+          expr: |
+            sum by (service, topic) (rate(service_kafka_records_total{outcome="failed"}[5m])) > 0
+          for: 5m
+          labels:
+            severity: warning
+            team: enjoythings
+          annotations:
+            summary: "{{ $labels.service }} is failing records on {{ $labels.topic }}"
+            description: "{{ $labels.service }} has failed to process records from {{ $labels.topic }} for 5 minutes at {{ $value | humanize }} records/s."
+
+        - alert: EnjoyThingsDatabaseErrors
+          # Every Go service times its database calls with an outcome label.
+          # A steady failure rate is what a wrong DATABASE_URL, an exhausted
+          # pool, or a stopped postgres looks like from inside the service.
+          expr: |
+            sum by (service) (rate(service_database_operation_duration_seconds_count{outcome="failure"}[5m])) > 0
+          for: 2m
+          labels:
+            severity: critical
+            team: enjoythings
+          annotations:
+            summary: "{{ $labels.service }} database operations are failing"
+            description: "{{ $labels.service }} has reported failed database operations for 2 minutes ({{ $value | humanize }}/s)."
+
+    - name: enjoythings.fraud
+      rules:
+        - alert: EnjoyThingsFraudWorkerFailOpen
+          # The worker is fail-open: when the LLM cannot be reached it records
+          # action=fail_open and lets the payment through. Payments still work,
+          # fraud scoring silently does not. That is exactly the kind of quiet
+          # degradation an alert exists for.
+          expr: |
+            sum(rate(fraud_transactions_scored_total{action="fail_open"}[10m])) > 0
+          for: 5m
+          labels:
+            severity: warning
+            team: enjoythings
+          annotations:
+            summary: "Fraud worker is failing open"
+            description: "The fraud worker has scored transactions as fail_open for 5 minutes. The LLM provider is probably unreachable; payments complete without a fraud verdict."
