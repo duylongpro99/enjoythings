@@ -1,0 +1,86 @@
+# Argo Rollout for the gateway, blue-green strategy. See docs/progressive-delivery-runbook.md
+# section 10. Kept in its own directory because it defines a Rollout with the
+# same name as ../rollout-gateway.yaml; only one of the two may exist at a time.
+#
+# Blue-green runs the new version at full size next to the old one, exposes it
+# on a preview Service for testing, then flips the active Service to it in one
+# step. The controller does the flip by rewriting the `rollouts-pod-template-hash`
+# selector on the two Services below. The chart's own `gateway` Service is
+# untouched, so on this learning cluster http://localhost:18080 still reaches
+# both colours; the switch is observed on `gateway-active` through a
+# port-forward. In production the chart's Service would be the activeService.
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway-active
+  namespace: enjoythings
+  labels:
+    app.kubernetes.io/name: gateway
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: progressive-delivery
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/instance: enjoythings
+    app.kubernetes.io/component: gateway
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway-preview
+  namespace: enjoythings
+  labels:
+    app.kubernetes.io/name: gateway
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: progressive-delivery
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/instance: enjoythings
+    app.kubernetes.io/component: gateway
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: gateway
+  namespace: enjoythings
+  labels:
+    app.kubernetes.io/name: gateway
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: progressive-delivery
+spec:
+  # Blue-green runs two full copies during an update: 2 blue plus 2 green.
+  replicas: 2
+  revisionHistoryLimit: 3
+  progressDeadlineSeconds: 300
+  progressDeadlineAbort: true
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: enjoythings
+      app.kubernetes.io/component: gateway
+  workloadRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: gateway
+    scaleDown: onsuccess
+  strategy:
+    blueGreen:
+      activeService: gateway-active
+      previewService: gateway-preview
+      # Wait for `kubectl argo rollouts promote gateway` instead of switching
+      # as soon as the green pods are Ready.
+      autoPromotionEnabled: false
+      # Run only one green pod while it is being previewed; scale to
+      # `replicas` at promotion.
+      previewReplicaCount: 1
+      # Keep the blue pods for a minute after the switch, so rolling back in
+      # that window is a selector change, not a restart.
+      scaleDownDelaySeconds: 60

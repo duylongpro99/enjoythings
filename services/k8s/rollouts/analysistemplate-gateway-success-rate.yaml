@@ -1,0 +1,56 @@
+# AnalysisTemplate: is the gateway answering without server errors?
+# See docs/progressive-delivery-runbook.md section 7.
+#
+# The gateway exports `service_http_requests_total` from /metrics, registered in
+# services/internal/telemetry/metrics.go with the labels
+# service, method, route and status. The query below is the share of gateway
+# requests in the last minute whose status was not 5xx. It counts every
+# gateway pod, stable and canary together, which is what a replica-weighted
+# canary without a service mesh can see. A per-canary version of the query is
+# described in the runbook.
+#
+# The query returns nothing while there is no traffic, and nothing cannot be
+# compared with a threshold, so the measurement errors and the analysis fails
+# after `consecutiveErrorLimit` errors. That is deliberate: no evidence is not
+# good evidence. Run services/k8s/rollouts/traffic.sh during a rollout.
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: gateway-success-rate
+  namespace: enjoythings
+spec:
+  args:
+    # Fraction of non-5xx responses required for a measurement to pass.
+    # The Rollout overrides it per step; exercise 3 in the runbook sets it
+    # above 1.0 to force a failure on purpose.
+    - name: success-threshold
+      value: "0.95"
+    # VALUE TO CHECK: in-cluster address of the Prometheus that scrapes the
+    # enjoythings pods. The observability runbook installs kube-prometheus-stack
+    # into the `monitoring` namespace, whose operator creates the
+    # `prometheus-operated` Service on port 9090. If your release lives
+    # elsewhere, pass this arg from the Rollout or edit the default here.
+    - name: prometheus-address
+      value: http://prometheus-operated.monitoring.svc:9090
+  metrics:
+    - name: success-rate
+      # First measurement after 30s so the canary has served some requests,
+      # then one measurement every 30s, four in total. The step therefore takes
+      # about two and a half minutes when everything passes.
+      initialDelay: 30s
+      interval: 30s
+      count: 4
+      # One failed measurement is enough to fail the analysis and abort.
+      failureLimit: 1
+      # Two consecutive errors (no data, Prometheus unreachable) also fail it.
+      consecutiveErrorLimit: 2
+      successCondition: result[0] >= {{args.success-threshold}}
+      provider:
+        prometheus:
+          address: "{{args.prometheus-address}}"
+          # Seconds to wait for Prometheus before the measurement is an error.
+          timeout: 10
+          query: |
+            sum(rate(service_http_requests_total{service="gateway",route!="/metrics",status!~"5.."}[1m]))
+            /
+            sum(rate(service_http_requests_total{service="gateway",route!="/metrics"}[1m]))
