@@ -1,0 +1,74 @@
+# Argo Rollout for the gateway, canary strategy. See docs/progressive-delivery-runbook.md.
+#
+# The Helm chart is not modified. `workloadRef` points at the `gateway`
+# Deployment the chart already renders; the controller reads that Deployment's
+# pod template and runs its own ReplicaSets from it. Once the Rollout is
+# healthy, `scaleDown: onsuccess` scales the Deployment to zero, so the chart's
+# `gateway` Service (NodePort 30080, http://localhost:18080) ends up selecting
+# only Rollout-managed pods. To ship a new version you change the image on the
+# Deployment, exactly as before; the Rollout notices and runs the steps below.
+#
+# Traffic model: no service mesh and no ingress controller, so `setWeight` is
+# approximated by pod counts. With 4 replicas, 25 percent means one canary pod
+# and three stable pods behind the same Service.
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: gateway
+  namespace: enjoythings
+  labels:
+    app.kubernetes.io/name: gateway
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: progressive-delivery
+spec:
+  # Total pods across stable and canary. The Deployment's own replica count is
+  # ignored once the Rollout takes over. Four gives clean 25 percent steps.
+  replicas: 4
+  revisionHistoryLimit: 3
+  # A canary that cannot become Ready (bad image, crashing binary) is given
+  # this long, then the update is aborted automatically. Paused steps do not
+  # count against it.
+  progressDeadlineSeconds: 300
+  progressDeadlineAbort: true
+  # Must match the labels the chart puts on gateway pods
+  # (services/charts/enjoythings/templates/_helpers.tpl, applications.yaml).
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: enjoythings
+      app.kubernetes.io/component: gateway
+  workloadRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: gateway
+    # never | onsuccess | progressively. `onsuccess` keeps the Deployment's
+    # pods serving until the Rollout's first revision is fully healthy.
+    scaleDown: onsuccess
+  strategy:
+    canary:
+      # Optional on a basic canary. The controller narrows each Service's
+      # selector to one ReplicaSet so you can curl a specific side.
+      stableService: gateway-stable
+      canaryService: gateway-canary
+      maxSurge: 1
+      maxUnavailable: 0
+      steps:
+        # 1 canary pod, 3 stable pods.
+        - setWeight: 25
+        # Timed pause: soak for a minute, then continue on its own.
+        - pause:
+            duration: 60s
+        # Ask Prometheus. Fails -> abort, canary scaled to zero. Passes -> next step.
+        - analysis:
+            templates:
+              - templateName: gateway-success-rate
+            args:
+              - name: success-threshold
+                value: "0.95"
+        # 2 canary pods, 2 stable pods.
+        - setWeight: 50
+        # Indefinite pause: waits for `kubectl argo rollouts promote gateway`.
+        - pause: {}
+        # 3 canary pods, 1 stable pod, short soak, then full promotion.
+        - setWeight: 75
+        - pause:
+            duration: 30s

@@ -1,0 +1,49 @@
+# Companion Services for the gateway Rollout. See docs/progressive-delivery-runbook.md.
+#
+# The chart's own `gateway` Service is not touched. It keeps selecting every
+# gateway pod, stable and canary alike, so http://localhost:18080 sees a
+# replica-weighted mix of both versions during a canary. That is the whole
+# traffic model on a cluster without a service mesh or ingress controller.
+#
+# These two extra ClusterIP Services exist so you can talk to one side on
+# purpose. Their selectors start identical to the chart's Service. The Argo
+# Rollouts controller adds a `rollouts-pod-template-hash` label to each one,
+# pointing `gateway-stable` at the stable ReplicaSet and `gateway-canary` at
+# the canary ReplicaSet. Reach them with `kubectl port-forward`.
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway-stable
+  namespace: enjoythings
+  labels:
+    app.kubernetes.io/name: gateway
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: progressive-delivery
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/instance: enjoythings
+    app.kubernetes.io/component: gateway
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway-canary
+  namespace: enjoythings
+  labels:
+    app.kubernetes.io/name: gateway
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: progressive-delivery
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/instance: enjoythings
+    app.kubernetes.io/component: gateway
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
