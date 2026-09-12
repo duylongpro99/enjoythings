@@ -1,0 +1,14 @@
+# How provider-kubernetes authenticates to the cluster it manages.
+#
+# InjectedIdentity means "use the ServiceAccount token mounted into the
+# provider pod", so the provider manages the cluster it runs in and the RBAC
+# in 10-provider-kubernetes.yaml is the whole permission model. To manage a
+# second cluster you would add a ProviderConfig with source: Secret pointing
+# at a kubeconfig, and Compositions would pick it by providerConfigRef.
+apiVersion: kubernetes.crossplane.io/v1alpha1
+kind: ProviderConfig
+metadata:
+  name: in-cluster
+spec:
+  credentials:
+    source: InjectedIdentity

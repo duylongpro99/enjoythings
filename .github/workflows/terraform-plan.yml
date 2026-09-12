@@ -1,0 +1,141 @@
+name: Terraform plan
+
+# Plan on pull request. Nothing here applies anything.
+#
+# fmt and validate run for every stage because they need no cluster and no
+# state. plan runs only for 10-cluster: stages 20 and 30 configure their
+# Kubernetes and Helm providers from stage 10's state and connect to the
+# cluster during plan, and a GitHub runner has neither the state file nor a
+# route to a kind cluster on your laptop. docs/provisioning-tooling-runbook.md
+# section 6 explains how teams solve that with remote state and a real cluster.
+on:
+  pull_request:
+    paths:
+      - "infra/terraform/**"
+      - ".github/workflows/terraform-plan.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  TERRAFORM_VERSION: "1.16.1"
+  TF_IN_AUTOMATION: "true"
+
+jobs:
+  check:
+    name: fmt and validate (all stages)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        stage: [10-cluster, 20-platform, 30-apps]
+    defaults:
+      run:
+        working-directory: infra/terraform/${{ matrix.stage }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: terraform fmt -check
+        run: terraform fmt -check -diff
+
+      # -backend=false: download providers, do not touch any state. validate
+      # never evaluates data sources, so stages 20 and 30 pass without a cluster.
+      - name: terraform init
+        run: terraform init -backend=false -input=false
+
+      - name: terraform validate
+        run: terraform validate -no-color
+
+  plan:
+    name: plan (10-cluster)
+    runs-on: ubuntu-latest
+    needs: check
+    defaults:
+      run:
+        working-directory: infra/terraform/10-cluster
+    steps:
+      - uses: actions/checkout@v7
+
+      # terraform_wrapper (on by default) captures stdout of every terraform
+      # command into steps.<id>.outputs.stdout, which the comment step reads.
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: terraform init
+        id: init
+        run: terraform init -input=false
+
+      # The runner has no state, so the plan is always "1 to add". It still
+      # proves the configuration plans against the real provider schema.
+      - name: terraform plan
+        id: plan
+        run: terraform plan -no-color -input=false
+        continue-on-error: true
+
+      - name: Post plan as a pull request comment
+        uses: actions/github-script@v9
+        env:
+          PLAN: ${{ steps.plan.outputs.stdout }}
+          PLAN_OUTCOME: ${{ steps.plan.outcome }}
+        with:
+          script: |
+            const marker = "<!-- terraform-plan:10-cluster -->";
+            // GitHub comments are capped at 65536 characters. Keep the tail,
+            // which is where the resource summary lives.
+            const limit = 60000;
+            let plan = process.env.PLAN || "";
+            if (plan.length > limit) {
+              plan = "... (truncated, see the workflow log for the full plan)\n" + plan.slice(-limit);
+            }
+            const body = [
+              marker,
+              `#### Terraform plan for \`infra/terraform/10-cluster\`: \`${process.env.PLAN_OUTCOME}\``,
+              "",
+              "<details><summary>Show plan</summary>",
+              "",
+              "```terraform",
+              plan,
+              "```",
+              "",
+              "</details>",
+              "",
+              `*Pushed by @${context.actor}, workflow \`${context.workflow}\`, run [${context.runId}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}).*`,
+            ].join("\n");
+
+            // One comment per pull request: update it if it exists.
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const existing = comments.find(c => c.body && c.body.startsWith(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: Fail the job if the plan failed
+        if: steps.plan.outcome == 'failure'
+        run: exit 1

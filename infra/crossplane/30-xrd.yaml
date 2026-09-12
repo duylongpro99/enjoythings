@@ -1,0 +1,65 @@
+# The API this runbook adds to the cluster: an "application namespace".
+#
+# A CompositeResourceDefinition creates two CRDs. XAppNamespace is the
+# cluster-scoped composite resource that platform operators see. AppNamespace
+# is the namespaced claim that a team creates. The claim is the self-service
+# surface: a developer writes ten lines of YAML and gets a namespace with a
+# quota and a network policy, without knowing or being allowed to create any
+# of the three.
+#
+# scope: LegacyCluster is what makes claims possible. Crossplane v2 introduced
+# Namespaced and Cluster scopes that have no claims; a namespaced XR is the
+# self-service surface there. This composite creates a Namespace, which is a
+# cluster-scoped thing, so cluster scope is the right shape either way, and
+# LegacyCluster keeps the claim for the exercises in the runbook.
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xappnamespaces.platform.enjoythings.io
+spec:
+  scope: LegacyCluster
+  group: platform.enjoythings.io
+  names:
+    kind: XAppNamespace
+    plural: xappnamespaces
+  claimNames:
+    kind: AppNamespace
+    plural: appnamespaces
+  # Which Composition to use when the claim does not say. There is one today.
+  defaultCompositionRef:
+    name: appnamespace-quota-netpol
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                parameters:
+                  type: object
+                  description: Limits applied to the whole namespace through a ResourceQuota.
+                  properties:
+                    cpuLimit:
+                      type: string
+                      description: Total CPU limit across all pods, as a Kubernetes quantity.
+                      default: "2"
+                    memoryLimit:
+                      type: string
+                      description: Total memory limit across all pods, as a Kubernetes quantity.
+                      default: 4Gi
+                    maxPods:
+                      type: integer
+                      description: Maximum number of pods in the namespace.
+                      default: 20
+                      minimum: 1
+                  default: {}
+            status:
+              type: object
+              properties:
+                namespace:
+                  type: string
+                  description: Name of the namespace that was created.
