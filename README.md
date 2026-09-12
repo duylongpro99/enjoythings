@@ -294,6 +294,14 @@ See
 [`services/docs/phase3/kubernetes-local-guide.md`](services/docs/phase3/kubernetes-local-guide.md)
 for image loading, port forwarding, rollout validation, and cleanup.
 
+Two step-by-step runbooks written for Kubernetes newcomers:
+[`docs/k8s-deployment-runbook.md`](docs/k8s-deployment-runbook.md) for the
+Helm deployment, and [`docs/argocd-runbook.md`](docs/argocd-runbook.md) for
+the same deployment driven by Argo CD from git
+(`services/k8s/argocd/application.yaml`). A third,
+[`docs/terraform-runbook.md`](docs/terraform-runbook.md), builds both with
+Terraform from [`infra/terraform`](infra/terraform).
+
 ## Repository Layout
 
 ```text
