@@ -1,0 +1,70 @@
+# provider-kubernetes and the one composition function this runbook uses.
+#
+# Apply after Crossplane itself is installed with Helm (runbook section 8).
+# Order inside this file matters only on the first apply: the runtime config
+# and RBAC exist before the Provider pod starts, so the pod comes up with the
+# permissions it needs.
+#
+# The provider's pod runs as a ServiceAccount that Crossplane creates. By
+# default that name carries a random suffix, which makes it impossible to bind
+# a role to it in advance. A DeploymentRuntimeConfig pins the name.
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: provider-kubernetes
+spec:
+  serviceAccountTemplate:
+    metadata:
+      name: provider-kubernetes
+---
+# Least privilege for this runbook: the provider may manage exactly the three
+# kinds the Composition composes. The provider's own README binds
+# cluster-admin instead, which is quicker and far broader. Add a rule here
+# when a Composition needs a new kind; the provider reports "forbidden" in the
+# Object's status until you do.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: provider-kubernetes-app-namespaces
+rules:
+  - apiGroups: [""]
+    resources: [namespaces, resourcequotas]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: provider-kubernetes-app-namespaces
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: provider-kubernetes-app-namespaces
+subjects:
+  - kind: ServiceAccount
+    name: provider-kubernetes
+    namespace: crossplane-system
+---
+# The provider package. Crossplane pulls the image, installs the CRDs it
+# contains (Object, ProviderConfig, ...) and runs the controller Deployment
+# in crossplane-system.
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-kubernetes
+spec:
+  package: xpkg.crossplane.io/crossplane-contrib/provider-kubernetes:v1.3.1
+  runtimeConfigRef:
+    name: provider-kubernetes
+---
+# Compositions in Crossplane v2 are pipelines of functions. This function
+# implements the classic "base resource plus patches" style used in
+# 40-composition.yaml.
+apiVersion: pkg.crossplane.io/v1
+kind: Function
+metadata:
+  name: function-patch-and-transform
+spec:
+  package: xpkg.crossplane.io/crossplane-contrib/function-patch-and-transform:v0.10.10

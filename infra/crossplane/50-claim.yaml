@@ -1,0 +1,17 @@
+# What a team writes. Creating this claim makes Crossplane create an
+# XAppNamespace named team-demo-<random>, which the Composition turns into a
+# namespace called team-demo with a ResourceQuota and a NetworkPolicy inside.
+# Deleting the claim deletes all of it.
+#
+# The claim lives in a namespace of its own, here `default`. That is the
+# team's namespace, not the one being created.
+apiVersion: platform.enjoythings.io/v1alpha1
+kind: AppNamespace
+metadata:
+  name: team-demo
+  namespace: default
+spec:
+  parameters:
+    cpuLimit: "1"
+    memoryLimit: 2Gi
+    maxPods: 10

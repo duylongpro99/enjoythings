@@ -1,0 +1,4 @@
+# Copy to terraform.tfvars (git-ignored) and edit. Every variable has a default,
+# so this file is only needed to override one.
+# llm_api_key          = "sk-..."
+# argocd_chart_version = "10.8.1"

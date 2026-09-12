@@ -1,0 +1,113 @@
+# How an XAppNamespace is built: three provider-kubernetes Objects, each
+# wrapping one plain Kubernetes manifest. The Object is the managed resource;
+# the manifest inside it is what lands in the cluster. provider-kubernetes
+# keeps every manifest equal to its Object, so deleting the ResourceQuota by
+# hand makes it come back within the provider's poll interval.
+#
+# The namespace name is the claim's name. Crossplane copies the claim name
+# into the crossplane.io/claim-name label on the composite resource, and the
+# patches below read it from there.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: appnamespace-quota-netpol
+  labels:
+    platform.enjoythings.io/flavor: quota-and-default-deny
+spec:
+  compositeTypeRef:
+    apiVersion: platform.enjoythings.io/v1alpha1
+    kind: XAppNamespace
+  mode: Pipeline
+  pipeline:
+    - step: patch-and-transform
+      functionRef:
+        name: function-patch-and-transform
+      input:
+        apiVersion: pt.fn.crossplane.io/v1beta1
+        kind: Resources
+        resources:
+          - name: namespace
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                providerConfigRef:
+                  name: in-cluster
+                forProvider:
+                  manifest:
+                    apiVersion: v1
+                    kind: Namespace
+                    metadata:
+                      labels:
+                        platform.enjoythings.io/managed-by: crossplane
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.labels[crossplane.io/claim-name]
+                toFieldPath: spec.forProvider.manifest.metadata.name
+              # Report the name back on the composite, and from there on the claim.
+              - type: ToCompositeFieldPath
+                fromFieldPath: spec.forProvider.manifest.metadata.name
+                toFieldPath: status.namespace
+
+          - name: quota
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                providerConfigRef:
+                  name: in-cluster
+                forProvider:
+                  manifest:
+                    apiVersion: v1
+                    kind: ResourceQuota
+                    metadata:
+                      name: default-quota
+                    spec:
+                      hard:
+                        limits.cpu: "2"
+                        limits.memory: 4Gi
+                        pods: "20"
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.labels[crossplane.io/claim-name]
+                toFieldPath: spec.forProvider.manifest.metadata.namespace
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.cpuLimit
+                toFieldPath: spec.forProvider.manifest.spec.hard[limits.cpu]
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.memoryLimit
+                toFieldPath: spec.forProvider.manifest.spec.hard[limits.memory]
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.maxPods
+                toFieldPath: spec.forProvider.manifest.spec.hard.pods
+                transforms:
+                  - type: convert
+                    convert:
+                      toType: string
+
+          - name: network-policy
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              spec:
+                providerConfigRef:
+                  name: in-cluster
+                forProvider:
+                  manifest:
+                    apiVersion: networking.k8s.io/v1
+                    kind: NetworkPolicy
+                    metadata:
+                      name: default-allow-same-namespace-only
+                    spec:
+                      # Every pod in the namespace. Ingress is allowed only from
+                      # pods in the same namespace; everything else is denied.
+                      # Egress is not restricted.
+                      podSelector: {}
+                      policyTypes: [Ingress]
+                      ingress:
+                        - from:
+                            - podSelector: {}
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.labels[crossplane.io/claim-name]
+                toFieldPath: spec.forProvider.manifest.metadata.namespace
