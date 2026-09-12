@@ -30,7 +30,10 @@ spec:
             - name: POSTGRES_USER
               value: {{ .Values.fraudTimescaledb.user | quote }}
             - name: POSTGRES_PASSWORD
-              value: {{ .Values.fraudTimescaledb.password | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "enjoythings.secretName" . }}
+                  key: FRAUD_POSTGRES_PASSWORD
           readinessProbe:
             exec:
               command: ["/bin/sh", "-ec", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
