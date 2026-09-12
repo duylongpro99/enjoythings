@@ -1,0 +1,6 @@
+#!/bin/sh
+# Symptom gone under load: ten consecutive transfers reach COMPLETED within
+# 30 seconds while the steady load profile is running.
+set -eu
+cd "$(dirname -- "$0")/../../../.."
+exec go -C services run ./devtools/drillprobe -want COMPLETED -within 30s -count 10

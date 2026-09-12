@@ -66,6 +66,11 @@ sessions.db
 # Docker/local runtime
 .tmp/
 tmp/
+# Drill lock and injection state (drills/bin/drill)
+drills/.active
+drills/.revert*
+drills/.overrides/
+
 values-secrets.yaml
 
 # Terraform: state holds credentials, .terraform holds downloaded providers.

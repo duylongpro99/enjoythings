@@ -127,11 +127,20 @@ func (client *Client) StartPayment(ctx context.Context, from, to uuid.UUID, amou
 	return payment, nil
 }
 
+// GetPayment reads the current saga status of one payment.
+func (client *Client) GetPayment(ctx context.Context, paymentID string) (Payment, error) {
+	var payment Payment
+	if err := client.doJSON(ctx, http.MethodGet, "/v1/payments/"+paymentID, nil, http.StatusOK, &payment); err != nil {
+		return Payment{}, err
+	}
+	return payment, nil
+}
+
 // WaitPaymentState blocks until the saga reports the wanted state.
 func (client *Client) WaitPaymentState(ctx context.Context, paymentID, want string) error {
 	return Poll(ctx, func() (bool, error) {
-		var payment Payment
-		if err := client.doJSON(ctx, http.MethodGet, "/v1/payments/"+paymentID, nil, http.StatusOK, &payment); err != nil {
+		payment, err := client.GetPayment(ctx, paymentID)
+		if err != nil {
 			return false, err
 		}
 		return payment.Status == want, nil

@@ -1,0 +1,36 @@
+# Overlay for the drill traffic generator. Layer it on the platform stack:
+#
+#   cd services && docker compose --env-file ../.env \
+#     -f docker-compose.yml -f ../drills/loadgen/docker-compose.loadgen.yml \
+#     up -d --build loadgen
+#
+# The adapter's `load` script does exactly this. Prometheus already scrapes
+# loadgen:8080, so the generator's latency and error series appear in Grafana
+# as soon as the container is up.
+services:
+  loadgen:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: loadgen
+    environment:
+      HTTP_ADDR: :8080
+      GATEWAY_URL: http://gateway:8080
+      DATABASE_URL: postgres://enjoythings:enjoythings_dev_password@postgres:5432/enjoythings?sslmode=disable
+      JWT_SECRET: local-dev-jwt-secret-change-me
+      LOADGEN_RATE: "${LOADGEN_RATE:-5}"
+      LOADGEN_USERS: "${LOADGEN_USERS:-20}"
+      LOADGEN_USER_BUDGET_RPS: "${LOADGEN_USER_BUDGET_RPS:-1}"
+      LOADGEN_AMOUNT_CENTS: "${LOADGEN_AMOUNT_CENTS:-1250}"
+      LOADGEN_SETTLE_TIMEOUT: "${LOADGEN_SETTLE_TIMEOUT:-60s}"
+    ports:
+      - "${LOADGEN_HTTP_PORT:-8090}:8080"
+    depends_on:
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:8080/healthz >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 20

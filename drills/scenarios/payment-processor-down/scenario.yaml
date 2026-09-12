@@ -1,0 +1,10 @@
+name: payment-processor-down
+target: enjoythings
+level: L1
+tier: A
+load: steady
+# Target-specific component names (spec §13 Q1). Reserved for a role mapping
+# when a second target exists.
+components: [payment-processor]
+# The symptom needs the stopped consumer's lag to show; three tries, 5s apart.
+break_probe_attempts: 3

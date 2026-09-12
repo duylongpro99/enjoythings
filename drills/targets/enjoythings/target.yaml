@@ -1,0 +1,29 @@
+# Target manifest for the enjoythings platform. The framework validates every
+# scenario against `primitives` before booting, so only list what `inject`
+# honours. net.*, dep.replace, and code.patch are absent on purpose: scenarios
+# that need them fail at load time until Toxiproxy, the chaos LLM, and sealed
+# history land (spec §9, §6).
+name: enjoythings
+components:
+  - {name: gateway,           kind: service,    health: http://localhost:8080/readyz}
+  - {name: wallet,            kind: service,    health: http://localhost:8081/readyz}
+  - {name: ledger,            kind: service,    health: http://localhost:8082/readyz}
+  - {name: saga-orchestrator, kind: service,    health: http://localhost:8084/readyz}
+  - {name: payment-processor, kind: service,    health: http://localhost:8085/readyz}
+  - {name: verification,      kind: service,    health: http://localhost:8086/readyz}
+  - {name: notification,      kind: service,    health: http://localhost:8087/readyz}
+  - {name: fraud-worker,      kind: service,    health: http://localhost:9101/metrics}
+  - {name: stub-payment-rail, kind: dependency}
+  - {name: kafka,             kind: broker}
+  - {name: postgres,          kind: database}
+  - {name: fraud-timescaledb, kind: database}
+  - {name: prometheus,        kind: observability, health: http://localhost:9095/-/ready}
+  - {name: grafana,           kind: observability, health: http://localhost:3001/api/health}
+  - {name: jaeger,            kind: observability, health: http://localhost:16686/}
+primitives: [env.set, proc.stop, proc.start, proc.pause, proc.unpause, proc.kill, data.exec]
+load_profiles: [steady]
+observability:
+  traces: http://localhost:16686
+  metrics: http://localhost:9095
+  dashboards: http://localhost:3001
+  logs: "cd services && docker compose logs -f <component>"

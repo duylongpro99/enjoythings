@@ -1,0 +1,14 @@
+#!/bin/sh
+# Boot the platform to healthy. Idempotent; non-zero on failure.
+set -eu
+. "$(dirname -- "$0")/lib.sh"
+
+# Compose gives up on a dependency whose healthcheck is slow to turn green (the
+# fraud worker syncs its virtualenv on first start); health below is the
+# authority on readiness, with its own longer deadline.
+if ! compose up -d --build; then
+	log "compose gave up on a slow dependency; waiting on health, then starting the rest"
+	"$ADAPTER_DIR/health"
+	compose up -d
+fi
+exec "$ADAPTER_DIR/health"

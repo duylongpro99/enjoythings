@@ -1,0 +1,81 @@
+#!/bin/sh
+# inject <primitive> [args...]
+# Applies one primitive from target.yaml and records how to undo it in
+# $DRILL_REVERT_LOG (one line per injection, applied in reverse by `revert`).
+# data.exec is not undone here; `reset` returns state to pristine.
+set -eu
+. "$(dirname -- "$0")/lib.sh"
+
+REVERT_LOG="${DRILL_REVERT_LOG:-$DRILLS_DIR/.revert}"
+record_revert() { printf '%s\n' "$*" >> "$REVERT_LOG"; }
+
+primitive=${1:-}
+[ -n "$primitive" ] || die "usage: inject <primitive> [args...]"
+shift
+
+case "$primitive" in
+proc.stop)
+	known_component "$1"
+	compose stop "$1"
+	record_revert "proc.start $1"
+	;;
+proc.start)
+	known_component "$1"
+	compose start "$1"
+	record_revert "proc.stop $1"
+	;;
+proc.pause)
+	known_component "$1"
+	compose pause "$1"
+	record_revert "proc.unpause $1"
+	;;
+proc.unpause)
+	known_component "$1"
+	compose unpause "$1"
+	record_revert "proc.pause $1"
+	;;
+proc.kill)
+	known_component "$1"
+	compose kill -s SIGKILL "$1"
+	record_revert "proc.start $1"
+	;;
+env.set)
+	# env.set <component> KEY=VALUE — recreate the component with one override.
+	known_component "$1"
+	component=$1
+	kv=${2:-}
+	case "$kv" in *=*) ;; *) die "env.set needs KEY=VALUE" ;; esac
+	key=${kv%%=*}
+	value=${kv#*=}
+	mkdir -p "$OVERRIDES_DIR"
+	override="$OVERRIDES_DIR/$component.yml"
+	if [ ! -f "$override" ]; then
+		printf 'services:\n  %s:\n    environment:\n' "$component" > "$override"
+		record_revert "env.unset $component"
+	fi
+	printf '      %s: "%s"\n' "$key" "$value" >> "$override"
+	compose up -d --no-deps --force-recreate "$component"
+	;;
+env.unset)
+	# Internal: drop every override for a component and recreate it.
+	known_component "$1"
+	rm -f "$OVERRIDES_DIR/$1.yml"
+	compose up -d --no-deps --force-recreate "$1"
+	;;
+data.exec)
+	# data.exec <component> <script-file> — run SQL or shell against a store.
+	known_component "$1"
+	component=$1
+	script=${2:-}
+	[ -f "$script" ] || die "data.exec needs a script file"
+	case "$component" in
+	postgres|fraud-timescaledb) compose exec -T "$component" sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < "$script" ;;
+	kafka) compose exec -T kafka sh < "$script" ;;
+	*) die "data.exec supports postgres, fraud-timescaledb, kafka" ;;
+	esac
+	;;
+*)
+	die "unsupported primitive: $primitive (see target.yaml)"
+	;;
+esac
+log "injected $primitive $*"

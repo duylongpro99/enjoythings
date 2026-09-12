@@ -1,0 +1,19 @@
+scenario: payment-processor-down
+target: enjoythings
+level: L1
+tier: A
+sealed: false
+load: steady
+started_at: 2026-09-06T14:03:36Z
+timeline:
+  - {at: 2026-09-06T14:27:54Z, from: NONE, to: NONE, note: "fault injected "}
+  - {at: 2026-09-06T14:28:12Z, from: NONE, to: NONE, note: "probe break: pass (attempt 1) "}
+  - {at: 2026-09-06T14:28:12Z, from: NONE, to: BRIEFED, note: "engineer paged "}
+  - {at: 2026-09-06T14:28:48Z, from: BRIEFED, to: INVESTIGATING, note: "engineer started investigating "}
+  - {at: 2026-09-06T14:45:29Z, from: INVESTIGATING, to: PROPOSED, note: "proposal 1 recorded"}
+  - {at: 2026-09-06T14:45:29Z, from: PROPOSED, to: EXECUTING, note: "executor: docker compose start payment-processor, intake left open"}
+  - {at: 2026-09-06T14:47:06Z, from: EXECUTING, to: EXECUTING, note: "probe fix: pass (attempt 1)"}
+  - {at: 2026-09-06T14:47:06Z, from: EXECUTING, to: EVALUATED, note: "fix probe passed under load"}
+  - {at: 2026-09-06T14:47:31Z, from: EVALUATED, to: DEBRIEFED, note: "resolved"}
+ended_at: 2026-09-06T14:53:37Z
+result: resolved

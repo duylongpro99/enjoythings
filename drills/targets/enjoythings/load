@@ -1,0 +1,26 @@
+#!/bin/sh
+# load start <profile> | load stop
+# Profiles map to loadgen environment; only `steady` exists in this slice.
+set -eu
+. "$(dirname -- "$0")/lib.sh"
+
+action=${1:-}
+profile=${2:-steady}
+
+case "$action" in
+start)
+	case "$profile" in
+	steady) export LOADGEN_RATE=5 LOADGEN_USERS=20 LOADGEN_AMOUNT_CENTS=1250 ;;
+	*) die "unknown load profile: $profile" ;;
+	esac
+	compose_with_loadgen up -d --build loadgen
+	log "load profile $profile running"
+	;;
+stop)
+	compose_with_loadgen rm -sf loadgen
+	log "load stopped"
+	;;
+*)
+	die "usage: load start <profile> | load stop"
+	;;
+esac

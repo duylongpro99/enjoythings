@@ -1,0 +1,36 @@
+#!/bin/sh
+# Exit 0 once every component is ready. Uses the same readiness endpoints the
+# engineer can see; a component with no endpoint must be running in Compose.
+# HEALTH_TIMEOUT (seconds, default 300) bounds the wait; the fraud worker can
+# take a few minutes on first start while it syncs its virtualenv.
+set -eu
+. "$(dirname -- "$0")/lib.sh"
+
+timeout="${HEALTH_TIMEOUT:-300}"
+deadline=$(( $(date +%s) + timeout ))
+
+component_ready() {
+	_name=$1
+	_url=$(sed -n "s/.*name: *$_name,.*health: *\([^}]*\)}.*/\1/p" "$ADAPTER_DIR/target.yaml" | tr -d ' ')
+	if [ -n "$_url" ]; then
+		curl -fsS -o /dev/null --max-time 3 "$_url"
+	else
+		compose ps --status running --format '{{.Service}}' | grep -qx "$_name"
+	fi
+}
+
+components=$(sed -n 's/.*{name: *\([a-z0-9-]*\),.*/\1/p' "$ADAPTER_DIR/target.yaml")
+while :; do
+	pending=""
+	for name in $components; do
+		component_ready "$name" 2>/dev/null || pending="$pending $name"
+	done
+	if [ -z "$pending" ]; then
+		log "healthy"
+		exit 0
+	fi
+	if [ "$(date +%s)" -ge "$deadline" ]; then
+		die "not ready after ${timeout}s:$pending"
+	fi
+	sleep 3
+done

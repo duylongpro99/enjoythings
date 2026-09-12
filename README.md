@@ -302,6 +302,20 @@ the same deployment driven by Argo CD from git
 [`docs/terraform-runbook.md`](docs/terraform-runbook.md), builds both with
 Terraform from [`infra/terraform`](infra/terraform).
 
+## Drills
+
+`drills/` turns the running stack into an incident practice range. A drill
+injects a fault, pages you with a symptom, and grades how you investigate,
+what you propose in prose, and how you defend the trade-off. An agent applies
+your proposal exactly as written and evaluates it under load.
+
+```bash
+drills/bin/drill start payment-processor-down
+```
+
+See `drills/README.md` for the loop, the Claude Code slash commands, and how
+to author a scenario.
+
 ## Repository Layout
 
 ```text
@@ -309,6 +323,7 @@ Terraform from [`infra/terraform`](infra/terraform).
 ├── app/                    # FastAPI, shared LLM adapters, and Python fraud worker
 ├── tests/                  # Python unit and integration tests
 ├── web/                    # Next.js streaming chat UI
+├── drills/                 # Incident practice range: drill CLI, scenarios, roles
 ├── services/
 │   ├── cmd/                # Go service entrypoints
 │   ├── internal/           # Go domain and transport implementations
