@@ -1,0 +1,70 @@
+# Values for grafana/loki 7.3.0 (Loki 3.6), release name `loki`, namespace
+# `monitoring`. Single process, local disk, no object store. Enough for one
+# laptop; section "Toward production" of the runbook says what changes.
+#
+#   helm upgrade --install loki grafana/loki --version 7.3.0 -n monitoring \
+#     -f services/k8s/observability/loki-values.yaml
+
+deploymentMode: SingleBinary
+
+loki:
+  # One tenant. Every write and query goes to the same store and Grafana
+  # needs no X-Scope-OrgID header.
+  auth_enabled: false
+  commonConfig:
+    replication_factor: 1
+  storage:
+    type: filesystem
+  # The chart refuses to start without an explicit schema. v13 with TSDB is
+  # the current recommendation; the date only needs to be in the past.
+  schemaConfig:
+    configs:
+      - from: "2024-04-01"
+        store: tsdb
+        object_store: filesystem
+        schema: v13
+        index:
+          prefix: loki_index_
+          period: 24h
+  limits_config:
+    retention_period: 48h
+    allow_structured_metadata: true
+    volume_enabled: true
+  compactor:
+    retention_enabled: true
+    delete_request_store: filesystem
+
+singleBinary:
+  replicas: 1
+  persistence:
+    enabled: true
+    size: 5Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+# SingleBinary mode: every distributed component stays at zero replicas.
+read:
+  replicas: 0
+write:
+  replicas: 0
+backend:
+  replicas: 0
+
+# Extras that only make sense for a multi-node install.
+gateway:
+  enabled: false
+minio:
+  enabled: false
+chunksCache:
+  enabled: false
+resultsCache:
+  enabled: false
+lokiCanary:
+  enabled: false
+test:
+  enabled: false
