@@ -1,0 +1,11 @@
+# Kustomize base for the EnjoyThings Argo CD Application.
+#
+# A base is the plain, environment-free version of a set of manifests. It never
+# names a branch, a namespace or a size that only one environment wants; the
+# overlays under ../overlays add those with patches. Build an overlay with
+# `kustomize build services/k8s/kustomize/overlays/dev`; never apply the base
+# on its own. See docs/manifest-tooling-runbook.md.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - application.yaml

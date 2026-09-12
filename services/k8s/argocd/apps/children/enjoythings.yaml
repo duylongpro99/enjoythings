@@ -1,0 +1,34 @@
+# Child 1: the EnjoyThings chart on master, deployed to the enjoythings
+# namespace. This is a mirror of services/k8s/argocd/application.yaml so the
+# root can own it; the Argo CD runbook applies the original by hand and the
+# Terraform stage 30 reads it. Pick one owner per cluster. Every line that is
+# not a comment must stay identical to the original; the manifests workflow
+# checks that.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: enjoythings
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/duylongpro99/enjoythings.git
+    targetRevision: master
+    path: services/charts/enjoythings
+    helm:
+      valueFiles:
+        - values-local.yaml
+      parameters:
+        - name: secrets.create
+          value: "false"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: enjoythings
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

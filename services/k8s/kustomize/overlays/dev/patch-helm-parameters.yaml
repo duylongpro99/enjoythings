@@ -1,0 +1,14 @@
+# Append two Helm parameters to the base's list. `-` means "at the end".
+# global.appEnv makes the services report the environment they run in.
+# A distinct nodePort lets this environment coexist with the master one, whose
+# gateway already holds 30080; reach dev with a port-forward instead.
+- op: add
+  path: /spec/source/helm/parameters/-
+  value:
+    name: global.appEnv
+    value: dev
+- op: add
+  path: /spec/source/helm/parameters/-
+  value:
+    name: applications.gateway.nodePort
+    value: "30081"

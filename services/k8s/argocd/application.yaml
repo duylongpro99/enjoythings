@@ -1,0 +1,40 @@
+# Argo CD Application for the EnjoyThings Helm chart.
+#
+# Apply once with `kubectl apply -f services/k8s/argocd/application.yaml`.
+# Afterwards Argo CD keeps the `enjoythings` namespace equal to what this chart
+# renders from the `targetRevision` branch of the repository. Deploying is a git
+# push; nobody runs `helm upgrade` by hand. See docs/argocd-runbook.md.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: enjoythings
+  namespace: argocd
+  # Deleting this Application also deletes everything it deployed. Without the
+  # finalizer the workloads would be left behind, unmanaged.
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/duylongpro99/enjoythings.git
+    targetRevision: master
+    path: services/charts/enjoythings
+    helm:
+      valueFiles:
+        - values-local.yaml
+      parameters:
+        # The Secret is created out of band (runbook section 5) so credentials
+        # never live in git. The chart therefore must not render its own.
+        - name: secrets.create
+          value: "false"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: enjoythings
+  syncPolicy:
+    automated:
+      # Delete cluster resources that disappear from git.
+      prune: true
+      # Revert manual changes made with kubectl so git stays the source of truth.
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
