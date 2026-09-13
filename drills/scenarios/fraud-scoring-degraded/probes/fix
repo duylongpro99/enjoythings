@@ -1,0 +1,10 @@
+#!/bin/sh
+# Symptom gone under load: genuine scoring has resumed once a healthy provider is
+# restored. fraud_transactions_scored_total{action="allow"} climbs again as
+# benign load traffic is scored for real (not failed open).
+set -eu
+cd "$(dirname -- "$0")/../../../.."
+exec go -C services run ./devtools/drillmetric \
+	-url http://localhost:9101/metrics \
+	-metric fraud_transactions_scored_total -match action=allow \
+	-min-delta 3 -within 90s

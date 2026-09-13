@@ -1,0 +1,5 @@
+inject:
+  # Swap the fraud worker's LLM for the chaos endpoint on its `slow` profile: the
+  # model call exceeds the provider timeout, retries exhaust, and the worker
+  # falls open. Payments keep settling; scoring silently stops.
+  - dep.replace llm-endpoint slow

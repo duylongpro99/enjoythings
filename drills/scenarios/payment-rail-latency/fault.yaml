@@ -1,0 +1,4 @@
+inject:
+  # 6s of latency on the edge to the payment rail. PAYMENT_RAIL_TIMEOUT is 2s, so
+  # every charge call times out; the rail itself stays healthy.
+  - net.latency payment-processor stub-payment-rail 6000
