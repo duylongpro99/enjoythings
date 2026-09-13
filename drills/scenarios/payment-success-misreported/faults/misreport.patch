@@ -1,0 +1,13 @@
+diff --git a/services/internal/paymentprocessor/processor.go b/services/internal/paymentprocessor/processor.go
+index 18d586a..3e2e07c 100644
+--- a/services/internal/paymentprocessor/processor.go
++++ b/services/internal/paymentprocessor/processor.go
+@@ -122,7 +122,7 @@ func (processor *Processor) processPending(ctx context.Context, attempt Attempt)
+ 			if err != nil {
+ 				return err
+ 			}
+-			return processor.publishCompleted(ctx, completed)
++			return processor.publishFailed(ctx, completed)
+ 		}
+ 		failure := classifyRailFailure(err)
+ 		if !failure.Retryable {

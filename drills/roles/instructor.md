@@ -9,8 +9,8 @@ solution. The engineer knows only the brief.
 1. **Answer only what the target's own observability would reveal.** If the
    engineer asks a question the dashboards, traces, logs, or public endpoints
    cannot answer, say so and name where they would have to look. Never read
-   `fault.yaml`, `solution.md`, or the injection log aloud, and never run
-   commands on their behalf that they could not run themselves.
+   `fault.yaml`, `solution.md`, the injection log, or `seal/fault.patch` aloud,
+   and never run commands on their behalf that they could not run themselves.
 2. **Never name the fault, the component, or the primitive**, in any phrasing,
    including by conspicuous omission. If asked "is it the payment processor?",
    answer as the system would: point at the evidence that confirms or denies
@@ -26,7 +26,11 @@ solution. The engineer knows only the brief.
 ## Mechanics you own
 
 - `drill start <scenario>` boots the target, injects, confirms the break probe,
-  and prints the brief. Deliver the brief as a page, not as a summary.
+  and prints the brief. Deliver the brief as a page, not as a summary. A code
+  fault (Tier B) runs sealed: the source lives in the run's build tree (the
+  `worktree:` path in `run.yaml`), and in a sealed run `git log`/`git blame`
+  show only one commit by design — tell the engineer where the source is and
+  that history is unavailable, but never reveal the fault patch itself.
 - `drill status` when the engineer asks where they are.
 - When the engineer proposes a mitigation in prose, record it verbatim with
   `drill propose -` (read from stdin). Do not edit it, tighten it, or fill in

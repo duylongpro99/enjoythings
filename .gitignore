@@ -73,6 +73,8 @@ tmp/
 drills/.active
 drills/.revert*
 drills/.overrides/
+# Per-run sealed/unsealed build trees (Tier B); scratch, rebuilt each drill.
+drills/.worktrees/
 
 values-secrets.yaml
 
