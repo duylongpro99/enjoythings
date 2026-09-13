@@ -23,7 +23,10 @@ set_env_override() {
 		printf 'services:\n  %s:\n    environment:\n' "$_comp" > "$_override"
 		record_revert "env.unset $_comp"
 	fi
-	printf '      %s: "%s"\n' "$_key" "$_val" >> "$_override"
+	# Single-quoted YAML scalar so values that embed double quotes (e.g. a JSON
+	# provider registry) stay intact; a literal single quote is doubled per YAML.
+	_esc=$(printf '%s' "$_val" | sed "s/'/''/g")
+	printf "      %s: '%s'\n" "$_key" "$_esc" >> "$_override"
 	compose up -d --no-deps --force-recreate "$_comp"
 }
 
@@ -108,6 +111,31 @@ net.clear)
 	proxy=${1:-}
 	[ -n "$proxy" ] || die "net.clear needs a proxy name"
 	toxi_cli delete "$proxy" >/dev/null 2>&1 || true
+	;;
+dep.replace)
+	# dep.replace <dependency> <profile> — swap an external dependency for a
+	# scripted chaos variant. Only llm-endpoint (the fraud worker's LLM) is
+	# replaceable today: bring up the chaos server on the stack, then re-point the
+	# worker's provider registry at it (drills/chaosllm/README.md).
+	dep=${1:-}; profile=${2:-}
+	[ -n "$dep" ] && [ -n "$profile" ] || die "usage: dep.replace <dependency> <profile>"
+	[ "$dep" = llm-endpoint ] || die "dep.replace supports: llm-endpoint"
+	case "$profile" in
+	healthy|slow|errors|truncate|flaky) ;;
+	*) die "unknown chaos LLM profile: $profile (healthy|slow|errors|truncate|flaky)" ;;
+	esac
+	CHAOS_LLM_PROFILE="$profile" compose_with_chaosllm up -d --build chaos-llm
+	registry='{"providers":[{"id":"chaos","driver_type":"openai_compatible","base_url":"http://chaos-llm:18091/chaos/v1","api_key_env":"LOCAL_LLM_API_KEY","model":"chaos-model","timeout_seconds":5}]}'
+	set_env_override fraud-worker LLM_PROVIDERS_JSON "$registry"
+	set_env_override fraud-worker LLM_DEFAULT_PROVIDER chaos
+	record_revert "dep.restore llm-endpoint"
+	;;
+dep.restore)
+	# Internal: stop the chaos server. The paired env.unset fraud-worker restores
+	# the real provider registry and recreates the worker against it.
+	dep=${1:-}
+	[ "$dep" = llm-endpoint ] || die "dep.restore supports: llm-endpoint"
+	compose_with_chaosllm rm -sf chaos-llm >/dev/null 2>&1 || true
 	;;
 code.patch)
 	# code.patch <ref> — apply a Tier-B logic fault to the build tree and rebuild.

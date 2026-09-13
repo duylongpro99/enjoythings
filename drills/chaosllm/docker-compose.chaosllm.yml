@@ -1,0 +1,29 @@
+# Overlay for the drills chaos LLM endpoint. Layer it on the platform stack:
+#
+#   cd services && docker compose --env-file ../.env \
+#     -f docker-compose.yml -f ../drills/chaosllm/docker-compose.chaosllm.yml \
+#     up -d --build chaos-llm
+#
+# The adapter's `inject dep.replace llm-endpoint <profile>` does exactly this
+# (with CHAOS_LLM_PROFILE set), then re-points the fraud worker's
+# LLM_PROVIDERS_JSON at http://chaos-llm:18091/chaos/v1. The container reuses the
+# fraud image so no new toolchain enters the repo. Teardown removes it as an
+# orphan of the base project (`down -v --remove-orphans`).
+services:
+  chaos-llm:
+    build:
+      context: ..
+      dockerfile: app/fraud/Dockerfile
+    command: ["sh", "-ec", "exec uv run chaos-llm"]
+    environment:
+      CHAOS_LLM_PROFILE: "${CHAOS_LLM_PROFILE:-slow}"
+      CHAOS_LLM_PORT: "18091"
+    ports:
+      - "${CHAOS_LLM_PORT:-18091}:18091"
+    healthcheck:
+      # A raw TCP connect: confirms the server is listening without hitting the
+      # completions path (which would trigger the injected chaos).
+      test: ["CMD-SHELL", "uv run python -c \"import socket; socket.create_connection(('localhost',18091),2).close()\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
