@@ -66,7 +66,10 @@ sessions.db
 # Docker/local runtime
 .tmp/
 tmp/
-# Drill lock and injection state (drills/bin/drill)
+# The Go `bin/` rule above also matches drills/bin/; keep the drill CLI tracked.
+!drills/bin/
+!drills/bin/**
+# Drill lock and injection state
 drills/.active
 drills/.revert*
 drills/.overrides/
