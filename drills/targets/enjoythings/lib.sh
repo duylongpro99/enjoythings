@@ -13,6 +13,8 @@ BUILD_ROOT="${DRILL_BUILD_ROOT:-$REPO_ROOT}"
 SERVICES_DIR="$BUILD_ROOT/services"
 OVERRIDES_DIR="$DRILLS_DIR/.overrides"
 LOADGEN_OVERLAY="$DRILLS_DIR/loadgen/docker-compose.loadgen.yml"
+TOXIPROXY_OVERLAY="$DRILLS_DIR/toxics/docker-compose.toxiproxy.yml"
+CHAOSLLM_OVERLAY="$DRILLS_DIR/chaosllm/docker-compose.chaosllm.yml"
 
 # env_file prints the --env-file flag for compose: the build tree's .env when it
 # has one, else the main checkout's.
@@ -56,6 +58,54 @@ compose_with_loadgen() {
 	_env=$(env_file)
 	# shellcheck disable=SC2086
 	(cd "$SERVICES_DIR" && docker compose $_env -f docker-compose.yml -f "$LOADGEN_OVERLAY" "$@")
+}
+
+# compose_with_overlay <overlay> <args...> runs compose with one extra overlay
+# and every active env override layered on top, so a component already re-pointed
+# by env.set keeps its override when recreated alongside the overlay's service.
+compose_with_overlay() {
+	_overlay=$1
+	shift
+	_files="-f docker-compose.yml -f $_overlay"
+	if [ -d "$OVERRIDES_DIR" ]; then
+		for _override in "$OVERRIDES_DIR"/*.yml; do
+			[ -f "$_override" ] && _files="$_files -f $_override"
+		done
+	fi
+	_env=$(env_file)
+	# shellcheck disable=SC2086
+	(cd "$SERVICES_DIR" && docker compose $_env $_files "$@")
+}
+
+# compose_with_toxiproxy / compose_with_chaosllm bring the drill-only fault
+# containers up in the base project so teardown removes them as orphans.
+compose_with_toxiproxy() { compose_with_overlay "$TOXIPROXY_OVERLAY" "$@"; }
+compose_with_chaosllm() { compose_with_overlay "$CHAOSLLM_OVERLAY" "$@"; }
+
+# toxi_cli runs the Toxiproxy CLI inside the running proxy container (admin API
+# on 127.0.0.1:8474 from the container's own point of view).
+toxi_cli() { compose_with_toxiproxy exec -T toxiproxy /toxiproxy-cli "$@"; }
+
+# toxi_create creates a proxy, tolerating one that already exists.
+toxi_create() {
+	toxi_cli create "$1" --listen "0.0.0.0:$2" --upstream "$3" >/dev/null 2>&1 || true
+}
+
+# edge_lookup <a> <b> prints, for a supported Toxiproxy edge:
+#   CLIENT_ENV PROXY_NAME LISTEN_PORT UPSTREAM CLIENT_URL
+# CLIENT_URL is what the client env var is set to so it dials the proxy instead
+# of the upstream. Unsupported edges die (see drills/toxics/README.md).
+edge_lookup() {
+	case "$1->$2" in
+	"payment-processor->stub-payment-rail")
+		printf '%s %s %s %s %s' PAYMENT_RAIL_URL pp-rail 18190 stub-payment-rail:18090 http://toxiproxy:18190 ;;
+	"fraud-worker->ledger")
+		printf '%s %s %s %s %s' LEDGER_GRPC_ADDR fw-ledger 19091 ledger:9091 toxiproxy:19091 ;;
+	"fraud-worker->verification")
+		printf '%s %s %s %s %s' VERIFICATION_GRPC_ADDR fw-verif 19094 verification:9094 toxiproxy:19094 ;;
+	*)
+		die "unsupported net edge: $1 -> $2 (see drills/toxics/README.md)" ;;
+	esac
 }
 
 # known_component fails unless the name appears in target.yaml.

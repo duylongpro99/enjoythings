@@ -1,0 +1,10 @@
+#!/bin/sh
+# Symptom present: a fresh transfer cannot settle because the rail call times
+# out, so the saga fails and compensates. Black-box: gateway only.
+#
+# The exact terminal state (FAILED vs. stuck in PAYMENT_PROCESSING) is confirmed
+# against the live stack; the rail timeout drives compensation to FAILED. If the
+# stack leaves it processing, switch to `-want PAYMENT_PROCESSING -after 25s`.
+set -eu
+cd "$(dirname -- "$0")/../../../.."
+exec go -C services run ./devtools/drillprobe -want FAILED -within 30s -count 1

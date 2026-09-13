@@ -1,0 +1,11 @@
+#!/bin/sh
+# Symptom present: fraud scoring is falling open. The worker's own metrics show
+# fraud_transactions_scored_total{action="fail_open"} climbing under load, while
+# genuine verdicts stop. Black-box: the /metrics endpoint the worker exposes in
+# production (host port 9101), nothing internal.
+set -eu
+cd "$(dirname -- "$0")/../../../.."
+exec go -C services run ./devtools/drillmetric \
+	-url http://localhost:9101/metrics \
+	-metric fraud_transactions_scored_total -match action=fail_open \
+	-min-delta 1 -within 60s

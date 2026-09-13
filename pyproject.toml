@@ -25,6 +25,7 @@ dependencies = [
 [project.scripts]
 fraud-migrate = "app.fraud.repo.migrate:main"
 fraud-worker = "app.fraud.main:main"
+chaos-llm = "app.fraud.chaosllm.server:main"
 
 [dependency-groups]
 dev = [

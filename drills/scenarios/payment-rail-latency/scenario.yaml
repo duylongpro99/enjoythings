@@ -1,0 +1,12 @@
+name: payment-rail-latency
+target: enjoythings
+level: L2
+tier: A
+load: steady
+# Target-specific component names (spec §13 Q1). The faulted edge is
+# payment-processor -> stub-payment-rail; both are named so the run record and a
+# future role mapping can see the pair.
+components: [payment-processor, stub-payment-rail]
+# The rail-call timeout must fail and the saga compensate before the probe reads
+# the terminal state; three tries, 5s apart.
+break_probe_attempts: 3

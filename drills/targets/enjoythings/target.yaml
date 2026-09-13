@@ -1,8 +1,8 @@
 # Target manifest for the enjoythings platform. The framework validates every
 # scenario against `primitives` before booting, so only list what `inject`
-# honours. net.* and dep.replace are absent on purpose: scenarios that need them
-# fail at load time until Toxiproxy and the chaos LLM land (spec §9). code.patch
-# (Tier B) is honoured via the sealed build tree (spec §6, slice 2).
+# honours. net.* run through Toxiproxy (drills/toxics/, slice 3); dep.replace
+# runs through the chaos LLM (drills/chaosllm/, slice 3). code.patch (Tier B) is
+# honoured via the sealed build tree (spec §6, slice 2).
 name: enjoythings
 components:
   - {name: gateway,           kind: service,    health: http://localhost:8080/readyz}
@@ -14,13 +14,15 @@ components:
   - {name: notification,      kind: service,    health: http://localhost:8087/readyz}
   - {name: fraud-worker,      kind: service,    health: http://localhost:9101/metrics}
   - {name: stub-payment-rail, kind: dependency}
+  - {name: llm-endpoint,      kind: dependency}
   - {name: kafka,             kind: broker}
   - {name: postgres,          kind: database}
   - {name: fraud-timescaledb, kind: database}
+  - {name: toxiproxy,         kind: infra}
   - {name: prometheus,        kind: observability, health: http://localhost:9095/-/ready}
   - {name: grafana,           kind: observability, health: http://localhost:3001/api/health}
   - {name: jaeger,            kind: observability, health: http://localhost:16686/}
-primitives: [env.set, proc.stop, proc.start, proc.pause, proc.unpause, proc.kill, data.exec, code.patch]
+primitives: [env.set, proc.stop, proc.start, proc.pause, proc.unpause, proc.kill, net.latency, net.partition, dep.replace, data.exec, code.patch]
 load_profiles: [steady]
 observability:
   traces: http://localhost:16686

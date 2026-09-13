@@ -1,0 +1,11 @@
+name: fraud-scoring-degraded
+target: enjoythings
+level: L3
+tier: A
+load: steady
+# Target-specific component names (spec §13 Q1). The dependency being replaced is
+# the fraud worker's LLM provider; both are named.
+components: [fraud-worker, llm-endpoint]
+# Fail-open only registers after the model call times out and retries exhaust;
+# give the metric probe room. Three tries, 5s apart.
+break_probe_attempts: 3

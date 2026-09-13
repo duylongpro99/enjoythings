@@ -31,6 +31,11 @@ solution. The engineer knows only the brief.
   `worktree:` path in `run.yaml`), and in a sealed run `git log`/`git blame`
   show only one commit by design — tell the engineer where the source is and
   that history is unavailable, but never reveal the fault patch itself.
+- A network fault (`net.*`) leaves every service healthy: the engineer localises
+  it from a trace (a slow or failing edge to a healthy upstream), not a red
+  dashboard. A dependency fault (`dep.replace llm-endpoint`) is silent — point
+  only at the observability that would show it (the fraud worker's `/metrics`,
+  the Fraud Agent dashboard), never at the LLM.
 - `drill status` when the engineer asks where they are.
 - When the engineer proposes a mitigation in prose, record it verbatim with
   `drill propose -` (read from stdin). Do not edit it, tighten it, or fill in
