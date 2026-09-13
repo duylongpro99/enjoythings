@@ -1,10 +1,19 @@
 # Drills Framework — Slice 3 Implementation Plan
 
-> **Status: not started.** Design: `docs/superpowers/specs/2026-08-25-drills-framework-design.md`.
+> **Status: implemented.** All tasks are done and unit-proven — `sh drills/bin/drill_test.sh`
+> is green (65 checks, incl. net/dep inject + reverse-order revert), the chaos server
+> (`uv run pytest tests/fraud/test_chaosllm.py`, 9) and `drillmetric`
+> (`go -C services test ./devtools/drillmetric/`) pass, and all four scenarios validate. The
+> one remaining proof is a full `drill start`/`drill end` cycle for the two new scenarios
+> against a live Docker stack (Task 4), left to a machine that can boot the platform —
+> mirroring slices 1 and 2, whose live-stack proofs were likewise deferred. The chaos server
+> test lives at `tests/fraud/test_chaosllm.py` (repo pytest `testpaths = ["tests"]`), not the
+> `app/fraud/chaosllm/server_test.py` this plan first named.
+> Design: `docs/superpowers/specs/2026-08-25-drills-framework-design.md`.
 > Prior slices: `docs/superpowers/plans/2026-09-06-drills-framework-slice1.md`,
 > `docs/superpowers/plans/2026-09-13-drills-framework-slice2.md`.
 
-> **For agentic workers:** Steps use checkbox (`- [ ]`) syntax for tracking. Each task ends with the command that proves it.
+> **For agentic workers:** Steps use checkbox (`- [x]`) syntax for tracking. Each task ends with the command that proves it.
 
 **Goal:** Close the last two target-adapter gaps from spec §9 so the drills can inject
 *network* and *dependency* faults. Ship: Toxiproxy in the stack and the `net.latency` /
@@ -113,11 +122,11 @@ assertion in `health`/probes and doc/help text.
 - **`known_component` guard:** `net.*` validates both `a` and `b` are known components before
   `edge_lookup`, so a typo dies with the standard message.
 
-- [ ] Toxiproxy overlay added; `toxiproxy` listed as a component in `target.yaml`; `net.latency`, `net.partition` added to `primitives`.
-- [ ] `net.latency` creates a proxy, adds a `latency` toxic, and re-points the client; both revert lines recorded.
-- [ ] `net.partition` creates a disabled proxy and re-points the client; both stay `healthy`.
-- [ ] `revert` deletes the proxy and restores the client env, in order.
-- [ ] **Prove:** `drills/bin/drill target validate enjoythings` lists `net.latency`/`net.partition`; the round-trip is covered by the fake-target assertions in Task 5.
+- [x] Toxiproxy overlay added; `toxiproxy` listed as a component in `target.yaml`; `net.latency`, `net.partition` added to `primitives`.
+- [x] `net.latency` creates a proxy, adds a `latency` toxic, and re-points the client; both revert lines recorded.
+- [x] `net.partition` creates a disabled proxy and re-points the client; both stay `healthy`.
+- [x] `revert` deletes the proxy and restores the client env, in order.
+- [x] **Prove:** `drills/bin/drill target validate enjoythings` lists `net.latency`/`net.partition`; the round-trip is covered by the fake-target assertions in Task 5.
 
 ---
 
@@ -157,10 +166,10 @@ assertion in `health`/probes and doc/help text.
 - **`inject dep.restore llm-endpoint` (internal):** `compose_with_chaosllm rm -sf chaos-llm`
   (tolerate absent). The paired `env.unset fraud-worker` restores the real provider registry.
 
-- [ ] `chaos-llm` server serves scripted SSE and honours `slow`/`errors`/`truncate`/`flaky`/`healthy` from the environment; `server_test.py` covers each profile.
-- [ ] `chaos-llm` builds from the fraud image; `dep.replace` in `target.yaml`, `llm-endpoint` a component.
-- [ ] `dep.replace llm-endpoint <profile>` brings the container up and repoints the worker; revert stops it and restores the registry.
-- [ ] **Prove:** `uv run pytest app/fraud/chaosllm/server_test.py`; `drills/bin/drill target validate enjoythings` lists `dep.replace`.
+- [x] `chaos-llm` server serves scripted SSE and honours `slow`/`errors`/`truncate`/`flaky`/`healthy` from the environment; `server_test.py` covers each profile.
+- [x] `chaos-llm` builds from the fraud image; `dep.replace` in `target.yaml`, `llm-endpoint` a component.
+- [x] `dep.replace llm-endpoint <profile>` brings the container up and repoints the worker; revert stops it and restores the registry.
+- [x] **Prove:** `uv run pytest app/fraud/chaosllm/server_test.py`; `drills/bin/drill target validate enjoythings` lists `dep.replace`.
 
 ---
 
@@ -188,9 +197,9 @@ drillmetric ... -match action=allow -min-delta 5 -within 60s   # symptom gone: r
 - Reads the target's *own* production observability (the `/metrics` every service exposes), so
   it stays within the black-box contract (Author contract #3) — documented as such.
 
-- [ ] Parser sums a counter with an optional single-label matcher; unit-tested against sample Prometheus text.
-- [ ] `-within` delta assertion polls to a deadline; `-min-delta` and `-match` behave as documented.
-- [ ] **Prove:** `go -C services test ./devtools/drillmetric/` and `go -C services vet ./...`.
+- [x] Parser sums a counter with an optional single-label matcher; unit-tested against sample Prometheus text.
+- [x] `-within` delta assertion polls to a deadline; `-min-delta` and `-match` behave as documented.
+- [x] **Prove:** `go -C services test ./devtools/drillmetric/` and `go -C services vet ./...`.
 
 ---
 
@@ -242,9 +251,9 @@ drillmetric ... -match action=allow -min-delta 5 -within 60s   # symptom gone: r
 stack for both; adjust the exact observed states/actions as the library plan prescribes. Record
 "found while proving" notes in this plan.
 
-- [ ] Both scenario directories created; `fault.yaml` lines use only now-supported primitives.
-- [ ] Probes executable and black-box (`drillprobe` / `drillmetric` only).
-- [ ] `drills/bin/drill scenario validate payment-rail-latency` and `… fraud-scoring-degraded` pass.
+- [x] Both scenario directories created; `fault.yaml` lines use only now-supported primitives.
+- [x] Probes executable and black-box (`drillprobe` / `drillmetric` only).
+- [x] `drills/bin/drill scenario validate payment-rail-latency` and `… fraud-scoring-degraded` pass.
 - [ ] **Prove (pending, needs a live stack):** a full `drill start … / drill end` cycle for each with both probes flipping.
 
 ---
@@ -264,9 +273,9 @@ its `revert` replays in reverse (as slice 1/2 do); add:
 - Reuse the existing fake-scenario scaffolding; keep every slice-1/2 assertion green (Tier A
   `demo`, sealed `codebug`, unsealed, refusal, debrief).
 
-- [ ] Fake net/dep primitives added; inject-at-start and reverse-order-revert asserted for both.
-- [ ] All prior assertions untouched and passing.
-- [ ] **Prove:** `sh drills/bin/drill_test.sh` (all pass, `0 failed`).
+- [x] Fake net/dep primitives added; inject-at-start and reverse-order-revert asserted for both.
+- [x] All prior assertions untouched and passing.
+- [x] **Prove:** `sh drills/bin/drill_test.sh` (all pass, `0 failed`).
 
 ---
 
@@ -284,10 +293,10 @@ its `revert` replays in reverse (as slice 1/2 do); add:
 overlays + inject cases; the judgement changes are the two role notes. Regenerated shims stay
 byte-identical to the canonical command bodies.
 
-- [ ] Spec §5/§9/§13 updated; this plan referenced.
-- [ ] Roles/commands/observe describe the network + dependency faults and the inspection ports.
-- [ ] README lists all six scenarios; `.gitignore` reviewed.
-- [ ] **Prove:** `drills/bin/drill sync-commands && git diff --exit-code .claude/commands`.
+- [x] Spec §5/§9/§13 updated; this plan referenced.
+- [x] Roles/commands/observe describe the network + dependency faults and the inspection ports.
+- [x] README lists all six scenarios; `.gitignore` reviewed.
+- [x] **Prove:** `drills/bin/drill sync-commands && git diff --exit-code .claude/commands`.
 
 ---
 
