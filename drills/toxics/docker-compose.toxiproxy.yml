@@ -1,0 +1,23 @@
+# Overlay for the drills network-fault proxy. Layer it on the platform stack:
+#
+#   cd services && docker compose --env-file ../.env \
+#     -f docker-compose.yml -f ../drills/toxics/docker-compose.toxiproxy.yml \
+#     up -d toxiproxy
+#
+# The adapter's `inject net.latency|net.partition` does exactly this, then drives
+# the proxy through its admin API (`/toxiproxy-cli`, admin port 8474) and
+# re-points the faulted edge's client at `toxiproxy:<listen-port>` (see the edge
+# table in `drills/targets/enjoythings/lib.sh`). Only the admin port is
+# published; the per-edge listen ports are reached container-to-container by the
+# service name, so they need no host mapping. Teardown removes this container as
+# an orphan of the base project (`down -v --remove-orphans`).
+services:
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.11.0
+    ports:
+      - "${TOXIPROXY_ADMIN_PORT:-8474}:8474"
+    healthcheck:
+      test: ["CMD", "/toxiproxy-cli", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 20

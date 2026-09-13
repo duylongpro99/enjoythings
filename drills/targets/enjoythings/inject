@@ -9,6 +9,24 @@ set -eu
 REVERT_LOG="${DRILL_REVERT_LOG:-$DRILLS_DIR/.revert}"
 record_revert() { printf '%s\n' "$*" >> "$REVERT_LOG"; }
 
+# set_env_override <component> <key> <value> — append one environment override
+# and recreate the component. The first override for a component records a single
+# `env.unset` revert line that drops every override and restores it. Shared by
+# env.set, net.*, and dep.replace so the recreate/undo path lives in one place.
+set_env_override() {
+	_comp=$1
+	_key=$2
+	_val=$3
+	mkdir -p "$OVERRIDES_DIR"
+	_override="$OVERRIDES_DIR/$_comp.yml"
+	if [ ! -f "$_override" ]; then
+		printf 'services:\n  %s:\n    environment:\n' "$_comp" > "$_override"
+		record_revert "env.unset $_comp"
+	fi
+	printf '      %s: "%s"\n' "$_key" "$_val" >> "$_override"
+	compose up -d --no-deps --force-recreate "$_comp"
+}
+
 primitive=${1:-}
 [ -n "$primitive" ] || die "usage: inject <primitive> [args...]"
 shift
@@ -45,22 +63,51 @@ env.set)
 	component=$1
 	kv=${2:-}
 	case "$kv" in *=*) ;; *) die "env.set needs KEY=VALUE" ;; esac
-	key=${kv%%=*}
-	value=${kv#*=}
-	mkdir -p "$OVERRIDES_DIR"
-	override="$OVERRIDES_DIR/$component.yml"
-	if [ ! -f "$override" ]; then
-		printf 'services:\n  %s:\n    environment:\n' "$component" > "$override"
-		record_revert "env.unset $component"
-	fi
-	printf '      %s: "%s"\n' "$key" "$value" >> "$override"
-	compose up -d --no-deps --force-recreate "$component"
+	set_env_override "$component" "${kv%%=*}" "${kv#*=}"
 	;;
 env.unset)
 	# Internal: drop every override for a component and recreate it.
 	known_component "$1"
 	rm -f "$OVERRIDES_DIR/$1.yml"
 	compose up -d --no-deps --force-recreate "$1"
+	;;
+net.latency)
+	# net.latency <a> <b> <ms> — delay the a->b edge by <ms>. Toxiproxy sits on
+	# the edge only because the client is re-pointed at it (no named networks),
+	# so the edge must be one the edge table knows (drills/toxics/README.md).
+	a=${1:-}; b=${2:-}; ms=${3:-}
+	[ -n "$a" ] && [ -n "$b" ] && [ -n "$ms" ] || die "usage: net.latency <a> <b> <ms>"
+	known_component "$a"; known_component "$b"
+	# shellcheck disable=SC2046
+	set -- $(edge_lookup "$a" "$b")
+	client_env=$1; proxy=$2; listen=$3; upstream=$4; client_url=$5
+	compose_with_toxiproxy up -d toxiproxy
+	toxi_create "$proxy" "$listen" "$upstream"
+	toxi_cli toxic add "$proxy" -t latency -a "latency=$ms" >/dev/null
+	set_env_override "$a" "$client_env" "$client_url"
+	record_revert "net.clear $proxy"
+	;;
+net.partition)
+	# net.partition <a> <b> — sever the a->b edge (proxy disabled) while both
+	# endpoints stay healthy. Produces connection failures, not hangs.
+	a=${1:-}; b=${2:-}
+	[ -n "$a" ] && [ -n "$b" ] || die "usage: net.partition <a> <b>"
+	known_component "$a"; known_component "$b"
+	# shellcheck disable=SC2046
+	set -- $(edge_lookup "$a" "$b")
+	client_env=$1; proxy=$2; listen=$3; upstream=$4; client_url=$5
+	compose_with_toxiproxy up -d toxiproxy
+	toxi_create "$proxy" "$listen" "$upstream"
+	toxi_cli toggle "$proxy" >/dev/null
+	set_env_override "$a" "$client_env" "$client_url"
+	record_revert "net.clear $proxy"
+	;;
+net.clear)
+	# Internal: delete a Toxiproxy proxy (and its toxics). The paired env.unset
+	# restores the client's real upstream URL.
+	proxy=${1:-}
+	[ -n "$proxy" ] || die "net.clear needs a proxy name"
+	toxi_cli delete "$proxy" >/dev/null 2>&1 || true
 	;;
 code.patch)
 	# code.patch <ref> — apply a Tier-B logic fault to the build tree and rebuild.
