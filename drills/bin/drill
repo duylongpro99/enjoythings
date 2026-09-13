@@ -1,0 +1,396 @@
+#!/bin/sh
+# drill — portable drill mechanics for the enjoythings practice range.
+#
+# POSIX sh, no agent required. Judgement lives in drills/roles/*.md; this script
+# only boots the target, injects the fault, runs the black-box probes, and keeps
+# the run record. See docs/superpowers/specs/2026-08-25-drills-framework-design.md
+# (§8 lifecycle, §10 portability, §11 run record).
+#
+# Subcommands:
+#   start <scenario>        boot, inject, confirm break probe, page  -> BRIEFED
+#   investigate             BRIEFED|EVALUATED -> INVESTIGATING
+#   hint                    reveal the next hint tier (recorded)
+#   propose <file|->        record a proposal, verbatim              -> PROPOSED
+#   execute [note]          the Executor begins                      -> EXECUTING
+#   evaluate                run the fix probe under load             -> EVALUATED
+#   resolve                 accept the fix                           -> DEBRIEFED
+#   end                     revert, reset, write debrief, unlock
+#   abort                   revert, reset, unlock; no score
+#   status                  print the run timeline and current state
+#   observe                 print the target's observability table
+#   scenario validate <slug>
+#   target validate <name>
+#   sync-commands           regenerate the Claude Code command shims
+set -eu
+
+# --- layout -----------------------------------------------------------------
+SELF=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+DRILLS_DIR=${DRILL_HOME:-$(CDPATH= cd -- "$SELF/.." && pwd)}
+TARGETS_DIR="$DRILLS_DIR/targets"
+SCENARIOS_DIR="$DRILLS_DIR/scenarios"
+RUNS_DIR="$DRILLS_DIR/runs"
+COMMANDS_DIR="$DRILLS_DIR/commands"
+ACTIVE="$DRILLS_DIR/.active"
+REVERT_LOG="$DRILLS_DIR/.revert"
+
+# Seconds between break-probe attempts; overridable so tests run fast.
+PROBE_INTERVAL=${DRILL_PROBE_INTERVAL:-5}
+
+die() { printf 'drill: %s\n' "$*" >&2; exit 1; }
+log() { printf 'drill: %s\n' "$*" >&2; }
+now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+# --- tiny YAML readers (flat scalars and [bracket, lists] only) -------------
+yaml_scalar() { # file key
+	sed -n "s/^$2: *//p" "$1" | head -n 1 | sed 's/ *#.*$//' | sed 's/[[:space:]]*$//'
+}
+yaml_list() { # file key  -> one item per line, from `key: [a, b, c]`
+	sed -n "s/^$2: *\[\(.*\)\]/\1/p" "$1" | head -n 1 | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^$' || true
+}
+fault_primitives() { # fault.yaml -> one `primitive args` per line under inject:
+	awk '/^inject:/{f=1;next} f&&/^[[:space:]]*-[[:space:]]/{sub(/^[[:space:]]*-[[:space:]]*/,"");print} f&&/^[^[:space:]-]/{f=0}' "$1"
+}
+
+# --- run record -------------------------------------------------------------
+run_path() { [ -f "$ACTIVE" ] || die "no active drill"; cat "$ACTIVE"; }
+run_yaml() { printf '%s/run.yaml' "$(run_path)"; }
+
+current_state() {
+	# The last non-preamble transition's target state. Pre-brief rows use NONE.
+	_s=$(grep -oE 'to: [A-Za-z]+' "$(run_yaml)" | tail -n 1 | awk '{print $2}')
+	printf '%s' "${_s:-NONE}"
+}
+
+record() { # from to note
+	printf '  - {at: %s, from: %s, to: %s, note: "%s"}\n' "$(now)" "$1" "$2" "$3" >> "$(run_yaml)"
+}
+
+require_state() { # expected...
+	_cur=$(current_state)
+	for _want in "$@"; do [ "$_cur" = "$_want" ] && return 0; done
+	die "drill is $_cur; this command needs one of: $*"
+}
+
+# --- target adapter shims ---------------------------------------------------
+adapter_for() { # target
+	_a="$TARGETS_DIR/$1"
+	[ -d "$_a" ] || die "unknown target: $1"
+	printf '%s' "$_a"
+}
+scenario_target() { yaml_scalar "$SCENARIOS_DIR/$1/scenario.yaml" target; }
+active_adapter() { adapter_for "$(yaml_scalar "$(run_path)/run.yaml" target)"; }
+
+# --- validation -------------------------------------------------------------
+target_validate() { # name
+	_a=$(adapter_for "$1")
+	[ -f "$_a/target.yaml" ] || die "$1: missing target.yaml"
+	for s in up down reset health observe load inject revert env; do
+		[ -x "$_a/$s" ] || die "$1: missing or non-executable adapter script: $s"
+	done
+	[ -n "$(yaml_list "$_a/target.yaml" primitives)" ] || die "$1: target.yaml lists no primitives"
+	[ -n "$(yaml_list "$_a/target.yaml" load_profiles)" ] || die "$1: target.yaml lists no load_profiles"
+	log "target $1 valid"
+}
+
+scenario_validate() { # slug
+	_d="$SCENARIOS_DIR/$1"
+	[ -d "$_d" ] || die "unknown scenario: $1"
+	for f in brief.md scenario.yaml fault.yaml hints.md rubric.md solution.md; do
+		[ -f "$_d/$f" ] || die "$1: missing $f"
+	done
+	for p in break fix; do
+		[ -x "$_d/probes/$p" ] || die "$1: missing or non-executable probes/$p"
+	done
+	_target=$(yaml_scalar "$_d/scenario.yaml" target)
+	[ -n "$_target" ] || die "$1: scenario.yaml has no target"
+	_a=$(adapter_for "$_target")
+	_prims=$(yaml_list "$_a/target.yaml" primitives)
+	fault_primitives "$_d/fault.yaml" | while IFS= read -r line; do
+		[ -n "$line" ] || continue
+		_p=${line%% *}
+		printf '%s\n' "$_prims" | grep -qx "$_p" || die "$1: primitive '$_p' not supported by target $_target"
+	done
+	_profile=$(yaml_scalar "$_d/scenario.yaml" load)
+	if [ -n "$_profile" ]; then
+		printf '%s\n' "$(yaml_list "$_a/target.yaml" load_profiles)" | grep -qx "$_profile" \
+			|| die "$1: load profile '$_profile' not offered by target $_target"
+	fi
+	log "scenario $1 valid"
+}
+
+# --- probes -----------------------------------------------------------------
+run_probe() { # scenario-dir probe-name  -> exit status of the probe
+	_a=$(adapter_for "$(yaml_scalar "$1/scenario.yaml" target)")
+	# Probes see the same host ports Compose published; nothing more.
+	eval "$("$_a/env")"
+	"$1/probes/$2"
+}
+
+# --- lifecycle --------------------------------------------------------------
+cmd_start() {
+	scenario=${1:-}
+	[ -n "$scenario" ] || die "usage: drill start <scenario>"
+	[ ! -f "$ACTIVE" ] || die "a drill is already active ($(cat "$ACTIVE")); end or abort it first"
+	scenario_validate "$scenario"
+
+	_d="$SCENARIOS_DIR/$scenario"
+	_target=$(yaml_scalar "$_d/scenario.yaml" target)
+	_a=$(adapter_for "$_target")
+	_level=$(yaml_scalar "$_d/scenario.yaml" level)
+	_tier=$(yaml_scalar "$_d/scenario.yaml" tier)
+	_profile=$(yaml_scalar "$_d/scenario.yaml" load)
+	_attempts=$(yaml_scalar "$_d/scenario.yaml" break_probe_attempts); _attempts=${_attempts:-3}
+
+	_ts=$(date -u +%Y%m%dT%H%M%SZ)
+	_run="$RUNS_DIR/$_ts-$scenario"
+	mkdir -p "$_run/proposals"
+
+	# The run record must exist before anything can fail, so an aborted boot is
+	# still a queryable run rather than orphaned state.
+	{
+		printf 'scenario: %s\n' "$scenario"
+		printf 'target: %s\n' "$_target"
+		printf 'level: %s\n' "$_level"
+		printf 'tier: %s\n' "$_tier"
+		printf 'sealed: false\n'
+		printf 'load: %s\n' "$_profile"
+		printf 'started_at: %s\n' "$(now)"
+		printf 'timeline:\n'
+	} > "$_run/run.yaml"
+	printf '%s' "$_run" > "$ACTIVE"
+	rm -f "$REVERT_LOG" "$REVERT_LOG".*
+
+	log "booting target $_target"
+	"$_a/up" || { log "boot failed; run recorded at $_run"; return 1; }
+
+	if [ -n "$_profile" ]; then
+		log "starting load profile $_profile"
+		"$_a/load" start "$_profile"
+	fi
+
+	log "injecting fault"
+	fault_primitives "$_d/fault.yaml" | while IFS= read -r line; do
+		[ -n "$line" ] || continue
+		# shellcheck disable=SC2086
+		"$_a/inject" $line
+	done
+	record NONE NONE "fault injected"
+
+	log "confirming the symptom (break probe, up to $_attempts attempts)"
+	_i=1; _passed=0
+	while [ "$_i" -le "$_attempts" ]; do
+		if run_probe "$_d" break; then
+			record NONE NONE "probe break: pass (attempt $_i)"
+			_passed=1; break
+		fi
+		[ "$_i" -lt "$_attempts" ] && sleep "$PROBE_INTERVAL"
+		_i=$((_i + 1))
+	done
+	[ "$_passed" -eq 1 ] || die "break probe never confirmed the symptom after $_attempts attempts"
+
+	record NONE BRIEFED "engineer paged"
+	printf '\n===== PAGE =====\n\n'
+	cat "$_d/brief.md"
+	printf '\n================\n'
+	log "brief delivered. commands: drill hint | drill propose <file> | drill observe"
+}
+
+cmd_investigate() {
+	require_state BRIEFED EVALUATED
+	record "$(current_state)" INVESTIGATING "engineer started investigating"
+	log "state: INVESTIGATING"
+}
+
+cmd_hint() {
+	run_path >/dev/null
+	_d="$SCENARIOS_DIR/$(yaml_scalar "$(run_yaml)" scenario)"
+	_total=$(grep -c '^## Tier ' "$_d/hints.md" 2>/dev/null || true); _total=${_total:-0}
+	_shown=$(grep -c 'hint tier ' "$(run_yaml)" 2>/dev/null || true); _shown=${_shown:-0}
+	if [ "$_shown" -ge "$_total" ]; then
+		log "no more hints"; return 0
+	fi
+	_next=$((_shown + 1))
+	# Print the body of the Nth `## Tier` section.
+	awk -v n="$_next" '
+		/^## Tier /{c++; if(c==n){grab=1; next} else if(grab){grab=0}}
+		grab{print}
+	' "$_d/hints.md"
+	_state=$(current_state)
+	record "$_state" "$_state" "hint tier $_next revealed"
+}
+
+cmd_propose() {
+	_src=${1:-}
+	[ -n "$_src" ] || die "usage: drill propose <file> | drill propose -"
+	require_state BRIEFED INVESTIGATING
+	[ "$(current_state)" = BRIEFED ] && record BRIEFED INVESTIGATING "engineer started investigating"
+	_run=$(run_path)
+	_n=$(( $(find "$_run/proposals" -type f -name '*.md' 2>/dev/null | wc -l) + 1 ))
+	if [ "$_src" = "-" ]; then
+		cat > "$_run/proposals/$_n.md"
+	else
+		[ -f "$_src" ] || die "no such file: $_src"
+		cp "$_src" "$_run/proposals/$_n.md"
+	fi
+	record INVESTIGATING PROPOSED "proposal $_n recorded"
+	log "proposal $_n recorded. next: drill execute"
+}
+
+cmd_execute() {
+	require_state PROPOSED
+	_note=${1:-executor begins}
+	record PROPOSED EXECUTING "$_note"
+	log "state: EXECUTING. apply the proposal as written, then: drill evaluate"
+}
+
+cmd_evaluate() {
+	require_state EXECUTING
+	_run=$(run_path)
+	_scenario=$(yaml_scalar "$_run/run.yaml" scenario)
+	_d="$SCENARIOS_DIR/$_scenario"
+	_a=$(active_adapter)
+	_profile=$(yaml_scalar "$_run/run.yaml" load)
+	if [ -n "$_profile" ]; then
+		log "ensuring load profile $_profile is running"
+		"$_a/load" start "$_profile" || true
+	fi
+	log "running fix probe under load"
+	if run_probe "$_d" fix; then
+		record EXECUTING EXECUTING "probe fix: pass"
+		record EXECUTING EVALUATED "fix probe passed under load"
+		log "fix probe passed. accept: drill resolve  |  another cycle: drill investigate"
+	else
+		record EXECUTING EXECUTING "probe fix: fail"
+		die "fix probe failed under load; the symptom is still present"
+	fi
+}
+
+cmd_resolve() {
+	require_state EVALUATED
+	grep -q 'fix probe passed under load' "$(run_yaml)" || die "cannot resolve without a passing fix probe"
+	record EVALUATED DEBRIEFED "resolved"
+	log "state: DEBRIEFED. finish with: drill end"
+}
+
+write_debrief() { # run-dir result
+	_run=$1; _result=$2
+	_scenario=$(yaml_scalar "$_run/run.yaml" scenario)
+	_d="$SCENARIOS_DIR/$_scenario"
+	_cycles=$(find "$_run/proposals" -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
+	_hints=$(grep -c 'hint tier ' "$_run/run.yaml" 2>/dev/null || true); _hints=${_hints:-0}
+	{
+		printf '# Debrief: %s\n\n' "$_scenario"
+		printf 'Run: `%s`  \n' "$_run"
+		printf 'Result: %s  \n' "$_result"
+		printf 'Evaluation cycles: %s  \n' "$_cycles"
+		printf 'Hints consumed: %s\n\n' "$_hints"
+		printf '## What the fault was\n\n'
+		fault_primitives "$_d/fault.yaml"
+		printf '\n## Reference solution\n\n'
+		cat "$_d/solution.md"
+		printf '\n\n## What the engineer proposed\n\n'
+		_i=1
+		while [ -f "$_run/proposals/$_i.md" ]; do
+			printf '### Proposal %s\n\n' "$_i"
+			cat "$_run/proposals/$_i.md"
+			printf '\n\n'
+			_i=$((_i + 1))
+		done
+		[ -f "$_run/proposals/1.md" ] || printf '_No proposal was recorded._\n\n'
+		printf '## Timeline\n\n```yaml\n'
+		sed -n '/^timeline:/,/^ended_at:/p' "$_run/run.yaml" | sed '/^ended_at:/d'
+		printf '```\n\n## Rubric\n\n'
+		printf 'The Executor grades the run against the following. Fill in each dimension.\n\n'
+		cat "$_d/rubric.md"
+	} > "$_run/debrief.md"
+}
+
+teardown() { # result write_debrief(0|1)
+	_result=$1; _debrief=$2
+	_run=$(run_path)
+	_a=$(active_adapter)
+	_profile=$(yaml_scalar "$_run/run.yaml" load)
+
+	log "reverting the fault"
+	"$_a/revert" || log "revert reported a problem; check the target"
+	if [ -n "$_profile" ]; then
+		log "stopping load"
+		"$_a/load" stop || true
+	fi
+	[ "$_debrief" -eq 1 ] && write_debrief "$_run" "$_result"
+
+	# Close the run record and drop the lock BEFORE resetting, so a failed reset
+	# never leaves a finished run looking active (slice-1 lesson).
+	printf 'ended_at: %s\n' "$(now)" >> "$_run/run.yaml"
+	printf 'result: %s\n' "$_result" >> "$_run/run.yaml"
+	rm -f "$ACTIVE"
+
+	log "resetting the target to pristine"
+	if ! "$_a/reset"; then
+		log "reset failed; the run is closed but the target needs attention"
+		return 1
+	fi
+}
+
+cmd_end() {
+	require_state DEBRIEFED
+	_run=$(run_path)
+	teardown resolved 1
+	log "debrief written: $_run/debrief.md"
+}
+
+cmd_abort() {
+	run_path >/dev/null
+	teardown aborted 0
+	log "drill aborted; no score recorded"
+}
+
+cmd_status() {
+	if [ ! -f "$ACTIVE" ]; then log "no active drill"; return 0; fi
+	_run=$(run_path)
+	printf 'active run: %s\n' "$_run"
+	printf 'state:      %s\n\n' "$(current_state)"
+	cat "$_run/run.yaml"
+}
+
+cmd_observe() { exec "$(active_adapter)/observe"; }
+
+sync_commands() {
+	_out="$DRILLS_DIR/../.claude/commands"
+	mkdir -p "$_out"
+	for _c in "$COMMANDS_DIR"/drill-*.md; do
+		[ -f "$_c" ] || continue
+		_name=$(basename "$_c")
+		_desc=$(yaml_scalar "$_c" description)
+		{
+			printf -- '---\n'
+			printf 'description: %s\n' "$_desc"
+			printf -- '---\n\n'
+			printf 'Read `drills/commands/%s` and follow it exactly. Arguments: $ARGUMENTS\n' "$_name"
+		} > "$_out/$_name"
+	done
+	log "command shims regenerated in $_out"
+}
+
+# --- dispatch ---------------------------------------------------------------
+sub=${1:-}; [ $# -gt 0 ] && shift || true
+case "$sub" in
+start)       cmd_start "$@" ;;
+investigate) cmd_investigate "$@" ;;
+hint)        cmd_hint "$@" ;;
+propose)     cmd_propose "$@" ;;
+execute)     cmd_execute "$@" ;;
+evaluate)    cmd_evaluate "$@" ;;
+resolve)     cmd_resolve "$@" ;;
+end)         cmd_end "$@" ;;
+abort)       cmd_abort "$@" ;;
+status)      cmd_status "$@" ;;
+observe)     cmd_observe "$@" ;;
+sync-commands) sync_commands "$@" ;;
+scenario)    [ "${1:-}" = validate ] || die "usage: drill scenario validate <slug>"; shift; scenario_validate "$@" ;;
+target)      [ "${1:-}" = validate ] || die "usage: drill target validate <name>"; shift; target_validate "$@" ;;
+''|-h|--help|help)
+	sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
+	;;
+*) die "unknown subcommand: $sub (try: drill help)" ;;
+esac
