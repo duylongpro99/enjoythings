@@ -40,7 +40,8 @@ cat > "$T/target.yaml" <<'EOF'
 name: fake
 components:
   - {name: widget, kind: service}
-primitives: [proc.stop, proc.start, code.patch]
+  - {name: gadget, kind: dependency}
+primitives: [proc.stop, proc.start, net.latency, net.partition, dep.replace, code.patch]
 load_profiles: [steady]
 EOF
 
@@ -55,9 +56,25 @@ cat > "$T/inject" <<'EOF'
 set -eu
 d=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 LOG="${DRILL_REVERT_LOG:-$d/.revert}"
+# Every call is logged so the test can assert revert order. net.* and dep.replace
+# mirror the real adapter's revert shape: the client-repoint (env.unset) is
+# recorded before the proxy/dependency teardown, so revert (reverse order) tears
+# the proxy/dep down first, then restores the client.
+printf '%s\n' "$*" >> "$d/calls.log"
 case "$1" in
 proc.stop)  : > "$d/state"; printf 'proc.start %s\n' "$2" >> "$LOG" ;;
 proc.start) rm -f "$d/state"; printf 'proc.stop %s\n' "$2" >> "$LOG" ;;
+net.latency|net.partition)
+	: > "$d/state"
+	printf 'env.unset %s\n' "$2" >> "$LOG"
+	printf 'net.clear %s-%s\n' "$2" "$3" >> "$LOG" ;;
+dep.replace)
+	: > "$d/state"
+	printf 'env.unset fraud-worker\n' >> "$LOG"
+	printf 'dep.restore %s\n' "$2" >> "$LOG" ;;
+env.unset)   rm -f "$d/state" ;;   # restores the client and clears the symptom
+net.clear)   : ;;                  # proxy teardown; no effect on the marker
+dep.restore) : ;;                  # dependency teardown; no effect on the marker
 *) echo "fake: unsupported $1" >&2; exit 1 ;;
 esac
 EOF
@@ -68,13 +85,16 @@ set -eu
 d=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 LOG="${DRILL_REVERT_LOG:-$d/.revert}"
 [ -f "$LOG" ] || exit 0
+# Undo newest-first, like the real adapter, so a multi-line revert (net.*, dep.*)
+# tears down before it restores the client.
+reversed="$LOG.reversed"; sed '1!G;h;$!d' "$LOG" > "$reversed"
 scratch="$LOG.reverting"; : > "$scratch"
 while IFS= read -r line || [ -n "$line" ]; do
 	[ -n "$line" ] || continue
 	# shellcheck disable=SC2086
 	DRILL_REVERT_LOG="$scratch" "$(dirname -- "$0")/inject" $line
-done < "$LOG"
-rm -f "$scratch" "$LOG"
+done < "$reversed"
+rm -f "$scratch" "$reversed" "$LOG"
 EOF
 
 for s in up down reset health observe; do
@@ -111,7 +131,7 @@ chmod +x "$S/probes/break" "$S/probes/fix"
 BAD="$WORK/scenarios/unsupported"
 mkdir -p "$BAD/probes"
 cp "$S/scenario.yaml" "$BAD/scenario.yaml"
-printf 'inject:\n  - net.partition widget\n' > "$BAD/fault.yaml"
+printf 'inject:\n  - proc.kill widget\n' > "$BAD/fault.yaml"
 for f in brief hints rubric solution; do cp "$S/$f.md" "$BAD/$f.md"; done
 cp "$S/probes/break" "$BAD/probes/break"; cp "$S/probes/fix" "$BAD/probes/fix"
 chmod +x "$BAD/probes/break" "$BAD/probes/fix"
@@ -244,7 +264,45 @@ WT=$(wt_of)
 succeeds "unsealed abort cleans up" "$DRILL" abort
 [ ! -d "$WT" ] && ok "unsealed abort removes the worktree" || bad "unsealed abort removes the worktree"
 
+# --- Tier A: network and dependency faults ---------------------------------
+# net.* and dep.replace record a client-repoint (env.unset) before the proxy/dep
+# teardown, so revert (newest-first) tears the fault down, then restores the
+# client. These scenarios exercise that shape end to end against the fake target.
+unset DRILL_REPO_ROOT
+
+mk_scenario() { # dir faultline
+	mkdir -p "$1/probes"
+	cp "$S/scenario.yaml" "$1/scenario.yaml"
+	printf 'inject:\n  - %s\n' "$2" > "$1/fault.yaml"
+	for f in brief hints rubric solution; do cp "$S/$f.md" "$1/$f.md"; done
+	cp "$S/probes/break" "$1/probes/break"; cp "$S/probes/fix" "$1/probes/fix"
+	chmod +x "$1/probes/break" "$1/probes/fix"
+}
+
+# run a full cycle for <slug> and assert revert undoes <teardown> before <restore>.
+cycle_asserts_revert() { # slug faultline teardown restore
+	_slug=$1; _fault=$2; _teardown=$3; _restore=$4
+	mk_scenario "$WORK/scenarios/$_slug" "$_fault"
+	rm -rf "$WORK/runs"/*; rm -f "$WORK/calls.log" "$WORK/state"
+	succeeds "$_slug validates" "$DRILL" scenario validate "$_slug"
+	succeeds "$_slug start injects and pages" "$DRILL" start "$_slug"
+	[ -f "$WORK/state" ] && ok "$_slug break symptom present" || bad "$_slug break symptom present"
+	echo "fix it" | "$DRILL" propose - >/dev/null 2>&1
+	"$DRILL" execute >/dev/null 2>&1
+	rm -f "$WORK/state"                 # executor applies the fix
+	succeeds "$_slug evaluate passes after fix" "$DRILL" evaluate
+	"$DRILL" resolve >/dev/null 2>&1
+	succeeds "$_slug end reverts and debriefs" "$DRILL" end
+	check "$_slug revert tears down before restoring" \
+		"$(tail -n 2 "$WORK/calls.log")" "$(printf '%s\n%s' "$_teardown" "$_restore")"
+	[ ! -f "$WORK/.active" ] && ok "$_slug end drops the lock" || bad "$_slug end drops the lock"
+}
+
+cycle_asserts_revert netdrill "net.latency widget gadget 100" "net.clear widget-gadget" "env.unset widget"
+cycle_asserts_revert depdrill "dep.replace gadget slow" "dep.restore gadget" "env.unset fraud-worker"
+
 # --sealed on a scenario with no code.patch is refused.
+rm -rf "$WORK/runs"/*
 fails "--sealed refused without a code.patch fault" "$DRILL" start --sealed demo
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
