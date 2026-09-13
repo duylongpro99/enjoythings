@@ -122,9 +122,9 @@ primitives onto `docker compose` and `kafka` admin calls.
 | `proc.stop\|start <component>` | Remove or restore a component | `docker compose stop/start` |
 | `proc.pause <component>` | Freeze without closing sockets — produces timeouts, not refusals | `docker pause` |
 | `proc.kill <component>` | Ungraceful termination mid-work | `docker kill -s KILL` |
-| `net.latency <a> <b> <ms>` | Delay one edge | Toxiproxy between the pair (§9) |
-| `net.partition <a> <b>` | Sever one edge while both stay healthy | Toxiproxy |
-| `dep.replace <component> <stub>` | Swap an external dependency for a scripted one | `LLM_PROVIDERS_JSON` to the chaos LLM; `stub-payment-rail` to a hanging variant |
+| `net.latency <a> <b> <ms>` | Delay one edge | Toxiproxy latency toxic; client re-pointed at the proxy (§9, slice 3) |
+| `net.partition <a> <b>` | Sever one edge while both stay healthy | Toxiproxy proxy disabled (§9, slice 3) |
+| `dep.replace <component> <stub>` | Swap an external dependency for a scripted one | `llm-endpoint` → the chaos LLM, re-pointing `LLM_PROVIDERS_JSON` (§9, slice 3); `stub-payment-rail` hanging variant not yet wired |
 | `data.exec <component> <script>` | Mutate state or topics directly | `psql` / Kafka admin |
 | `code.patch <ref>` | Tier-B logic fault | §6 |
 
@@ -288,8 +288,10 @@ and `drill abort` (revert and reset without producing a scored run).
 
 ## 9. What the target does not yet have
 
-Three gaps stand between this design and a first drill. All three are additions
-to the target adapter, not to the framework.
+Three gaps stood between this design and a first drill. All three were additions
+to the target adapter, not to the framework, and all three have since landed
+(load generator: slice 1; Toxiproxy and the chaos LLM: slice 3,
+`docs/superpowers/plans/2026-09-13-drills-framework-slice3.md`).
 
 **Load generator — hard prerequisite.** Nothing in the repository generates
 sustained traffic, and most of the scenarios in §5 are invisible on an idle
@@ -300,16 +302,24 @@ p50/p95/p99 plus error rate exported to Prometheus so the existing Grafana
 dashboards show the drill's traffic. Without the Prometheus export the engineer
 has no latency signal, which removes the primary detection path for L2 and L3.
 
-**Toxiproxy.** `net.latency` and `net.partition` need a proxy between service
-pairs in Compose. Until it lands, those primitives are unsupported in
-`target.yaml` and scenarios declaring them fail validation — which is the
-correct behaviour, not a workaround.
+**Toxiproxy (landed, slice 3).** `net.latency` and `net.partition` proxy an edge
+via a Toxiproxy container (`drills/toxics/`). The stack has no named networks, so
+the proxy cannot sit on an edge transparently: the faulted edge's **client** is
+re-pointed to dial `toxiproxy:<port>`, which forwards to the real upstream. Only
+edges whose client URL is an environment variable are supportable, encoded in an
+`edge_lookup` table; an unsupported edge fails validation, which is the correct
+behaviour. `net.latency` adds a latency toxic; `net.partition` disables the proxy
+so the edge is severed while both endpoints stay healthy.
 
-**Chaos LLM endpoint.** `tests/fraud/fake_provider.py` already implements a
-scripted OpenAI-compatible ASGI server (`FakeProviderServer`, served by uvicorn,
-with per-provider scripted responses and request capture). Containerising it and
-adding latency, error-rate, and truncation scripting yields `dep.replace
-llm-endpoint <profile>` for free.
+**Chaos LLM endpoint (landed, slice 3).** `app/fraud/chaosllm/` is a standalone,
+env-driven OpenAI-compatible SSE server (built into the fraud image, run as the
+`chaos-llm` console script, reusing the SSE shape from
+`tests/fraud/fake_provider.py`). `dep.replace llm-endpoint <profile>` brings it
+up (`drills/chaosllm/`) with a `healthy|slow|errors|truncate|flaky` profile and
+re-points the fraud worker's `LLM_PROVIDERS_JSON` at it. The symptom is silent —
+fail-open is the *correct* behaviour — so it is detected through
+`fraud_transactions_scored_total{action="fail_open"}` (`drillmetric`), not a saga
+state.
 
 Observability needs nothing: Jaeger, Prometheus, Grafana dashboards, and
 `/healthz` `/readyz` `/metrics` on every service are already provisioned, and
@@ -395,6 +405,13 @@ framework halves — `bin`, `roles`, `commands`, `scenarios` — extract cleanly
 | 5 | Sealed history is an isolated single-commit `git archive` repo, not a shared worktree (a worktree cannot seal — see §6). Unsealed mode uses a real worktree. |
 | 6 | Docker builds from a per-run `DRILL_BUILD_ROOT`; the main checkout is untouched and teardown rebuilds pristine from it. |
 | 7 | First Tier-B scenario is `payment-success-misreported` (a success published on the failure path): a logic fault deterministic on the happy path, so the black-box probes flip without runtime perturbation. `net.*`/`dep.replace` scenarios still wait on Toxiproxy and the chaos LLM (§9). |
+
+**Settled 2026-09-13** (plan: `docs/superpowers/plans/2026-09-13-drills-framework-slice3.md`):
+
+| # | Decision |
+| --- | --- |
+| 8 | `net.*` proxies an edge by re-pointing the client at Toxiproxy (no named networks), so it is bound to an `edge_lookup` table of edges whose client URL is an env var; an unsupported edge fails validation. `net.partition` severs by disabling the proxy. |
+| 9 | `dep.replace` is fraud-scoped (only `llm-endpoint`): the chaos LLM is a standalone env-driven server built into the fraud image. Its symptom is silent (fail-open is correct), so it is detected via `drillmetric` on `fraud_transactions_scored_total`, not a saga state — the first scenario graded on noticing a silent degradation. |
 
 The original questions, for the reasoning behind each:
 

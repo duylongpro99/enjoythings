@@ -7,7 +7,8 @@ faithfully, and reads an evaluation of what the fix actually bought.
 
 Design: `docs/superpowers/specs/2026-08-25-drills-framework-design.md`.
 Plans: `docs/superpowers/plans/2026-09-06-drills-framework-slice1.md` (framework),
-`docs/superpowers/plans/2026-09-13-drills-framework-slice2.md` (Tier B).
+`docs/superpowers/plans/2026-09-13-drills-framework-slice2.md` (Tier B),
+`docs/superpowers/plans/2026-09-13-drills-framework-slice3.md` (network + dependency faults).
 
 ## Running a drill
 
@@ -45,6 +46,31 @@ part of the investigation runs `drill start --unsealed <scenario>` (a real
 worktree with visible history and a visible fault commit). Code scenarios default
 to sealed; `--sealed`/`--unsealed` and the scenario's `seal:` key override.
 
+## Network and dependency faults
+
+Runtime faults are not only "a component is down". Two more primitives inject the
+harder cases (spec §5, §9):
+
+- **`net.latency <a> <b> <ms>` / `net.partition <a> <b>`** — degrade or sever one
+  edge via a Toxiproxy container (`toxics/`), leaving both endpoints healthy. The
+  engineer localises from a trace, not a red dashboard. The stack has no named
+  networks, so only edges whose client URL is an env var are supportable (see
+  `toxics/README.md`).
+- **`dep.replace llm-endpoint <profile>`** — swap the fraud worker's LLM for a
+  scripted chaos endpoint (`chaosllm/`) that is slow, errors, or truncates. The
+  worker fails open *silently* (the correct behaviour), so the symptom shows only
+  in `fraud_transactions_scored_total{action="fail_open"}` — read with
+  `services/devtools/drillmetric`, not a saga state.
+
+## Scenarios
+
+| Scenario | Level | Symptom |
+| --- | --- | --- |
+| `payment-processor-down` | L1 | transfers accepted but never settle (consumer stopped) |
+| `payment-success-misreported` | L2 (Tier B) | a charged payment is reported as failed and refunded |
+| `payment-rail-latency` | L2 | transfers fail: the edge to the payment rail exceeds its timeout |
+| `fraud-scoring-degraded` | L3 | scoring silently falls open: the LLM provider is timing out |
+
 With Claude Code, the same loop runs through `/drill-start`, `/drill-hint`,
 `/drill-propose`, `/drill-execute`, and `/drill-end`. Those shims are generated
 from `drills/commands/` by `drill sync-commands`; edit the canonical files, not
@@ -64,6 +90,8 @@ drills/
                             rubric.md, solution.md, probes/{break,fix},
                             faults/*.patch (Tier B)
   loadgen/                  Compose overlay + README for the traffic generator
+  toxics/                   Toxiproxy overlay + README (net.*)
+  chaosllm/                 chaos LLM overlay + README (dep.replace)
   runs/<ts>-<slug>/         run.yaml, proposals/, debrief.md (committed),
                             seal/ (fault patch + fix diff, Tier B)
   .worktrees/<run>/         per-run sealed/unsealed build tree (git-ignored)
@@ -73,8 +101,9 @@ drills/
 
 Follow `roles/author.md`. Validate with `drill scenario validate <slug>`, then
 run it end to end before opening the PR. Probes must be black-box: use
-`services/devtools/drillprobe` to create transfers and assert their state
-through the gateway.
+`services/devtools/drillprobe` to create transfers and assert their saga state
+through the gateway, or `services/devtools/drillmetric` to assert a counter's
+growth on a service's own `/metrics` (both stay outside the target's internals).
 
 Supported primitives are whatever `targets/enjoythings/target.yaml` lists. A
 scenario naming anything else fails validation, which is correct until that
@@ -89,6 +118,6 @@ go -C services test ./internal/loadgen/     # traffic generator
 
 ## What is not here yet
 
-Toxiproxy (`net.*`), the chaos LLM (`dep.replace`), and command emitters for
-agents other than Claude Code. Each is described in the design spec and
-deliberately deferred to a later slice.
+Command emitters for agents other than Claude Code (Codex, Hermes), and the
+`stub-payment-rail` hanging variant of `dep.replace`. Each is described in the
+design spec and deliberately deferred to a later slice.

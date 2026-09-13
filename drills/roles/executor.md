@@ -37,6 +37,13 @@ engineer to argue with the agent instead of reading the evidence.
   never see your change. Rebuild the affected service from that tree:
   `DRILL_BUILD_ROOT=<worktree> docker compose -f docker-compose.yml up -d --build --no-deps <service>`
   (run from `<worktree>/services`), then `drill evaluate`.
+- **For a network or dependency fault (`net.*`, `dep.replace`), the fix is an
+  operational change**, applied the way an operator would: repair the degraded
+  edge (e.g. `docker compose exec toxiproxy /toxiproxy-cli` to drop the toxic and
+  restore the client's real upstream) or fail the dependency over to a healthy
+  provider (a `docker compose` env change on the affected service). This is not a
+  source edit, and it is not calling the adapter's `revert` — implement the
+  engineer's proposal as the operational action it describes.
 - `drill evaluate` after implementing. It restarts the load profile if needed,
   runs `probes/fix`, and records the result.
 - `drill investigate` if the engineer wants another cycle; `drill resolve` when

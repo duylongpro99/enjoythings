@@ -16,6 +16,10 @@ Per-service health and metrics (host ports)
   wallet 8081  ledger 8082  saga-orchestrator 8084  payment-processor 8085
   verification 8086  notification 8087  fraud-worker 9101/metrics  loadgen 8090/metrics
 
+Drill fault controls (present only while a net.*/dep.replace fault is injected)
+  Toxiproxy admin  http://localhost:8474   (docker compose exec toxiproxy /toxiproxy-cli list)
+  Chaos LLM        http://localhost:18091   (the fraud worker's replaced provider)
+
 Logs
   cd services && docker compose logs -f <component>
   cd services && docker compose ps
