@@ -69,6 +69,10 @@ tmp/
 # The Go `bin/` rule above also matches drills/bin/; keep the drill CLI tracked.
 !drills/bin/
 !drills/bin/**
+# Machine-local state
+.local/
+.claude/settings.local.json
+
 # Drill lock and injection state
 drills/.active
 drills/.revert*
