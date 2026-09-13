@@ -176,22 +176,37 @@ and none of them are reachable through configuration.
 The obvious problem is that a code fault leaves a diff, and a diff hands over
 the answer. The mitigation is to remove the diff rather than hide it:
 
-**Sealed history.** `drill start` creates the worktree from an orphan branch
-whose entire tree — faulted source included — is a single initial commit. There
-is no parent, no `refs/drills` ref in the worktree, and therefore no diff to
-read. `git log` shows one commit. The engineer's own commits sit on top and stay
-fully diffable, which is what the debrief needs.
+**Sealed history.** `drill start` builds an **isolated single-commit git
+repository** for the run: it extracts the current `HEAD` tree with `git archive`
+into a per-run build tree (`drills/.worktrees/<run>/`), applies the fault patch,
+and commits the result as one initial commit with a framework identity. There is
+no parent and no ref of any kind reaching the pristine tree — `git log` and
+`git rev-list --all` show exactly one commit, so there is no diff to read. The
+engineer's own commits sit on top and stay fully diffable, which is what the
+debrief needs.
 
-The pristine tree and the fault patch live in the framework's own storage
-outside the worktree, so the debrief can still show exactly what was changed and
-compare the engineer's fix against the reference solution.
+> A shared `git worktree` was the original design here, but it cannot seal: a
+> worktree shares the repository's object store and refs, so `git show
+> master:<file>` or `git diff master` inside it hand back the pristine tree and
+> thus the fault. An isolated `git archive` repository has no such back-channel.
+> `--unsealed` mode, where history is *meant* to be visible, does use a real
+> `git worktree add` from `HEAD` plus a visible fault commit.
 
-What this costs: the worktree has no upstream history, so `git blame` and
+The adapter builds Docker images from this tree by way of a `DRILL_BUILD_ROOT`
+override; the main checkout is never modified, and teardown resets the stack from
+the pristine main checkout (forcing a rebuild) and removes the build tree.
+
+The pristine delta (the fault patch) and the run's base commit live in the
+framework's own storage outside the tree (`drills/runs/<run>/seal/`), so the
+debrief can still show exactly what was changed and compare the engineer's fix
+against the reference solution.
+
+What this costs: the sealed tree has no upstream history, so `git blame` and
 `git log <file>` are unavailable during the drill. That is a real loss — history
 is a legitimate debugging tool. Scenarios that intend history to be part of the
-investigation must therefore be Tier A and run on a normal branch. `drill start`
+investigation must therefore run `--unsealed` (or be Tier A). `drill start`
 takes `--sealed` / `--unsealed`, defaulting to sealed when the scenario declares
-a `code.patch`, and the scenario may force either.
+a `code.patch`, and the scenario may force either with a `seal:` key.
 
 ## 7. Roles
 
@@ -372,6 +387,14 @@ framework halves — `bin`, `roles`, `commands`, `scenarios` — extract cleanly
 | 2 | Author drafts the rubric; a human merges. The PR is the review. |
 | 3 | Constant rate only. Bursts and diurnal shapes wait for a scenario that needs them. |
 | 4 | Single engineer. No participants list in the run record. |
+
+**Settled 2026-09-13** (plan: `docs/superpowers/plans/2026-09-13-drills-framework-slice2.md`):
+
+| # | Decision |
+| --- | --- |
+| 5 | Sealed history is an isolated single-commit `git archive` repo, not a shared worktree (a worktree cannot seal — see §6). Unsealed mode uses a real worktree. |
+| 6 | Docker builds from a per-run `DRILL_BUILD_ROOT`; the main checkout is untouched and teardown rebuilds pristine from it. |
+| 7 | First Tier-B scenario is `payment-success-misreported` (a success published on the failure path): a logic fault deterministic on the happy path, so the black-box probes flip without runtime perturbation. `net.*`/`dep.replace` scenarios still wait on Toxiproxy and the chaos LLM (§9). |
 
 The original questions, for the reasoning behind each:
 

@@ -7,7 +7,12 @@
 # (§8 lifecycle, §10 portability, §11 run record).
 #
 # Subcommands:
-#   start <scenario>        boot, inject, confirm break probe, page  -> BRIEFED
+#   start [--sealed|--unsealed] <scenario>
+#                           boot, inject, confirm break probe, page  -> BRIEFED
+#                           A code.patch (Tier B) scenario defaults to --sealed:
+#                           the fault is baked into an isolated one-commit build
+#                           tree with no diff to read. --unsealed keeps history
+#                           for scenarios that need git blame/log (spec §6).
 #   investigate             BRIEFED|EVALUATED -> INVESTIGATING
 #   hint                    reveal the next hint tier (recorded)
 #   propose <file|->        record a proposal, verbatim              -> PROPOSED
@@ -32,6 +37,12 @@ RUNS_DIR="$DRILLS_DIR/runs"
 COMMANDS_DIR="$DRILLS_DIR/commands"
 ACTIVE="$DRILLS_DIR/.active"
 REVERT_LOG="$DRILLS_DIR/.revert"
+# The checkout Docker builds from. A Tier-B (code.patch) drill builds an
+# isolated per-run tree under WORKTREES_DIR and points the adapter at it with
+# DRILL_BUILD_ROOT (spec §6). DRILL_REPO_ROOT overrides the source of that tree
+# for tests.
+REPO_ROOT=${DRILL_REPO_ROOT:-$(CDPATH= cd -- "$DRILLS_DIR/.." && pwd)}
+WORKTREES_DIR="$DRILLS_DIR/.worktrees"
 
 # Seconds between break-probe attempts; overridable so tests run fast.
 PROBE_INTERVAL=${DRILL_PROBE_INTERVAL:-5}
@@ -79,6 +90,49 @@ adapter_for() { # target
 }
 scenario_target() { yaml_scalar "$SCENARIOS_DIR/$1/scenario.yaml" target; }
 active_adapter() { adapter_for "$(yaml_scalar "$(run_path)/run.yaml" target)"; }
+
+# --- sealed history (Tier B) ------------------------------------------------
+# scenario_codepatches prints each `code.patch <ref>` fault as an absolute path
+# to the patch file, resolved against the scenario directory.
+scenario_codepatches() { # scenario-dir
+	fault_primitives "$1/fault.yaml" | while IFS= read -r _line; do
+		case "$_line" in code.patch*) printf '%s/%s\n' "$1" "${_line#code.patch }" ;; esac
+	done
+}
+
+# resolve_seal_mode prints sealed|unsealed|none. Precedence: CLI flag, then the
+# scenario's `seal:` key, then the default (sealed iff the scenario declares a
+# code.patch, none otherwise — a Tier-A drill needs no build tree).
+resolve_seal_mode() { # scenario-dir flag(sealed|unsealed|"")
+	_dir=$1; _flag=$2
+	_has=$( [ -n "$(scenario_codepatches "$_dir")" ] && echo yes || echo no )
+	if [ -n "$_flag" ]; then
+		[ "$_flag" = sealed ] && [ "$_has" = no ] \
+			&& die "--sealed needs a scenario with a code.patch fault; this one has none"
+		printf '%s' "$_flag"; return 0
+	fi
+	_seal=$(yaml_scalar "$_dir/scenario.yaml" seal)
+	case "$_seal" in
+	sealed|unsealed) printf '%s' "$_seal" ;;
+	'') [ "$_has" = yes ] && printf 'sealed' || printf 'none' ;;
+	*) die "scenario.yaml seal: must be sealed or unsealed (got '$_seal')" ;;
+	esac
+}
+
+# active_build_root prints the run's build tree, or nothing for a Tier-A run.
+active_build_root() { yaml_scalar "$(run_path)/run.yaml" worktree; }
+
+# export_build_root points the adapter and probes at the run's build tree when
+# it has one, so every adapter call in a separate `drill` invocation still boots
+# and probes the sealed stack.
+export_build_root() {
+	_wt=$(active_build_root)
+	[ -n "$_wt" ] && export DRILL_BUILD_ROOT="$_wt" || true
+}
+
+# git_seal runs git with a framework identity and no ambient config, so a drill
+# never depends on (or writes) the operator's git settings.
+git_seal() { git -c user.name=drill -c user.email=drill@enjoythings.local -c commit.gpgsign=false "$@"; }
 
 # --- validation -------------------------------------------------------------
 target_validate() { # name
@@ -128,8 +182,18 @@ run_probe() { # scenario-dir probe-name  -> exit status of the probe
 
 # --- lifecycle --------------------------------------------------------------
 cmd_start() {
-	scenario=${1:-}
-	[ -n "$scenario" ] || die "usage: drill start <scenario>"
+	# Parse an optional --sealed/--unsealed flag in any position plus one scenario.
+	scenario=""; _flag=""
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--sealed)   _flag=sealed ;;
+		--unsealed) _flag=unsealed ;;
+		--*) die "unknown option: $1 (try: drill help)" ;;
+		*) [ -z "$scenario" ] || die "usage: drill start [--sealed|--unsealed] <scenario>"; scenario=$1 ;;
+		esac
+		shift
+	done
+	[ -n "$scenario" ] || die "usage: drill start [--sealed|--unsealed] <scenario>"
 	[ ! -f "$ACTIVE" ] || die "a drill is already active ($(cat "$ACTIVE")); end or abort it first"
 	scenario_validate "$scenario"
 
@@ -141,18 +205,60 @@ cmd_start() {
 	_profile=$(yaml_scalar "$_d/scenario.yaml" load)
 	_attempts=$(yaml_scalar "$_d/scenario.yaml" break_probe_attempts); _attempts=${_attempts:-3}
 
+	_seal=$(resolve_seal_mode "$_d" "$_flag")
+
 	_ts=$(date -u +%Y%m%dT%H%M%SZ)
 	_run="$RUNS_DIR/$_ts-$scenario"
 	mkdir -p "$_run/proposals"
 
-	# The run record must exist before anything can fail, so an aborted boot is
-	# still a queryable run rather than orphaned state.
+	# A code fault is baked into an isolated per-run tree before boot, so the
+	# running stack builds from faulted source with no diff to read (spec §6).
+	# Build it first: a patch that will not apply is an authoring bug, and there
+	# is no run to record yet. The pristine delta and the base commit are stashed
+	# outside the tree so the debrief can compare the fix against the reference.
+	_wt=""; _seal_root=""; _base=""
+	if [ "$_seal" != none ]; then
+		command -v git >/dev/null 2>&1 || die "sealed history needs git"
+		_wt="$WORKTREES_DIR/$_ts-$scenario"
+		mkdir -p "$WORKTREES_DIR" "$_run/seal"
+		: > "$_run/seal/fault.patch"
+		for _p in $(scenario_codepatches "$_d"); do cat "$_p" >> "$_run/seal/fault.patch"; done
+		_base=$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)
+		if [ "$_seal" = sealed ]; then
+			mkdir -p "$_wt"
+			git -C "$REPO_ROOT" archive HEAD | tar -x -C "$_wt" \
+				|| { rm -rf "$_wt"; die "could not archive HEAD into the sealed tree"; }
+			[ -f "$REPO_ROOT/.env" ] && cp "$REPO_ROOT/.env" "$_wt/.env"
+			git -C "$_wt" init -q
+			git -C "$_wt" apply "$_run/seal/fault.patch" \
+				|| { rm -rf "$_wt"; die "fault patch did not apply to the sealed tree"; }
+			git -C "$_wt" add -A
+			git_seal -C "$_wt" commit -q -m "drill: $scenario (sealed)"
+		else
+			git -C "$REPO_ROOT" worktree add -q -b "drills/run/$_ts-$scenario" "$_wt" HEAD \
+				|| die "could not create the unsealed worktree"
+			[ -f "$REPO_ROOT/.env" ] && cp "$REPO_ROOT/.env" "$_wt/.env"
+			git -C "$_wt" apply "$_run/seal/fault.patch" \
+				|| { git -C "$REPO_ROOT" worktree remove --force "$_wt" 2>/dev/null; die "fault patch did not apply to the worktree"; }
+			git -C "$_wt" add -A
+			git_seal -C "$_wt" commit -q -m "drill: $scenario (fault)"
+		fi
+		_seal_root=$(git -C "$_wt" rev-parse HEAD)
+		printf '%s' "$_seal_root" > "$_run/seal/root.sha"
+	fi
+
+	# The run record must exist before boot can fail, so an aborted boot is still
+	# a queryable run rather than orphaned state.
 	{
 		printf 'scenario: %s\n' "$scenario"
 		printf 'target: %s\n' "$_target"
 		printf 'level: %s\n' "$_level"
 		printf 'tier: %s\n' "$_tier"
-		printf 'sealed: false\n'
+		[ "$_seal" = none ] && printf 'sealed: false\n' || printf 'sealed: %s\n' "$( [ "$_seal" = sealed ] && echo true || echo false )"
+		printf 'seal_mode: %s\n' "$_seal"
+		[ -n "$_wt" ] && printf 'worktree: %s\n' "$_wt"
+		[ -n "$_seal_root" ] && printf 'seal_root: %s\n' "$_seal_root"
+		[ -n "$_base" ] && printf 'base_commit: %s\n' "$_base"
 		printf 'load: %s\n' "$_profile"
 		printf 'started_at: %s\n' "$(now)"
 		printf 'timeline:\n'
@@ -160,7 +266,10 @@ cmd_start() {
 	printf '%s' "$_run" > "$ACTIVE"
 	rm -f "$REVERT_LOG" "$REVERT_LOG".*
 
-	log "booting target $_target"
+	# Point the adapter and probes at the run's build tree for the rest of start.
+	[ -n "$_wt" ] && export DRILL_BUILD_ROOT="$_wt"
+
+	log "booting target $_target${_wt:+ (sealed tree $_wt)}"
 	"$_a/up" || { log "boot failed; run recorded at $_run"; return 1; }
 
 	if [ -n "$_profile" ]; then
@@ -168,9 +277,12 @@ cmd_start() {
 		"$_a/load" start "$_profile"
 	fi
 
+	# code.patch faults are already baked into the build tree; inject only the
+	# runtime primitives a scenario may add alongside them.
 	log "injecting fault"
 	fault_primitives "$_d/fault.yaml" | while IFS= read -r line; do
 		[ -n "$line" ] || continue
+		case "$line" in code.patch*) continue ;; esac
 		# shellcheck disable=SC2086
 		"$_a/inject" $line
 	done
@@ -249,6 +361,7 @@ cmd_evaluate() {
 	_scenario=$(yaml_scalar "$_run/run.yaml" scenario)
 	_d="$SCENARIOS_DIR/$_scenario"
 	_a=$(active_adapter)
+	export_build_root
 	_profile=$(yaml_scalar "$_run/run.yaml" load)
 	if [ -n "$_profile" ]; then
 		log "ensuring load profile $_profile is running"
@@ -286,8 +399,22 @@ write_debrief() { # run-dir result
 		printf 'Hints consumed: %s\n\n' "$_hints"
 		printf '## What the fault was\n\n'
 		fault_primitives "$_d/fault.yaml"
+		if [ -s "$_run/seal/fault.patch" ]; then
+			printf '\n\n### What the fault changed\n\n'
+			printf 'The sealed code fault, revealed now the drill is over:\n\n'
+			printf '```diff\n'; cat "$_run/seal/fault.patch"; printf '\n```\n'
+		fi
 		printf '\n## Reference solution\n\n'
 		cat "$_d/solution.md"
+		if [ -f "$_run/seal/engineer-fix.diff" ]; then
+			printf '\n\n### Your fix vs the reference\n\n'
+			if [ -s "$_run/seal/engineer-fix.diff" ]; then
+				printf 'What the engineer changed in the build tree:\n\n'
+				printf '```diff\n'; cat "$_run/seal/engineer-fix.diff"; printf '\n```\n'
+			else
+				printf '_No source change was recorded in the build tree._\n'
+			fi
+		fi
 		printf '\n\n## What the engineer proposed\n\n'
 		_i=1
 		while [ -f "$_run/proposals/$_i.md" ]; do
@@ -310,6 +437,12 @@ teardown() { # result write_debrief(0|1)
 	_run=$(run_path)
 	_a=$(active_adapter)
 	_profile=$(yaml_scalar "$_run/run.yaml" load)
+	_wt=$(active_build_root)
+	_seal=$(yaml_scalar "$_run/run.yaml" seal_mode)
+
+	# revert and load stop act on the running stack; its compose project is the
+	# same whichever tree built it, so keep the build-tree override while it lives.
+	[ -n "$_wt" ] && export DRILL_BUILD_ROOT="$_wt"
 
 	log "reverting the fault"
 	"$_a/revert" || log "revert reported a problem; check the target"
@@ -317,6 +450,14 @@ teardown() { # result write_debrief(0|1)
 		log "stopping load"
 		"$_a/load" stop || true
 	fi
+
+	# Capture the engineer's fix (the delta from the sealed/fault starting commit)
+	# for the debrief, before the build tree is torn down.
+	if [ -n "$_wt" ] && [ -f "$_run/seal/root.sha" ] && [ -e "$_wt/.git" ]; then
+		git -C "$_wt" -c core.pager=cat diff "$(cat "$_run/seal/root.sha")" \
+			> "$_run/seal/engineer-fix.diff" 2>/dev/null || true
+	fi
+
 	[ "$_debrief" -eq 1 ] && write_debrief "$_run" "$_result"
 
 	# Close the run record and drop the lock BEFORE resetting, so a failed reset
@@ -325,11 +466,29 @@ teardown() { # result write_debrief(0|1)
 	printf 'result: %s\n' "$_result" >> "$_run/run.yaml"
 	rm -f "$ACTIVE"
 
+	# Reset (and any rebuild) must come from the pristine main checkout: drop the
+	# build-tree override and force a rebuild so faulted images are replaced.
+	unset DRILL_BUILD_ROOT
+	_status=0
 	log "resetting the target to pristine"
-	if ! "$_a/reset"; then
-		log "reset failed; the run is closed but the target needs attention"
-		return 1
+	if [ -n "$_wt" ]; then
+		DRILL_RESET_REBUILD=1 "$_a/reset" || _status=1
+	else
+		"$_a/reset" || _status=1
 	fi
+	[ "$_status" -ne 0 ] && log "reset failed; the run is closed but the target needs attention"
+
+	# Remove the per-run build tree; a failure here is reported, not fatal.
+	if [ -n "$_wt" ]; then
+		if [ "$_seal" = unsealed ]; then
+			git -C "$REPO_ROOT" worktree remove --force "$_wt" 2>/dev/null \
+				|| log "could not remove worktree $_wt"
+			git -C "$REPO_ROOT" branch -D "drills/run/$(basename "$_wt")" 2>/dev/null || true
+		else
+			rm -rf "$_wt" || log "could not remove sealed tree $_wt"
+		fi
+	fi
+	return "$_status"
 }
 
 cmd_end() {
@@ -390,7 +549,7 @@ sync-commands) sync_commands "$@" ;;
 scenario)    [ "${1:-}" = validate ] || die "usage: drill scenario validate <slug>"; shift; scenario_validate "$@" ;;
 target)      [ "${1:-}" = validate ] || die "usage: drill target validate <name>"; shift; target_validate "$@" ;;
 ''|-h|--help|help)
-	sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
 	;;
 *) die "unknown subcommand: $sub (try: drill help)" ;;
 esac

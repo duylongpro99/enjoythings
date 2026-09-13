@@ -1,0 +1,7 @@
+#!/bin/sh
+# Symptom present: with nothing down, a fresh transfer settles to FAILED. The
+# rail charged the money, but the saga compensated and refunded the sender.
+# Black-box: gateway only, exactly what a user's client would observe.
+set -eu
+cd "$(dirname -- "$0")/../../../.."
+exec go -C services run ./devtools/drillprobe -want FAILED -within 30s -count 1

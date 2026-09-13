@@ -6,7 +6,8 @@ exposes, proposes a fix in prose, watches an agent apply that proposal
 faithfully, and reads an evaluation of what the fix actually bought.
 
 Design: `docs/superpowers/specs/2026-08-25-drills-framework-design.md`.
-Plan for this slice: `docs/superpowers/plans/2026-09-06-drills-framework-slice1.md`.
+Plans: `docs/superpowers/plans/2026-09-06-drills-framework-slice1.md` (framework),
+`docs/superpowers/plans/2026-09-13-drills-framework-slice2.md` (Tier B).
 
 ## Running a drill
 
@@ -27,6 +28,23 @@ drills/bin/drill end                            # revert, reset, debrief
 `drill abort` at any point reverts and resets without scoring. `drill status`
 prints the timeline.
 
+## Tier B and sealed history
+
+Some scenarios inject a **code fault** (`code.patch`) rather than a runtime one —
+a wrong outcome, a bad key, an off-by-one — because that is what most real
+incidents are. To keep the fault from being solved by reading a diff, a code
+scenario runs **sealed**: `drill start` builds an isolated, single-commit copy of
+the source under `drills/.worktrees/<run>/` (faulted, `git log` shows one commit,
+no ref reaches the pristine tree) and boots the stack from it. You investigate
+and fix the source **in that build tree**, not the main checkout — its path is
+the `worktree:` field in `run.yaml`. `drill end` reveals the fault patch in the
+debrief, resets the stack to pristine, and removes the tree.
+
+Sealing costs you `git blame`/`git log <file>`. A scenario that needs history as
+part of the investigation runs `drill start --unsealed <scenario>` (a real
+worktree with visible history and a visible fault commit). Code scenarios default
+to sealed; `--sealed`/`--unsealed` and the scenario's `seal:` key override.
+
 With Claude Code, the same loop runs through `/drill-start`, `/drill-hint`,
 `/drill-propose`, `/drill-execute`, and `/drill-end`. Those shims are generated
 from `drills/commands/` by `drill sync-commands`; edit the canonical files, not
@@ -43,9 +61,12 @@ drills/
   targets/enjoythings/      adapter: target.yaml, up, down, reset, health,
                             observe, load, inject, revert
   scenarios/<slug>/         brief.md, scenario.yaml, fault.yaml, hints.md,
-                            rubric.md, solution.md, probes/{break,fix}
+                            rubric.md, solution.md, probes/{break,fix},
+                            faults/*.patch (Tier B)
   loadgen/                  Compose overlay + README for the traffic generator
-  runs/<ts>-<slug>/         run.yaml, proposals/, debrief.md (committed)
+  runs/<ts>-<slug>/         run.yaml, proposals/, debrief.md (committed),
+                            seal/ (fault patch + fix diff, Tier B)
+  .worktrees/<run>/         per-run sealed/unsealed build tree (git-ignored)
 ```
 
 ## Adding a scenario
@@ -68,6 +89,6 @@ go -C services test ./internal/loadgen/     # traffic generator
 
 ## What is not here yet
 
-Sealed history and Tier B code faults, Toxiproxy (`net.*`), the chaos LLM
-(`dep.replace`), and command emitters for agents other than Claude Code. Each is
-described in the design spec and deliberately deferred from this slice.
+Toxiproxy (`net.*`), the chaos LLM (`dep.replace`), and command emitters for
+agents other than Claude Code. Each is described in the design spec and
+deliberately deferred to a later slice.

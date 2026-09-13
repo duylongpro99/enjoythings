@@ -1,0 +1,2 @@
+inject:
+  - code.patch faults/misreport.patch

@@ -32,6 +32,11 @@ engineer to argue with the agent instead of reading the evidence.
   only: `docker compose` in `services/`, the gateway's public endpoints, the
   admin endpoints an operator would have. Do not touch `drills/targets/*/inject`
   or `revert`; those belong to the Instructor.
+- **For a code fault (Tier B), edit the source in the run's build tree** — the
+  `worktree:` path in `run.yaml` — never the main checkout, or the probe will
+  never see your change. Rebuild the affected service from that tree:
+  `DRILL_BUILD_ROOT=<worktree> docker compose -f docker-compose.yml up -d --build --no-deps <service>`
+  (run from `<worktree>/services`), then `drill evaluate`.
 - `drill evaluate` after implementing. It restarts the load profile if needed,
   runs `probes/fix`, and records the result.
 - `drill investigate` if the engineer wants another cycle; `drill resolve` when

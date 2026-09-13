@@ -1,14 +1,22 @@
 #!/bin/sh
-# Return to pristine without a rebuild: drop state volumes and restart from the
-# cached images. Also clears any env overrides left by inject.
+# Return to pristine: drop state volumes and restart. Also clears any env
+# overrides left by inject. A code fault (Tier B) leaves the running images
+# built from faulted source, so DRILL_RESET_REBUILD=1 forces a rebuild from the
+# current build tree — teardown sets it and unsets DRILL_BUILD_ROOT first, so
+# the rebuild comes from the pristine main checkout (spec §6, slice 2).
 set -eu
 . "$(dirname -- "$0")/lib.sh"
 
+_build=""
+[ "${DRILL_RESET_REBUILD:-0}" = 1 ] && _build="--build"
+
 compose_with_loadgen down -v --remove-orphans
 rm -rf "$OVERRIDES_DIR"
-if ! compose up -d; then
+# shellcheck disable=SC2086
+if ! compose up -d $_build; then
 	log "compose gave up on a slow dependency; waiting on health, then starting the rest"
 	"$ADAPTER_DIR/health"
-	compose up -d
+	# shellcheck disable=SC2086
+	compose up -d $_build
 fi
 exec "$ADAPTER_DIR/health"

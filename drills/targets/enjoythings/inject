@@ -62,6 +62,24 @@ env.unset)
 	rm -f "$OVERRIDES_DIR/$1.yml"
 	compose up -d --no-deps --force-recreate "$1"
 	;;
+code.patch)
+	# code.patch <ref> — apply a Tier-B logic fault to the build tree and rebuild.
+	# Sealed and unsealed drills bake the patch into the run's tree at `drill
+	# start` (spec §6); this case honours a code.patch injected mid-drill, and
+	# operates on $BUILD_ROOT so it never touches the main checkout.
+	ref=${1:-}
+	[ -f "$ref" ] || die "code.patch needs a readable patch file"
+	git -C "$BUILD_ROOT" apply "$ref" || die "code.patch: $ref did not apply to $BUILD_ROOT"
+	compose up -d --build
+	record_revert "code.unpatch $ref"
+	;;
+code.unpatch)
+	# Internal: reverse a code.patch and rebuild.
+	ref=${1:-}
+	[ -f "$ref" ] || die "code.unpatch needs a readable patch file"
+	git -C "$BUILD_ROOT" apply -R "$ref" || die "code.unpatch: $ref did not reverse in $BUILD_ROOT"
+	compose up -d --build
+	;;
 data.exec)
 	# data.exec <component> <script-file> — run SQL or shell against a store.
 	known_component "$1"

@@ -1,0 +1,11 @@
+name: payment-success-misreported
+target: enjoythings
+level: L2
+tier: B
+load: steady
+# Target-specific component names (spec §13 Q1). Reserved for a role mapping
+# when a second target exists.
+components: [payment-processor, saga-orchestrator]
+# The symptom is deterministic once a fresh payment settles; three tries give a
+# slow first settle room to complete.
+break_probe_attempts: 3

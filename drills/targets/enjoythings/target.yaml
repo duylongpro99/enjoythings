@@ -1,8 +1,8 @@
 # Target manifest for the enjoythings platform. The framework validates every
 # scenario against `primitives` before booting, so only list what `inject`
-# honours. net.*, dep.replace, and code.patch are absent on purpose: scenarios
-# that need them fail at load time until Toxiproxy, the chaos LLM, and sealed
-# history land (spec §9, §6).
+# honours. net.* and dep.replace are absent on purpose: scenarios that need them
+# fail at load time until Toxiproxy and the chaos LLM land (spec §9). code.patch
+# (Tier B) is honoured via the sealed build tree (spec §6, slice 2).
 name: enjoythings
 components:
   - {name: gateway,           kind: service,    health: http://localhost:8080/readyz}
@@ -20,7 +20,7 @@ components:
   - {name: prometheus,        kind: observability, health: http://localhost:9095/-/ready}
   - {name: grafana,           kind: observability, health: http://localhost:3001/api/health}
   - {name: jaeger,            kind: observability, health: http://localhost:16686/}
-primitives: [env.set, proc.stop, proc.start, proc.pause, proc.unpause, proc.kill, data.exec]
+primitives: [env.set, proc.stop, proc.start, proc.pause, proc.unpause, proc.kill, data.exec, code.patch]
 load_profiles: [steady]
 observability:
   traces: http://localhost:16686

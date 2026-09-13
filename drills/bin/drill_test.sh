@@ -13,6 +13,15 @@ trap 'rm -rf "$WORK"' EXIT
 export DRILL_HOME="$WORK"
 export DRILL_PROBE_INTERVAL=0
 
+# Sealing exercises real git. Isolate it from the operator's config and identity
+# so the test is deterministic and needs nothing from $HOME (unreadable under the
+# sandbox anyway).
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+export GIT_AUTHOR_NAME=drilltest GIT_AUTHOR_EMAIL=drilltest@example.com
+export GIT_COMMITTER_NAME=drilltest GIT_COMMITTER_EMAIL=drilltest@example.com
+# Keep git's core.excludesFile lookup inside the sandbox (default is ~/.config).
+export XDG_CONFIG_HOME="$WORK/xdg"
+
 pass=0; fail=0
 ok()   { pass=$((pass+1)); printf 'ok   - %s\n' "$1"; }
 bad()  { fail=$((fail+1)); printf 'FAIL - %s\n' "$1"; }
@@ -31,7 +40,7 @@ cat > "$T/target.yaml" <<'EOF'
 name: fake
 components:
   - {name: widget, kind: service}
-primitives: [proc.stop, proc.start]
+primitives: [proc.stop, proc.start, code.patch]
 load_profiles: [steady]
 EOF
 
@@ -162,6 +171,81 @@ rm -rf "$WORK/runs"/*
 "$DRILL" start demo >/dev/null 2>&1
 fails "resolve refused before a passing fix probe" "$DRILL" resolve
 "$DRILL" abort >/dev/null 2>&1
+
+# --- Tier B: sealed history -------------------------------------------------
+# A throwaway source repo stands in for the target's checkout. DRILL_REPO_ROOT
+# points the sealing machinery at it; the codebug scenario patches a tracked
+# file so the probes can read the fault out of the build tree.
+rm -rf "$WORK/runs"/*
+export DRILL_REPO_ROOT="$WORK/src"
+mkdir -p "$WORK/src/services"
+printf 'OK\n' > "$WORK/src/services/app.txt"
+git -C "$WORK/src" init -q
+git -C "$WORK/src" add -A
+git -C "$WORK/src" commit -q -m init
+
+CB="$WORK/scenarios/codebug"
+mkdir -p "$CB/probes" "$CB/faults"
+# Generate the fault patch (OK -> BROKEN) with git, then restore pristine.
+printf 'BROKEN\n' > "$WORK/src/services/app.txt"
+git -C "$WORK/src" diff > "$CB/faults/bug.patch"
+git -C "$WORK/src" checkout -q -- services/app.txt
+
+cat > "$CB/scenario.yaml" <<'EOF'
+name: codebug
+target: fake
+level: L2
+tier: B
+load: steady
+break_probe_attempts: 2
+EOF
+printf 'inject:\n  - code.patch faults/bug.patch\n' > "$CB/fault.yaml"
+printf '# PAGE: app misbehaving\n\nA logic fault is loose.\n' > "$CB/brief.md"
+printf '## Tier 1\n\nRead the app.\n\n## Tier 2\n\nThe app is BROKEN.\n' > "$CB/hints.md"
+printf '| Dimension | Note |\n| --- | --- |\n| Detection | x |\n' > "$CB/rubric.md"
+printf 'Restore the app to OK.\n' > "$CB/solution.md"
+# Probes read the fault out of the build tree the drill points them at.
+printf '#!/bin/sh\n[ "$(cat "$DRILL_BUILD_ROOT/services/app.txt" 2>/dev/null)" = BROKEN ]\n' > "$CB/probes/break"
+printf '#!/bin/sh\n[ "$(cat "$DRILL_BUILD_ROOT/services/app.txt" 2>/dev/null)" = OK ]\n' > "$CB/probes/fix"
+chmod +x "$CB/probes/break" "$CB/probes/fix"
+
+wt_of() { sed -n 's/^worktree: //p' "$WORK"/runs/*/run.yaml | tail -n 1; }
+
+# A code.patch scenario seals by default.
+succeeds "sealed start boots from the baked build tree" "$DRILL" start codebug
+check "sealed start records sealed: true" "$(sed -n 's/^sealed: //p' "$WORK"/runs/*/run.yaml)" true
+WT=$(wt_of)
+[ -n "$WT" ] && [ -d "$WT" ] && ok "sealed start creates the build tree" || bad "sealed start creates the build tree"
+check "the sealed tree is a single commit" "$(git -C "$WT" log --oneline | wc -l | tr -d ' ')" 1
+check "no other ref reaches the pristine tree" "$(git -C "$WT" rev-list --all | wc -l | tr -d ' ')" 1
+[ -s "$WORK"/runs/*/seal/fault.patch ] && ok "the fault patch is stored outside the tree" || bad "the fault patch is stored outside the tree"
+check "the fault is baked into the build tree" "$(cat "$WT/services/app.txt")" BROKEN
+
+echo "restore the app" | "$DRILL" propose - >/dev/null 2>&1
+"$DRILL" execute >/dev/null 2>&1
+fails "sealed evaluate fails while the fault stands" "$DRILL" evaluate
+# The engineer applies their fix in the build tree, as an Executor would.
+printf 'OK\n' > "$WT/services/app.txt"
+succeeds "sealed evaluate passes once the fix lands" "$DRILL" evaluate
+succeeds "sealed resolve" "$DRILL" resolve
+succeeds "sealed end tears down and debriefs" "$DRILL" end
+grep -q 'What the fault changed' "$WORK"/runs/*/debrief.md && ok "debrief shows the fault patch" || bad "debrief shows the fault patch"
+grep -q 'Your fix vs the reference' "$WORK"/runs/*/debrief.md && ok "debrief compares the fix" || bad "debrief compares the fix"
+[ -s "$WORK"/runs/*/seal/engineer-fix.diff ] && ok "the engineer fix diff is captured" || bad "the engineer fix diff is captured"
+[ ! -d "$WT" ] && ok "sealed end removes the build tree" || bad "sealed end removes the build tree"
+[ ! -f "$WORK/.active" ] && ok "sealed end drops the lock" || bad "sealed end drops the lock"
+
+# --unsealed keeps history: the base commit plus the fault commit are visible.
+rm -rf "$WORK/runs"/*
+succeeds "unsealed start" "$DRILL" start --unsealed codebug
+check "unsealed start records sealed: false" "$(sed -n 's/^sealed: //p' "$WORK"/runs/*/run.yaml)" false
+WT=$(wt_of)
+[ "$(git -C "$WT" log --oneline | wc -l | tr -d ' ')" -gt 1 ] && ok "the unsealed tree keeps its history" || bad "the unsealed tree keeps its history"
+succeeds "unsealed abort cleans up" "$DRILL" abort
+[ ! -d "$WT" ] && ok "unsealed abort removes the worktree" || bad "unsealed abort removes the worktree"
+
+# --sealed on a scenario with no code.patch is refused.
+fails "--sealed refused without a code.patch fault" "$DRILL" start --sealed demo
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
